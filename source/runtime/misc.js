@@ -76,6 +76,13 @@ and does not require global variable access.
 const DEBUG = true;
 
 /**
+Constant to indicate that we are running on a 64-bit platform.
+Note that when running under Tachyon, this becomes a static binding,
+and does not require global variable access.
+*/
+const PLATFORM_64BIT = RUNNING_IN_TACHYON? false:hostIs64bit();
+
+/**
 Create the Tachyon-specific constants
 */
 function makeTachyonConsts(params)
