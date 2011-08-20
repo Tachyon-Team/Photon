@@ -3051,11 +3051,13 @@ x86.Assembler.prototype.xchg = function (src, dst, width)
     }
 
     // If swapping with EAX/RAX
-    if (src.field() === 0)
+    if (src.type === x86.type.REG && src.field() === 0 &&
+        dst.type === x86.type.REG)
     {
         genOp(dst);
     }
-    else if (dst.field() === 0)
+    else if (dst.type === x86.type.REG && dst.field() === 0 &&
+             src.type === x86.type.REG)
     {
         genOp(src);
     }
