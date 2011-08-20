@@ -1,0 +1,492 @@
+ometa PhotonParser <: Parser {
+  fromTo :x :y = seq(x) (~seq(y) char)* seq(y), 
+  fromTo2 :x :y = seq(x) (~seq(y) char)*:s seq(y) -> s.join(''), 
+  space        = ^space | fromTo('//', '\n') | fromTo('/*', '*/'),
+  ceval        = fromTo2('@{', '}@'):s                                               -> [#eval, s],
+  nameFirst    = letter | '$' | '_',
+  nameRest     = nameFirst | digit,
+  iName        = firstAndRest(#nameFirst, #nameRest):r                               -> r.join(''),
+  isKeyword :x = ?PhotonParser._isKeyword(x),
+  name         = iName:n ~isKeyword(n)                                               -> [#name, n=='self' ? '$elf' : n],
+  keyword      = iName:k isKeyword(k)                                                -> [k, k],
+  hexDigit     = char:x {this.hexDigits.indexOf(x.toLowerCase())}:v ?(v >= 0)        -> v,
+  hexLit       = hexLit:n hexDigit:d                                                 -> (n * 16 + d)
+               | hexDigit,
+  number       = ``0x'' hexLit:n                                                     -> [#number, n]
+               | digit+:ws ('.' digit+ | empty -> []):fs                             -> [#number, parseFloat(ws.join('') + '.' +
+                                                                                                             fs.join(''))],
+  escapeChar   = '\\' char:c                                                         -> unescape('\\' + c),
+  str          = seq('"""')  (escapeChar | ~seq('"""') char)*:cs seq('"""')          -> [#string, cs.join('')]
+               | '\'' (escapeChar | ~'\'' char)*:cs '\''                             -> [#string, cs.join('')]
+               | '"'  (escapeChar | ~'"'  char)*:cs '"'                              -> [#string, cs.join('')]
+               | ('#' | '`') iName:n                                                 -> [#string, n],
+  special      = ( '('   | ')'    | '{'    | '}'     | ``[@'' |'['      | ']'     | ','    
+                 | ';'   | '?'    | ':'    | ``!=='' | ``!='' | ``==='' | ``==''
+                 |``<<=''| ``<<'' |``>>>='' |``>>>'' |``>>=''  |``>>'' 
+                 | ``='' | ``>='' | '>'    | ``<=''  | '<'    | ``++''  | ``+=''
+                 | '+'   | ``--'' | ``-='' | '-'     | ``*='' | '*'     | ``/=''
+                 | '/'   | ``%='' | '%'    | ``&&='' | ``&&'' | ``||='' | ``||''
+                 | '.'   | '!'    | '|'    | '&'     | '^'    | '~'              ):s -> [s, s],
+  tok          = spaces (ceval | name | keyword | number | str | special),
+  toks         = token*:ts spaces end                                                -> ts,
+  token :tt    = tok:t ?(t[0] == tt)                                                 -> t[1],
+  spacesNoNl   = (~'\n' space)*,
+
+  expr         = orExpr:e ( "?"   expr:t   ":" expr:f                                -> [#condExpr, e, t, f]
+                          | "="   expr:rhs                                           -> [#set, e, rhs]
+                          | "+="  expr:rhs                                           -> [#set, e, [#binop, "+", e, rhs]]
+                          | "-="  expr:rhs                                           -> [#set, e, [#binop, "-", e, rhs]]
+                          | "*="  expr:rhs                                           -> [#set, e, [#binop, "*", e, rhs]]
+                          | "/="  expr:rhs                                           -> [#set, e, [#binop, "/", e, rhs]]
+                          | "%="  expr:rhs                                           -> [#set, e, [#binop, "%", e, rhs]]
+                          | "&&=" expr:rhs                                           -> [#set, e, [#binop, "&&", e, rhs]]
+                          | "||=" expr:rhs                                           -> [#set, e, [#binop, "||", e, rhs]]
+                          | "|="  expr:rhs                                           -> [#set, e, [#binop, "|", e, rhs]]
+                          | "&="  expr:rhs                                           -> [#set, e, [#binop, "&", e, rhs]]
+                          | "^="  expr:rhs                                           -> [#set, e, [#binop, "^", e, rhs]]
+                          | ">>>="  expr:rhs                                         -> [#set, e, [#binop, ">>>", e, rhs]]
+                          | ">>="  expr:rhs                                          -> [#set, e, [#binop, ">>", e, rhs]]
+                          | "<<="  expr:rhs                                          -> [#set, e, [#binop, "<<", e, rhs]]
+                          | empty                                                    -> e
+                          ),
+  orExpr       = orExpr:x "||" andExpr:y                                             -> [#binop, "||", x, y]
+               | andExpr,
+  andExpr      = andExpr:x "&&" bitExpr:y                                             -> [#binop, "&&", x, y]
+               | bitExpr,
+  bitExpr      = bitExpr:x "|" eqExpr:y                                             -> [#binop, "|", x, y]
+               | bitExpr:x "^" eqExpr:y                                             -> [#binop, "^", x, y]
+               | bitExpr:x "&" eqExpr:y                                             -> [#binop, "&", x, y]
+               | eqExpr,
+  eqExpr       = eqExpr:x ( "=="  relExpr:y                                          -> [#binop, "==",  x, y]
+                          | "!="  relExpr:y                                          -> [#binop, "!=",  x, y]
+                          | "===" relExpr:y                                          -> [#binop, "===", x, y]
+                          | "!==" relExpr:y                                          -> [#binop, "!==", x, y]
+                          )
+               | relExpr,
+  relExpr      = relExpr:x ( ">"          sftExpr:y                                  -> [#binop, ">",          x, y]
+                           | ">="         sftExpr:y                                  -> [#binop, ">=",         x, y]
+                           | "<"          sftExpr:y                                  -> [#binop, "<",          x, y]
+                           | "<="         sftExpr:y                                  -> [#binop, "<=",         x, y]
+                           | "instanceof" sftExpr:y                                  -> [#binop, "instanceof", x, y]
+                           )
+               | sftExpr,
+  sftExpr      = sftExpr:x ">>>" addExpr:y                                           -> [#binop, ">>>",        x, y]
+               | sftExpr:x ">>"  addExpr:y                                           -> [#binop, ">>",         x, y]
+               | sftExpr:x "<<"  addExpr:y                                           -> [#binop, "<<",         x, y]
+               | addExpr,
+  addExpr      = addExpr:x "+" mulExpr:y                                             -> [#binop, "+",          x, y]
+               | addExpr:x "-" mulExpr:y                                             -> [#binop, "-",          x, y]
+               | mulExpr,
+  mulExpr      = mulExpr:x "*" unary:y                                               -> [#binop, "*",          x, y]
+               | mulExpr:x "/" unary:y                                               -> [#binop, "/",          x, y]
+               | mulExpr:x "%" unary:y                                               -> [#binop, "%",          x, y]
+               | unary,
+  unary        = "-"      postfix:p                                                  -> [#unop,  "-",        p]
+               | "+"      postfix:p                                                  -> [#unop,  "+",        p]
+               | "++"     postfix:p                                                  -> [#set, p, [#binop, "+", p, [#number, 1]]]
+               | "--"     postfix:p                                                  -> [#set, p, [#binop, "-", p, [#number, 1]]]
+               | "!"      unary:p                                                    -> [#unop,  "!",        p]
+               | "void"   unary:p                                                    -> [#unop,  "void",     p]
+               | "delete" unary:p                                                    -> [#unop,  "delete",   p]
+               | "typeof" unary:p                                                    -> [#unop,  "typeof",   p]
+               | "~"      unary:p                                                    -> [#unop,  "~",   p]
+               | postfix,
+  postfix      = primExpr:p ( spacesNoNl ("++" -> "+"
+                                         |"--" -> "-"):op                            -> [#begin, 
+                                                                                            p,
+                                                                                            [#code, _op("push", _EAX)],
+                                                                                            [#set, p, [#binop, op, p, [#number, 1]]],
+                                                                                            [#code, _op("pop", _EAX)]]
+                            | empty                                                  -> p
+                            ),
+  primExpr     = primExpr:p ( "[@" expr:i "]"                                        -> [#gets, i, p]
+                            | "["  expr:i "]"                                        -> [#getp, i, p]
+                            | "." ("name":n
+                                  | keyword:k -> k[0]):f                             -> [#getp, [#string, f], p]
+                            | "(" listOf(#expr, ','):as ")"                          -> [#call, p].concat(as)
+                            )
+               | primExprHd,
+  primExprHd   = "(" expr:e ")"                                                      -> e
+               | "this"                                                              -> [#this]
+               | "name":n                                                            -> [#get, n]
+               | "number":n                                                          -> [#number, n]
+               | "string":s                                                          -> [#string, s]
+               | "eval":s                                                            -> eval(s)
+               | "function" funcRest
+               | "new" expr:e ?(e[0] === #call)                                      -> [#new, e[1]].concat(e.slice(2))
+               | "[" listOf(#expr, ','):es "]"                                       -> [#arr].concat(es)
+               | json,
+  json         = "{" listOf(#jsonBinding, ','):bs "}"                                -> [#json].concat(bs),
+  jsonBinding  = jsonPropName:n ":" expr:v                                           -> [#binding, n, v],
+  jsonPropName = "name" | "number" | "string",
+  formal       = spaces "name",
+  funcRest     = "(" listOf(#formal, ','):fs ")" "{" srcElems:body "}"               -> [#func, fs, {}, body],
+  sc           = spacesNoNl ('\n' | &'}' | end)
+               | ";",
+  binding      = "name":n ( "=" expr
+                          | empty -> [#get, 'undefined'] ):v                         -> [#var, n, v],
+  block        = "{" srcElems:ss "}"                                                 -> ss,
+  stmt         = block
+               | ("var" | "const") listOf(#binding, ','):bs sc                       -> [#begin].concat(bs)
+               | "if" "(" expr:c ")" stmt:t ( "else" stmt
+                                            | empty -> [#get, 'undefined'] ):f       -> [#if, c, t, f]
+               | "while" "(" expr:c ")" stmt:s                                       -> [#while,   c, s]
+               | "do" stmt:s "while" "(" expr:c ")" sc                               -> [#doWhile, s, c]
+               | "for" "(" ( ("var" | empty) listOf(#binding, ','):bs  -> [#begin].concat(bs)
+                           | expr
+                           | empty -> [#get, 'undefined'] ):i
+                       ";" ( expr
+                           | empty -> [#get, 'true']      ):c
+                       ";" ( listOf(#expr, ','):es                     -> [#begin].concat(es)
+                           | empty -> [#get, 'undefined'] ):u
+                       ")" stmt:s                                                    -> [#for, i, c, u, s]
+               | "for" "(" ( "var" binding
+                           | expr                                             ):v
+                      "in" expr:e
+                       ")" stmt:s                                                    -> [#forIn, v, e, s]
+               | "switch" "(" expr:e ")" "{"
+                   ( "case" expr:c ":" srcElems:cs -> [#case, c, cs]
+                   | "default"     ":" srcElems:cs -> [#default, cs] )*:cs
+                 "}"                                                                 -> [#switch, e].concat(cs)
+               | "break" sc                                                          -> [#break]
+               | "continue" sc                                                       -> [#continue]
+               | "throw" spacesNoNl expr:e sc                                        -> [#throw, e]
+               | "try" block:t "catch" "(" "name":e ")" block:c
+                             ( "finally" block
+                             | empty -> [#get, 'undefined'] ):f                      -> [#try, t, e, c, f]
+               | "return" ( expr
+                          | empty -> [#get, 'undefined'] ):e sc                      -> [#return, e]
+               | "global_return" ( expr
+                          | empty -> [#get, 'undefined'] ):e sc                      -> [#global_return, e]
+               | "with" "(" expr:x ")" stmt:s                                        -> [#with, x, s]
+               | expr:e sc                                                           -> e
+               | ";"                                                                 -> [#get, "undefined"],
+  srcElem      = "function" "name":n funcRest:f                                      -> [#var, n, f]
+               | stmt,
+  srcElems     = srcElem*:ss                                                         -> [#begin].concat(ss),
+
+  topLevel     = srcElems:r spaces end                                               -> r
+}
+PhotonParser.hexDigits = "0123456789abcdef"
+PhotonParser.keywords  = { }
+keywords = ["break", "case", "catch", "continue", "default", "delete", "do", "else", "finally", "for", "function", "if", "in",
+            "instanceof", "new", "return", "switch", "this", "throw", "try", "typeof", "var", "void", "while", "with", "ometa", "const", "global_return"]
+for (var idx = 0; idx < keywords.length; idx++)
+  PhotonParser.keywords[keywords[idx]] = true
+PhotonParser._isKeyword = function(k) { return this.keywords.hasOwnProperty(k) }
+
+ometa PhotonASTTraversal {
+  trans      = [:t apply(t):ans],
+  curlyTrans = [#begin curlyTrans:r]
+             | [#begin trans*:rs]
+             | trans:r,
+
+  this end,                                                  
+  break end,                                                 
+  continue end,
+  number   :n,
+  string   :s,
+  arr      trans*:xs,
+  unop     :op trans:x,
+  getp     trans:fd trans:x,
+  get      :x,
+  set      trans:lhs trans:rhs,
+  mset     trans:lhs :op trans:rhs,
+  binop    :op trans:x trans:y,
+  preop    :op trans:x,
+  postop   :op trans:x,
+  return   trans:x,
+  with     trans:x curlyTrans:s,
+  if       trans:cond curlyTrans:t curlyTrans:e,
+  condExpr trans:cond trans:t trans:e,
+  while    trans:cond curlyTrans:body,
+  doWhile  curlyTrans:body trans:cond,
+  for      trans:init trans:cond trans:upd
+           curlyTrans:body,
+  forIn    trans:x trans:arr curlyTrans:body,
+  begin    trans:x end,
+  begin    trans*:xs,
+  func     :args :scope curlyTrans:body,  
+  call     trans:fn trans*:args,
+  ccall    trans:fn trans*:args,
+  send     :msg trans:recv trans*:args,
+  new      trans:fn trans*:args,
+  var      :name trans:val,
+  throw    trans:x,
+  try      curlyTrans:x :name curlyTrans:c curlyTrans:f,
+  json     trans*:props,
+  binding  :name trans:val,
+  switch   trans:x trans*:cases,
+  case     trans:x trans:y,
+  default          trans:y,
+
+  global_return    trans:x,
+  ref      :s,
+  gets     trans:fd trans:x,
+  mreturn  trans:x trans:y,
+  code     :c
+}
+
+ometa PhotonVarAnalysis <: PhotonASTTraversal {
+  get      (:x -> {self.scope()[x] = (self.scope()[x] !== undefined) ? self.scope()[x] : "global";}),
+  func     :args 
+           (:scope -> {self._scope.push(scope); self.add_args(args);})
+           (curlyTrans:body ->{ self._scope.pop();}), 
+  var      (:name -> {self.scope()[name] = "local"}) trans:val
+}
+
+PhotonVarAnalysis.initialize = function () { 
+    this._scope = [{}]; 
+    this.scope = function () { return this._scope[this._scope.length - 1]; };
+    this.print_scope = function ()
+    {
+        for (var p in this.scope()) 
+        { 
+            print("var " + p + " is " + this.scope()[p]);
+        } 
+    };
+    
+    this.add_args = function (args)
+    {
+        for (var i = 0; i < args.length; ++i) 
+        { 
+            this.scope()[args[i]] = "arg";
+        } 
+    };
+};
+
+ometa ASTFrequency <: PhotonASTTraversal {
+  trans      = [:t apply(t):ans]  -> {self.nodes[t] = (self.nodes[t] === undefined) ? 1 : self.nodes[t] + 1; self;},
+  binop  :op trans:x trans:y      -> {if (self.ops.binop[op] === undefined) self.ops.binop[op] = 0; self.ops.binop[op] += 1;},
+  preop  :op trans:x              -> {if (self.ops.preop[op] === undefined) self.ops.preop[op] = 0; self.ops.preop[op] += 1;},
+  unop   :op trans:x              -> {if (self.ops.unop[op] === undefined) self.ops.unop[op] = 0; self.ops.unop[op] += 1;},
+  mset   trans:lhs :op trans:rhs  -> {if (self.ops.mset[op] === undefined) self.ops.mset[op] = 0; self.ops.mset[op] += 1;},
+  postop :op trans:x              -> {if (self.ops.postop[op] === undefined) self.ops.postop[op] = 0; self.ops.postop[op] += 1;}
+};
+
+ASTFrequency.initialize = function ()
+{
+    this.nodes = {};
+    this.ops   = {
+        binop:{},
+        preop:{},
+        mset:{},
+        unop:{},
+        postop:{}
+    };
+    this.freqs = function ()
+    {
+        function sorta(a, b)
+        {
+            return b[1] - a[1];
+        }
+
+        var total = 0;
+
+        for (var n in this.nodes)
+        {
+            total += this.nodes[n];
+        }
+
+        var numbers = [];
+
+        for (var n in this.nodes)
+        {
+            numbers.push([n, this.nodes[n]]);    
+        }
+
+        numbers.sort(sorta);
+
+        for (var i = 0; i < numbers.length; ++i)
+        {
+            print(numbers[i][0] + ": " + numbers[i][1]);
+
+            var n = numbers[i][0];
+
+            if (this.ops[n] !== undefined)
+            {
+                var op_numbers = [];
+
+                for (var op in this.ops[n])
+                {
+                    op_numbers.push([op, this.ops[n][op]]);
+                }
+
+                op_numbers.sort(sorta);
+
+                for (var j = 0; j < op_numbers.length; ++j)
+                {
+                    print("    '" + op_numbers[j][0] + "': " + op_numbers[j][1]);    
+                }
+            }
+        }
+    };
+};
+
+ometa PhotonCompiler {
+  trans      = [:t apply(t):ans]     -> ans,
+  curlyTrans = [#begin curlyTrans:r] -> [r]
+             | [#begin trans*:rs]    -> rs
+             | trans:r               -> [r],
+
+  this                                                        -> _op("mov", _mem(12, _EBP), _EAX),
+  break                                                       -> [],
+  continue                                                    -> [],
+  number   :n                                                 -> _op("mov", _$(_ref(n)), _EAX),  
+  string   :s                                                 -> _symbol(s), 
+  ref      :s (?(typeof s === "object" && 
+                 s.__addr__ !== undefined))                   -> _op("mov", _mref(s), _EAX),
+  arr      trans*:xs                                          -> _array(xs),
+  get      (#true     -> _$(_TRUE)      |
+            #false    -> _$(_FALSE)     |
+            #undefined-> _$(_UNDEFINED) |
+            #null     -> _$(_NIL)       |
+            :x        -> _mem(PhotonCompiler._loc(x), _EBP)):x
+                                                              -> _op("mov", x, _EAX),
+  getp     trans:fd trans:x                                   -> _send(x, _symbol("get"), [fd]),
+  gets     trans:fd trans:x                                   -> [fd, _op("dec", _EAX), _op("push", _EAX), 
+                                                                   x, _op("pop", _EBX), _op("mov", _mem(0, _EAX, _EBX, 2), _EAX)],
+  set      [#get :x]                  trans:rhs               -> [rhs, _op("mov", _EAX, _mem(PhotonCompiler._loc(x), _EBP))],
+  set      [#getp trans:fd trans:rcv] trans:rhs               -> _send(rcv, _symbol("set"), [fd, rhs]),
+  set      [#gets trans:fd trans:rcv] trans:rhs               -> [rhs, _op("push", _EAX), 
+                                                                  fd,  _op("dec", _EAX), _op("push", _EAX), 
+                                                                  rcv, _op("mov", _EAX, _ECX),
+                                                                  _op("pop", _EBX), 
+                                                                  _op("pop", _EAX),
+                                                                  _op("mov", _mem(0, _ECX, _EBX, 2), _EAX)],
+  mset     trans:lhs :op trans:rhs                            -> {throw "Unimplemented mset '" + op + "'";},
+  unop     ( '-'          -> [_op("push", _$(1)), 
+                              _arith("sub"),
+                              _op("inc", _EAX),
+                              _op("add", _$(4), _ESP)]
+           | '!'          -> []):op trans:x                   -> [x, op],
+  unop     ( 'typeof' trans:rcv                               -> _send(rcv, _symbol("typeof"), [])
+           | 'delete' ([#getp trans:f trans:rcv]              -> _send(rcv, _symbol("delete"), [f])
+                      |[#get :n]                              -> _op("mov", _$(_FALSE), _EAX))),
+
+  binop    ( '+' -> "add"
+           | '-' -> "sub"):op trans:x [#number :n]            -> [x, _arith_cste(op,  _$(n*2))],
+
+  binop    ( '+'          -> [_arith("add", true), _op("dec", _EAX)]     
+           | '-'          -> [_arith("sub", false), _op("inc", _EAX)]    
+           | '*'          -> _arith_mul()    
+           | '/'          -> _arith_div(false)
+           | '%'          -> _arith_div(true)
+           | '<'          -> _rel("cmovl", true)                         
+           | '<='         -> _rel("cmovle", true)                       
+           | '>'          -> _rel("cmovnle", true)                       
+           | '>='         -> _rel("cmovnl", true)                        
+           | '=='         -> []                                          
+           | '!='         -> []                                          
+           | '==='        -> _rel("cmovz", false)                        
+           | '!=='        -> _rel("cmovnz", false)                       
+           | '&&'         -> _logic("and")                               
+           | '||'         -> _logic("or")                                
+           | '>>'         -> _shiftop("sar")                             
+           | '>>>'        -> _shiftop("shr")                             
+           | '<<'         -> _shiftop("sal")                             
+           | '^'          -> _bitwise("xor")                                         
+           | '&'          -> _bitwise("and")                                          
+           | '|'          -> _bitwise("or")):op                                          
+           trans:x trans:y                                    -> [x, _op("push", _EAX), y, op, _op("add", _$(4), _ESP)],
+  binop      'instanceof' trans:x trans:y                     -> _send(x, _symbol("instanceof"), [y]),
+  preop    :op trans:x                                        -> {throw "Unimplemented preop '" + op + "'";},
+  postop   :op trans:x                                        -> {throw "Unimplemented postop '" + op + "'";},
+  return   trans:x                                            -> [x, _epilogue()],
+  with     trans:x curlyTrans:s                               -> [],
+  if       (empty -> _label()):FALSE 
+           ([#binop ('<'   -> "jge"
+                    |'<='  -> "jg"
+                    |'>'   -> "jle"
+                    |'>='  -> "jl"):jcc
+               trans:x ([#number :n] -> [_type_check(1), _op("cmp", _$(_ref(n)), _EAX)]
+                       | trans:y     -> [_op("push", _EAX), y, _type_check(2), _op("cmp", _EAX, _mem(0, _ESP)), _op("pop", _EAX)]):cmp]    
+                                            -> [x, cmp, _op(jcc, FALSE)]
+           | trans:cond                     -> [cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", FALSE)]):cond                      
+           curlyTrans:t curlyTrans:e                          -> {var END = _label(); 
+                                                                  [cond, _listing("TRUE:"), 
+                                                                         t, _op("jmp", END), FALSE, _listing("FALSE:"), 
+                                                                         e, END, _listing("END:")];},
+  condExpr trans:cond trans:t trans:e                         -> [],
+  while    trans:cond curlyTrans:body                         -> {var LOOP = _label(); var END = _label();
+                                                                  [LOOP, cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", END),
+                                                                               body, _op("jmp", LOOP), END]},
+  doWhile  curlyTrans:body trans:cond                         -> [],
+  for      trans:init trans:cond trans:upd
+           curlyTrans:body                                    -> [],
+  forIn    trans:x trans:arr curlyTrans:body                  -> [],
+  begin    trans:x end                                        -> [x],
+  begin    trans*:xs                                          -> xs,
+  func     (:args  -> {PhotonCompiler._addArgs(args);})
+           (:scope -> {PhotonCompiler._addLocals(scope);})
+           curlyTrans:body                                    -> {var loc_nb = PhotonCompiler._loc_nb();
+                                                                  PhotonCompiler._popLocals();
+                                                                  _op("mov", _mref(_fct([ _prologue(loc_nb, args.length), body])), _EAX);},
+  send     trans:msg trans:rcv trans*:args                    -> _send(rcv, msg, args),
+  call     [#getp trans:msg trans:rcv]  trans*:args           -> _send(rcv, msg, args),
+  call     trans:fn trans*:args                               -> [_push_args(args),
+                                                                  _op("push", _$(0)),           // Null receiver
+                                                                  _op("push", _$(args.length)),
+                                                                  fn, _op("call", _EAX), 
+                                                                  _pop_args(args.length + 2)],
+  new      trans:cls trans*:args                              -> [],
+  var      :name trans:val                                    -> [val, _op("mov", _EAX, _mem(PhotonCompiler._loc(name), _EBP))],
+  throw    trans:x                                            -> [],
+  try      curlyTrans:x :name curlyTrans:c curlyTrans:f       -> [],
+  // TODO: Make sure fixnums are internalized to their own value as symbols
+  json     trans*:props                                       -> _object(props),
+  binding  :name trans:val                                    -> [name, val],
+  switch   trans:x trans*:cases                               -> [],
+  case     trans:x trans:y                                    -> [],
+  default          trans:y                                    -> [],
+
+  // Extensions
+  ccall    trans:fn trans*:args                               -> [_push_args(args),
+                                                                  fn, _op("call", _EAX), 
+                                                                  _pop_args(args.length)],
+  global_return   trans:x                                     -> [x, _op("ret")],
+  mreturn  trans:x trans:y                                    -> [x, _op("push", _EAX), y, _op("mov", _EAX, _ECX), _op("pop", _EAX), _epilogue()],
+  code     :c                                                 -> c
+}
+
+PhotonCompiler._addArgs = function (args)
+{
+    var mapping = [{}, 0];
+
+    for (var i = 0; i < args.length; ++i)
+    {
+        mapping[0][args[i]] = (i+4)*4;
+    }
+
+    PhotonCompiler._locals.push(mapping);
+}
+PhotonCompiler._addLocals = function (scope)
+{
+    var mapping = this._locals[this._locals.length - 1];
+    var i = -4;
+
+    for (var n in scope)
+    {
+        //print(n + " = " + scope[n]);
+        if (scope[n] === "local")
+        {
+            //print(n + " = " + i);
+            mapping[0][n] = i; 
+            mapping[1] = mapping[1] + 1;
+            i -= 4;
+        }
+    }
+}
+PhotonCompiler._locals = [];
+PhotonCompiler._popLocals = function ()
+{
+    PhotonCompiler._locals.length -= 1;
+};
+PhotonCompiler._loc = function (name)
+{
+    return PhotonCompiler._locals[PhotonCompiler._locals.length - 1][0][name];
+};
+PhotonCompiler._loc_nb = function () 
+{ 
+    return PhotonCompiler._locals[PhotonCompiler._locals.length - 1][1];
+};
