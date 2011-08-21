@@ -330,8 +330,8 @@ ometa PhotonCompiler {
              | trans:r               -> [r],
 
   this                                                        -> _op("mov", _mem(12, _EBP), _EAX),
-  break                                                       -> [],
-  continue                                                    -> [],
+  break                                                       -> _op("jmp", self.break_lbl()),
+  continue                                                    -> _op("jmp", self.continue_lbl()),
   number   :n                                                 -> _op("mov", _$(_ref(n)), _EAX),  
   string   :s                                                 -> _symbol(s), 
   ref      :s (?(typeof s === "object" && 
@@ -380,6 +380,7 @@ ometa PhotonCompiler {
            | '!='         -> []                                          
            | '==='        -> _rel("cmovz", false)                        
            | '!=='        -> _rel("cmovnz", false)                       
+           // TODO: Implement non evaluation of rhs if lhs is 'false' for '&&' or 'true' for '||'
            | '&&'         -> _logic("and")                               
            | '||'         -> _logic("or")                                
            | '>>'         -> _shiftop("sar")                             
@@ -393,7 +394,7 @@ ometa PhotonCompiler {
   preop    :op trans:x                                        -> {throw "Unimplemented preop '" + op + "'";},
   postop   :op trans:x                                        -> {throw "Unimplemented postop '" + op + "'";},
   return   trans:x                                            -> [x, _epilogue()],
-  with     trans:x curlyTrans:s                               -> [],
+  with     trans:x curlyTrans:s                               -> {throw "Unimplemented with statement"},
   if       (empty -> _label()):FALSE 
            ([#binop ('<'   -> "jge"
                     |'<='  -> "jg"
@@ -407,13 +408,27 @@ ometa PhotonCompiler {
                                                                   [cond, _listing("TRUE:"), 
                                                                          t, _op("jmp", END), FALSE, _listing("FALSE:"), 
                                                                          e, END, _listing("END:")];},
-  condExpr trans:cond trans:t trans:e                         -> [],
-  while    trans:cond curlyTrans:body                         -> {var LOOP = _label(); var END = _label();
-                                                                  [LOOP, cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", END),
-                                                                               body, _op("jmp", LOOP), END]},
-  doWhile  curlyTrans:body trans:cond                         -> [],
-  for      trans:init trans:cond trans:upd
-           curlyTrans:body                                    -> [],
+  condExpr trans:cond trans:t trans:e                         -> {var END   = _label(); 
+                                                                  var FALSE = _label();
+                                                                 [cond, _op("cmp", _$(_TRUE), _EAX), 
+                                                                  _op("jne", FALSE),
+                                                                     t, _op("jmp", END), FALSE, 
+                                                                     e, END, _listing("END:")];},
+  while    (empty -> self.push_block())
+           trans:cond curlyTrans:body                         -> {var LOOP = _label(); var END = _label();
+                                                                  [LOOP, self.cont_lbl(),
+                                                                   cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", END),
+                                                                         body, _op("jmp", LOOP), self.break_lbl(), END]},
+  doWhile  (empty -> self.push_block())
+           curlyTrans:body trans:cond                         -> {var LOOP = _label(); var END = _label();
+                                                                  [self.cont_lbl(), 
+                                                                   LOOP, body, cond, _op("cmp", _$(_TRUE), _EAX), _op("je", LOOP), 
+                                                                   self.break_lbl(), END]},
+  for      (empty -> self.push_block()) 
+           trans:init trans:cond trans:upd
+           curlyTrans:body                                    -> {var LOOP = _label(); var END = _label();
+                                                                  [init, LOOP, cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", END),
+                                                                         body, self.cont_lbl(), upd, _op("jmp", LOOP), self.break_lbl(), END]},
   forIn    trans:x trans:arr curlyTrans:body                  -> [],
   begin    trans:x end                                        -> [x],
   begin    trans*:xs                                          -> xs,
@@ -436,9 +451,10 @@ ometa PhotonCompiler {
   // TODO: Make sure fixnums are internalized to their own value as symbols
   json     trans*:props                                       -> _object(props),
   binding  :name trans:val                                    -> [name, val],
-  switch   trans:x trans*:cases                               -> [],
-  case     trans:x trans:y                                    -> [],
-  default          trans:y                                    -> [],
+  switch   (empty -> self.push_block()) trans:x trans*:cases  -> [x, _op("push", _EAX), cases, self.break_lbl(), _op("add", _$(4), _ESP)],
+  case     trans:x trans:y                                    -> {var END = _label();
+                                                                 [x, _op("cmp", _mem(0, _ESP), _EAX), _op("jne", END), y, END]},
+  default          trans:y                                    -> [y],
 
   // Extensions
   ccall    trans:fn trans*:args                               -> [_push_args(args),
@@ -447,6 +463,30 @@ ometa PhotonCompiler {
   global_return   trans:x                                     -> [x, _op("ret")],
   mreturn  trans:x trans:y                                    -> [x, _op("push", _EAX), y, _op("mov", _EAX, _ECX), _op("pop", _EAX), _epilogue()],
   code     :c                                                 -> c
+}
+PhotonCompiler.initialize = function ()
+{
+    this.block = [{}];
+
+    this.push_block = function ()
+    {
+        this.block.push({"continue":_label(), "break":_label()});   
+    };
+
+    this.pop_block = function ()
+    {
+        this.block.pop(block);   
+    };
+
+    this.cont_lbl = function ()
+    {
+        return this.block[this.block.length - 1]["continue"];
+    };
+
+    this.break_lbl = function ()
+    {
+        return this.block[this.block.length - 1]["break"];
+    };
 }
 
 PhotonCompiler._addArgs = function (args)
