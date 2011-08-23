@@ -535,7 +535,7 @@ struct object *map_delete(size_t n, struct map *self, struct object *name)
 
     ssize_t size;
     struct map *new_map;
-    struct object *offset = send(self->_hd[-1].map, s_lookup, name);
+    struct object *offset = send(self, s_lookup, name);
     
     if (offset == UNDEFINED)
     {

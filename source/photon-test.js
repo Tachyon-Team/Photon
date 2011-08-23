@@ -1,4 +1,7 @@
 photon.init();
+
+photon.global = photon.send(photon.object, "new");
+
 /*
 _ast_frequency([
    //"utility/debug.js",
@@ -39,7 +42,7 @@ var start = new Date().getTime();
 var f = _compile(readFile("fib.js"));
 var end   = new Date().getTime();
 print("compile time: " + ((end - start)) + " ms");
-var o = {fib:photon.send({f:f}, "f")};
+print(photon.send({f:f}, "f"));
 
 //print(photon.object);
 //print(photon.send(photon.object, "get", "get").__addr__);
@@ -47,8 +50,9 @@ var o = {fib:photon.send({f:f}, "f")};
 
 
 var start = new Date().getTime();
-var f = photon.send(o, "fib", {foo:42});
-print(f);
+//var f = photon.send(o, "fib", 40);
+var r = photon.send({fib:photon.send(photon.global, "get", "fib")}, "fib", 40);
+print(r);
 /*
 print(photon.send(f, "get", "a"));
 print(photon.send(f, "set", "a", 42));
