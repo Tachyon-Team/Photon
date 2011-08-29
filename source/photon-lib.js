@@ -70,7 +70,7 @@ function _fct(code)
     codeBlock.assemble();
     //print(codeBlock.code);
     //print("listing");
-    print(codeBlock.listingString());
+    //print(codeBlock.listingString());
 
     var f = photon.send(photon.function, "new", codeBlock.code.length);
     photon.send(f, "intern", clean(codeBlock.code));
@@ -491,12 +491,17 @@ function _compile(s)
 {
     try {
         var r = PhotonParser.matchAll(s, "topLevel");
+        print("Macro Exp");
         print(r);
-        //print("VarAnalysis");
+        r = PhotonMacroExp.matchAll([r], "trans");
+        print(r);
+        //print("AST: '" + r + "'");
+        print("VarAnalysis");
         var r = PhotonVarAnalysis.matchAll([r], "trans");
-        //print(r);
-        var code = PhotonCompiler.matchAll([r], "trans");
-        //print(code);
+        print("Compilation");
+        code = PhotonCompiler.matchAll([r], "trans");
+        //print("Code: '" + code.length + "'");
+
         return _fct(code);
     } catch(e)
     {
@@ -512,4 +517,45 @@ function _ast_frequency(s)
     var r = PhotonParser.matchAll(s, "topLevel");
     r = ASTFrequency.matchAll([r], "trans");
     r.freqs();
+}
+
+function _deep_copy(o)
+{
+    if (o instanceof Array)
+    {
+        var new_a = [];
+
+        for (var i = 0; i < o.length; ++i)
+        {
+            new_a.push(_deep_copy(o[i]));
+        }
+
+        return new_a;
+    } else if (o instanceof Object)
+    {
+        var new_o = {};
+
+        for (var p in o)
+        {
+            if (o.hasOwnProperty(p))
+            {
+                new_o[p] = _deep_copy(o[p]);
+            }
+            new_o.__proto__ = o.__proto__;
+        }
+
+        return new_o;
+    } else 
+    {
+        return o;
+    }
+}
+
+function _new_context()
+{
+    return {
+        scope:{},
+        macros:{},
+        consts:{}
+    };
 }

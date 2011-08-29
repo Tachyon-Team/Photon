@@ -1,0 +1,68 @@
+
+ometa ASTFrequency <: PhotonASTTraversal {
+  trans      = [:t apply(t):ans]  -> {self.nodes[t] = (self.nodes[t] === undefined) ? 1 : self.nodes[t] + 1; self;},
+  binop  :op trans:x trans:y      -> {if (self.ops.binop[op] === undefined) self.ops.binop[op] = 0; self.ops.binop[op] += 1;},
+  preop  :op trans:x              -> {if (self.ops.preop[op] === undefined) self.ops.preop[op] = 0; self.ops.preop[op] += 1;},
+  unop   :op trans:x              -> {if (self.ops.unop[op] === undefined) self.ops.unop[op] = 0; self.ops.unop[op] += 1;},
+  mset   trans:lhs :op trans:rhs  -> {if (self.ops.mset[op] === undefined) self.ops.mset[op] = 0; self.ops.mset[op] += 1;},
+  postop :op trans:x              -> {if (self.ops.postop[op] === undefined) self.ops.postop[op] = 0; self.ops.postop[op] += 1;}
+};
+
+ASTFrequency.initialize = function ()
+{
+    this.nodes = {};
+    this.ops   = {
+        binop:{},
+        preop:{},
+        mset:{},
+        unop:{},
+        postop:{}
+    };
+    this.freqs = function ()
+    {
+        function sorta(a, b)
+        {
+            return b[1] - a[1];
+        }
+
+        var total = 0;
+
+        for (var n in this.nodes)
+        {
+            total += this.nodes[n];
+        }
+
+        var numbers = [];
+
+        for (var n in this.nodes)
+        {
+            numbers.push([n, this.nodes[n]]);    
+        }
+
+        numbers.sort(sorta);
+
+        for (var i = 0; i < numbers.length; ++i)
+        {
+            print(numbers[i][0] + ": " + numbers[i][1]);
+
+            var n = numbers[i][0];
+
+            if (this.ops[n] !== undefined)
+            {
+                var op_numbers = [];
+
+                for (var op in this.ops[n])
+                {
+                    op_numbers.push([op, this.ops[n][op]]);
+                }
+
+                op_numbers.sort(sorta);
+
+                for (var j = 0; j < op_numbers.length; ++j)
+                {
+                    print("    '" + op_numbers[j][0] + "': " + op_numbers[j][1]);    
+                }
+            }
+        }
+    };
+};

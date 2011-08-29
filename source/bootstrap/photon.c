@@ -881,7 +881,7 @@ extern void bootstrap()
     send(root_map, s_set, s_remove,   (struct object *)map_remove);
 
     printf("Create Root Object\n");
-    root_object = object_allocate(2, NIL, ref(10), ref(0)); 
+    root_object = object_allocate(2, NIL, ref(20), ref(0)); 
     root_object->_hd[-1].prototype = NIL;
     root_map->_hd[-1].prototype = root_object;
 

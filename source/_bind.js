@@ -17,13 +17,15 @@ global_return function (msg, n, rcv)
 
     while (rcv !== null)
     {
-        //l_offset = l_rcv[@-1].lookup(msg);
+        l_offset = l_rcv[@-1].lookup(msg);
         //Static call version
+        /*
         l_offset = @{["ccall",
                        ["ref",    photon.send(photon.map, "get", "lookup")],
                        ["number", 1],
                        ["gets", ["unop", "-", ["number", 1]], ["get", "l_rcv"]],
                        ["get", "msg"]]}@;
+                       */
 
         if (l_offset !== undefined)
         {

@@ -25,7 +25,8 @@ ometa PhotonParser <: Parser {
                  |``<<=''| ``<<'' |``>>>='' |``>>>'' |``>>=''  |``>>'' 
                  | ``='' | ``>='' | '>'    | ``<=''  | '<'    | ``++''  | ``+=''
                  | '+'   | ``--'' | ``-='' | '-'     | ``*='' | '*'     | ``/=''
-                 | '/'   | ``%='' | '%'    | ``&&='' | ``&&'' | ``||='' | ``||''
+                 | '/'   | ``%='' | '%'    | ``&&='' | ``&='' | ``&&''  | ``||='' 
+                 | ``|=''| ``||''
                  | '.'   | '!'    | '|'    | '&'     | '^'    | '~'              ):s -> [s, s],
   tok          = spaces (ceval | name | keyword | number | str | special),
   toks         = token*:ts spaces end                                                -> ts,
@@ -51,11 +52,11 @@ ometa PhotonParser <: Parser {
                           ),
   orExpr       = orExpr:x "||" andExpr:y                                             -> [#binop, "||", x, y]
                | andExpr,
-  andExpr      = andExpr:x "&&" bitExpr:y                                             -> [#binop, "&&", x, y]
+  andExpr      = andExpr:x "&&" bitExpr:y                                            -> [#binop, "&&", x, y]
                | bitExpr,
-  bitExpr      = bitExpr:x "|" eqExpr:y                                             -> [#binop, "|", x, y]
-               | bitExpr:x "^" eqExpr:y                                             -> [#binop, "^", x, y]
-               | bitExpr:x "&" eqExpr:y                                             -> [#binop, "&", x, y]
+  bitExpr      = bitExpr:x "|" eqExpr:y                                              -> [#binop, "|", x, y]
+               | bitExpr:x "^" eqExpr:y                                              -> [#binop, "^", x, y]
+               | bitExpr:x "&" eqExpr:y                                              -> [#binop, "&", x, y]
                | eqExpr,
   eqExpr       = eqExpr:x ( "=="  relExpr:y                                          -> [#binop, "==",  x, y]
                           | "!="  relExpr:y                                          -> [#binop, "!=",  x, y]
@@ -120,7 +121,7 @@ ometa PhotonParser <: Parser {
   jsonBinding  = jsonPropName:n ":" expr:v                                           -> [#binding, n, v],
   jsonPropName = "name" | "number" | "string",
   formal       = spaces "name",
-  funcRest     = "(" listOf(#formal, ','):fs ")" "{" srcElems:body "}"               -> [#func, fs, {}, body],
+  funcRest     = "(" listOf(#formal, ','):fs ")" "{" srcElems:body "}"               -> [#func, fs, _new_context(), body],
   sc           = spacesNoNl ('\n' | &'}' | end)
                | ";",
   binding      = "name":n ( "=" expr
@@ -162,15 +163,16 @@ ometa PhotonParser <: Parser {
                | expr:e sc                                                           -> e
                | ";"                                                                 -> [#get, "undefined"],
   srcElem      = "function" "name":n funcRest:f                                      -> [#var, n, f]
+               | "macro" "name":n funcRest:f                                         -> [#macro, n].concat(f.slice(1))
                | stmt,
   srcElems     = srcElem*:ss                                                         -> [#begin].concat(ss),
 
-  topLevel     = srcElems:r spaces end                                               -> [#global, {}, r]
+  topLevel     = srcElems:r spaces end                                               -> [#global, _new_context(), r]
 }
 PhotonParser.hexDigits = "0123456789abcdef"
 PhotonParser.keywords  = { }
 keywords = ["break", "case", "catch", "continue", "default", "delete", "do", "else", "finally", "for", "function", "if", "in",
-            "instanceof", "new", "return", "switch", "this", "throw", "try", "typeof", "var", "void", "while", "with", "ometa", "const", "global_return"]
+            "instanceof", "new", "return", "switch", "this", "throw", "try", "typeof", "var", "void", "while", "with", "ometa", "const", "global_return", "macro"]
 for (var idx = 0; idx < keywords.length; idx++)
   PhotonParser.keywords[keywords[idx]] = true
 PhotonParser._isKeyword = function(k) { return this.keywords.hasOwnProperty(k) }
@@ -181,7 +183,7 @@ ometa PhotonASTTraversal {
              | [#begin trans*:rs]
              | trans:r,
 
-  global   :scope trans:r,
+  global   :ctxt trans:r,
   this end,                                                  
   break end,                                                 
   continue end,
@@ -207,7 +209,7 @@ ometa PhotonASTTraversal {
   forIn    trans:x trans:arr curlyTrans:body,
   begin    trans:x end,
   begin    trans*:xs,
-  func     :args :scope curlyTrans:body,  
+  func     :args :ctxt curlyTrans:body,  
   call     trans:fn trans*:args,
   ccall    trans:fn trans*:args,
   send     :msg trans:recv trans*:args,
@@ -225,21 +227,22 @@ ometa PhotonASTTraversal {
   ref      :s,
   gets     trans:fd trans:x,
   mreturn  trans:x trans:y,
-  code     :c
+  code     :c,
+  macro    :n :args :ctxt curlyTrans:body
 }
 
 ometa PhotonVarAnalysis <: PhotonASTTraversal {
-  global   (:scope -> {self._scope.push(scope)}) trans:r -> {print("global scope: "); self.print_scope();},
+  global   (:ctxt -> {self._ctxt.push(ctxt)}) trans:r /*-> {print("global scope: "); self.print_scope();}*/,
   get      (:x -> {self.scope()[x] = (self.scope()[x] !== undefined) ? self.scope()[x] : "global";}),
   func     :args 
-           (:scope -> {self._scope.push(scope); self.add_args(args);})
-           (curlyTrans:body ->{self.print_scope(); self._scope.pop();}), 
-  var      (:name -> {self.scope()[name] = (this._scope.length === 1) ? "global" : "local";}) trans:val
+           (:ctxt -> {self._ctxt.push(ctxt); self.add_args(args);})
+           (curlyTrans:body ->{self._ctxt.pop();}), 
+  var      (:name -> {self.scope()[name] = (this._ctxt.length === 1) ? "global" : "local";}) trans:val
 }
 
 PhotonVarAnalysis.initialize = function () { 
-    this._scope = []; 
-    this.scope = function () { return this._scope[this._scope.length - 1]; };
+    this._ctxt = []; 
+    this.scope = function () { return this._ctxt[this._ctxt.length - 1].scope; };
     this.print_scope = function ()
     {
         for (var p in this.scope()) 
@@ -264,7 +267,7 @@ ometa PhotonCompiler {
              | [#begin trans*:rs]    -> rs
              | trans:r               -> [r],
 
-  global   :scope trans:r                                     -> [r, _op("ret")],
+  global   :ctxt trans:r                                      -> [r, _op("ret")],
   this                                                        -> _op("mov", _mem(12, _EBP), _EAX),
   break                                                       -> _op("jmp", self.break_lbl()),
   continue                                                    -> _op("jmp", self.cont_lbl()),
@@ -291,7 +294,7 @@ ometa PhotonCompiler {
                                                                   rcv, _op("mov", _EAX, _ECX),
                                                                   _op("pop", _EBX), 
                                                                   _op("pop", _EAX),
-                                                                  _op("mov", _mem(0, _ECX, _EBX, 2), _EAX)],
+                                                                  _op("mov", _EAX, _mem(0, _ECX, _EBX, 2))],
   mset     trans:lhs :op trans:rhs                            -> {throw "Unimplemented mset '" + op + "'";},
   unop     ( '-'          -> [_op("push", _$(1)), 
                               _arith("sub"),
@@ -375,7 +378,7 @@ ometa PhotonCompiler {
   begin    trans:x end                                        -> [x],
   begin    trans*:xs                                          -> xs,
   func     (:args  -> {PhotonCompiler._addArgs(args);})
-           (:scope -> {PhotonCompiler._addLocals(scope);})
+           (:ctxt  -> {PhotonCompiler._addLocals(ctxt.scope);})
            curlyTrans:body                                    -> {var loc_nb = PhotonCompiler._loc_nb();
                                                                   PhotonCompiler._popLocals();
                                                                   _op("mov", _mref(_fct([ _prologue(loc_nb, args.length), body])), _EAX);},

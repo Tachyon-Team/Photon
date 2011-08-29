@@ -9,5 +9,6 @@ d8 utility/debug.js                    \
    deps/ometa-js/ometa-base.js         \
    deps/ometa-js/parser.js             \
    ometa/photon-compiler.js            \
+   ometa/ast-copy.js                   \
    photon-lib.js                       \
    photon-test.js                    
