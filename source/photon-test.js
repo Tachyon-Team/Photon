@@ -56,8 +56,8 @@ print("compile time: " + ((end - start)) + " ms");
 photon.send({f:f}, "f");
 
 var start = new Date().getTime();
-try {
 
+try {
 
 assert(photon.send([1,2,3,42,26], "__get__", 3) === 42);
 assert(photon.send([1,2,3,42,26], "__get__", "length") === 5);
@@ -78,11 +78,19 @@ var a = photon.send([], "__new__", 10);
 photon.send(a, "__push__", 1);
 assert(photon.send(a, "__get__", 0) === 1);
 
+
+var o = photon.send(photon.object, "__new__");
+photon.send(o, "__set__", "foo", 42);
+assert(photon.send(o, "__get__", "foo") === 42);
+assert(photon.send(o, "__get__", "bar") === undefined);
+
 assert(photon.send({foo:42}, "__get__", "foo") === 42);
-//print(photon.send({foo:42}, "__get__", "bar"));
-//print(photon.object);
-//print(photon.send(photon.object, "get", "get").__addr__);
-//print("Executing fib");
+
+var c = photon.send({foo:42}, "__clone2__", 0);
+assert(photon.send(c, "__get__", "foo") === 42);
+
+
+
 } catch (e)
 {
     if (e.stack)

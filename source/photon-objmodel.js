@@ -98,7 +98,8 @@ macro object_proto(o)
 }
 macro object_value_get(o, i)
 {
-    return o[@object_values_offset + i];
+    // FIXME: Hard-coded constant until constant propagation is implanted
+    return o[@-4 + i];
 }
 macro object_value_set(o, i, v)
 {
@@ -122,7 +123,7 @@ macro object_values_count_set(o, c)
 }
 macro object_values_size_get(o)         
 {
-    return (o[@object_flags_offset] & 0xFF00) >> 0;
+    return (o[@object_flags_offset] & 0xFF00) >> 8;
 }
 macro object_values_size_set(o, s)  
 {
@@ -449,8 +450,9 @@ root.map.__set__ = function (name, value)
         return object_value_set(this, offset, value);    
     }
 }
+*/
 
-root.object.__clone__ = function (payload_size) 
+root.object.__clone2__ = function (payload_size) 
 {
     var clone = this.__allocate__(object_values_size_get(this), payload_size);    
 
@@ -459,23 +461,23 @@ root.object.__clone__ = function (payload_size)
         object_value_set(clone, -i, object_value_get(this, -i));
     }
 
-    clone.__map__   = this.__map__;
-    clone.__proto__ = this.__proto__;
+    object_map(clone)   = object_map(this);
+    object_proto(clone) = object_proto(this);
 
     return clone;
 }
 
 root.object.__delete__ = function (name) 
 {
-    var offset = this.__map__.__lookup__(name);
+    var offset = object_map(this).__lookup__(name);
 
     if (offset === undefined)
     {
         return false;
     } else
     {
-        var new_map = this.__map__.__remove__(name);
-        this.__map__ = new_map;
+        var new_map      = object_map(this).__remove__(name);
+        object_map(this) = new_map;
         
         // If the deleted property is not the last, move the value of the last
         // property in the deleted slot
@@ -490,8 +492,7 @@ root.object.__delete__ = function (name)
         return true;
     }
 }
-*/
-/*
+
 root.object.__get__ = function (name) 
 {
     var offset = undefined;
@@ -511,19 +512,20 @@ root.object.__get__ = function (name)
 
     return undefined;
 }
+
 root.object.__new__ = function () 
 {
-    var new_map     = this.__map__.__new__();
-    var child       = this.__clone__();
-    child.__map__   = new_map;
-    child.__proto__ = this;
+    var new_map         = object_map(this).__new__();
+    var child           = this.__clone__(0);
+    object_map(child)   = new_map;
+    object_proto(child) = this;
 
     return child;
 }
 
 root.object.__set__ = function (name, value) 
 {
-    var offset = this.__map__.__lookup__(name);
+    var offset = object_map(this).__lookup__(name);
 
     if (offset === undefined)
     {
@@ -532,8 +534,8 @@ root.object.__set__ = function (name, value)
             // TODO
         } else
         {
-            var new_map = this.__map__.__create__(name);
-            this.__map__ = new_map;
+            var new_map      = object_map(this).__create__(name);
+            object_map(this) = new_map;
             object_values_count_inc(this);
             return object_value_set(this, -object_values_count_get(this), value);
         }
@@ -542,4 +544,3 @@ root.object.__set__ = function (name, value)
         return object_value_set(this, offset, value);
     }
 }
-*/

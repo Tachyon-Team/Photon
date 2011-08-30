@@ -796,7 +796,7 @@ struct object *object_get(size_t n, struct object *self, struct object *name)
 struct object *object_new(size_t n, struct object *self)
 {
     struct map    *new_map   = (struct map *)send(self->_hd[-1].map, s_new);
-    struct object *child     = send(self, s_clone);
+    struct object *child     = send(self, s_clone, 0);
     child->_hd[-1].map       = new_map;
     child->_hd[-1].prototype = self;
     return child;
