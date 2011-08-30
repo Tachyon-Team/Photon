@@ -49,6 +49,7 @@ ometa PhotonASTCopy {
   gets     trans:fd trans:x                               -> [#gets, fd, x],
   mreturn  trans:x trans:y                                -> [#mreturn, x, y],
   code     :c                                             -> [#code, _deep_copy(c)],
+  super    trans:e                                        -> [#super, e],
   macro    :n :args :ctxt curlyTrans:body                 -> [#macro, _deep_copy(n), _deep_copy(args), _deep_copy(ctxt), body]
 }
 
@@ -70,8 +71,10 @@ ometa PhotonMacroRep <: PhotonASTCopy {
            | ^get),
              
   macro    :n  (:args -> self.bind(args)) :ctxt 
-                  curlyTrans:body                           -> body,
-  return   trans:x                                          -> x,
+                  trans:body                                -> body,
+  begin    [#return trans:x] end                            -> x,
+  begin    trans:x end                                      -> [#begin, x],
+  begin    trans*:xs                                        -> [#begin].concat(xs),
  
   // Recursively expand macro calls
   call     ([#get :x] ?(self.macros[x] !== undefined) 

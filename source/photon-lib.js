@@ -72,8 +72,8 @@ function _fct(code)
     //print("listing");
     //print(codeBlock.listingString());
 
-    var f = photon.send(photon.function, "new", codeBlock.code.length);
-    photon.send(f, "intern", clean(codeBlock.code));
+    var f = photon.send(photon.function, "__new__", codeBlock.code.length);
+    photon.send(f, "__intern__", clean(codeBlock.code));
 
     return f;
 }
@@ -397,7 +397,7 @@ function _arg(a)
 function _symbol(s)
 {
     //print("internalizing symbol: " + s);
-    return _op("mov", _mref(photon.send(photon.symbol, "intern", s)), _EAX);
+    return _op("mov", _mref(photon.send(photon.symbol, "__intern__", s)), _EAX);
 }
 
 function _send(rcv, msg, args)
@@ -413,6 +413,7 @@ function _send(rcv, msg, args)
         _op("push", _EAX),
         _op("push", _$(args.length)),
 
+        /*
         // Inline cache
         _op("mov", _mem(-4, _EAX), _EAX),
         _op("cmp", _$(123456789), _EAX), // previousMap
@@ -420,6 +421,7 @@ function _send(rcv, msg, args)
         _op("mov", _$(0), _EAX), // previousMethod
         _op("call", _EAX),
         _op("jmp", CONT),
+        */
 
         BIND,
         // Bind
@@ -434,6 +436,7 @@ function _send(rcv, msg, args)
         _op("cmp", _$(_UNDEFINED), _EAX),
         _op("je", CONT),
        
+        /*
         // Code patching
         _op("call", SELF),
         SELF,
@@ -442,6 +445,37 @@ function _send(rcv, msg, args)
         _op("mov", _mem(-4, _ECX), _ECX),
         _op("mov", _ECX, _mem(-45, _EBX)), // set previousMap
         _op("mov", _EAX, _mem(-38, _EBX)), // set previousMethod
+        */
+
+        // Call
+        _op("call", _EAX),
+        
+        CONT,
+        _pop_args(args.length + 2)
+    ];
+}
+
+function _super_send(rcv, msg, args)
+{
+    var CONT      = _label();
+
+    return [
+        _push_args(args),
+        rcv,
+        _op("push", _EAX),
+        _op("push", _$(args.length)),
+
+        // Bind
+        msg,
+        _op("push", _EAX),
+        _op("mov", _mref(photon.super_bind), _EAX),
+        _op("push", _$(0)), // NULL RECEIVER
+        _op("push", _$(3)),  // Arg number
+        _op("call", _EAX),
+        _op("add", _$(12), _ESP),
+
+        _op("cmp", _$(_UNDEFINED), _EAX),
+        _op("je", CONT),
 
         // Call
         _op("call", _EAX),
@@ -454,14 +488,14 @@ function _send(rcv, msg, args)
 function _array(xs)
 {
     return [_send(_arg(_mref(photon.array)), 
-                  _symbol("new"), 
+                  _symbol("__new__"), 
                   [_arg(_$(_ref(xs.length + 10)))]),
             _op("push", _EAX),
             xs.map(function (x) 
             {
                 return _send(
                     _op("mov", _mem(4, _ESP), _EAX),
-                    _symbol("push"),
+                    _symbol("__push__"),
                     [x]
                 );
             }),
@@ -472,14 +506,14 @@ function _array(xs)
 function _object(xs)
 {
     return [_send(_arg(_mref(photon.object)), 
-                  _symbol("new"), 
+                  _symbol("__new__"), 
                   []),
             _op("push", _EAX),
             xs.map(function (x) 
             {
                 return _send(
                     _op("mov", _mem(8, _ESP), _EAX),
-                    _symbol("set"),
+                    _symbol("__set__"),
                     [_symbol(x[0]), x[1]]
                 );
             }),
@@ -492,10 +526,10 @@ function _compile(s)
     try {
         var r = PhotonParser.matchAll(s, "topLevel");
         print("Macro Exp");
-        print(r);
+        //print(r);
         r = PhotonMacroExp.matchAll([r], "trans");
-        print(r);
-        //print("AST: '" + r + "'");
+        //print(r);
+        print("AST: '" + r + "'");
         print("VarAnalysis");
         var r = PhotonVarAnalysis.matchAll([r], "trans");
         print("Compilation");

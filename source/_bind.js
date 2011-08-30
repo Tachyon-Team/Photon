@@ -1,14 +1,14 @@
 global_return function (msg, n, rcv)
 {
-    if (msg === "lookup" && rcv === rcv[@-1])
+    if (msg === "__lookup__" && rcv === rcv[@-1])
     {
         var l_rcv    = @{["ref", photon.map]}@;
         var l_offset = 
             @{["ccall",
-                  ["ref",    photon.send(photon.map, "get", "lookup")],
+                  ["ref",    photon.send(photon.map, "__get__", "__lookup__")],
                   ["number", 1],
                   ["ref",    photon.map],
-                  ["string", "lookup"]]}@;
+                  ["string", "__lookup__"]]}@;
         return l_rcv[@l_offset - 4];
     }
 
@@ -17,15 +17,7 @@ global_return function (msg, n, rcv)
 
     while (rcv !== null)
     {
-        l_offset = l_rcv[@-1].lookup(msg);
-        //Static call version
-        /*
-        l_offset = @{["ccall",
-                       ["ref",    photon.send(photon.map, "get", "lookup")],
-                       ["number", 1],
-                       ["gets", ["unop", "-", ["number", 1]], ["get", "l_rcv"]],
-                       ["get", "msg"]]}@;
-                       */
+        l_offset = l_rcv[@-1].__lookup__(msg);
 
         if (l_offset !== undefined)
         {

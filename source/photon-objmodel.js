@@ -153,18 +153,15 @@ root.array.__delete__ = function (name)
         return false;
     } else
     {
-        //return super(this).__delete__(name);
+        return super(this).__delete__(name);
     }
 }
 
 root.array.__get__ = function (name) 
 {   
-    if (ref_is_fixnum(name))
+    if (ref_is_fixnum(name) && name >= 0)
     {
-        if (name < 0)
-        {
-            return undefined; //super(this).__get__(name)
-        } else if (name >= this.__get__("length"))
+        if (name >= this.__get__("length"))
         {
             return undefined;
         } else
@@ -176,16 +173,16 @@ root.array.__get__ = function (name)
         return array_indexed_values_size_get(this);
     } else     
     {
-        return undefined; //super(this).__get__(name);
+        return super(this).__get__(name);
     }
 }
 
-/*
 root.array.__new__ = function (size) 
 {
     var new_array = this.__allocate__(4, (size + 1) * sizeof_ref); 
-    new_array.__map__   = this.__map__.__new__();     
-    new_array.__proto__ = this;
+    object_map(new_array)   = object_map(this).__new__();     
+    object_proto(new_array) = this;
+    array_indexed_values_size_set(new_array, 0);
 
     return new_array;
 }
@@ -225,7 +222,7 @@ root.array.__set__ = function (name, value)
             }
         }
 
-        this.length = value;
+        array_indexed_values_size_set(this, value);
     } else
     {
         return super(this).__set__(name, value);
@@ -234,6 +231,7 @@ root.array.__set__ = function (name, value)
     return value;
 }
 
+/*
 root.function.__intern__ = function (code) 
 {
     for (var i = 0; i < code.length; ++i)
@@ -493,7 +491,7 @@ root.object.__delete__ = function (name)
     }
 }
 */
-
+/*
 root.object.__get__ = function (name) 
 {
     var offset = undefined;
@@ -501,7 +499,7 @@ root.object.__get__ = function (name)
 
     while (rcv !== null)
     {
-        offset = object_map(rcv).lookup(name);
+        offset = object_map(rcv).__lookup__(name);
 
         if (offset !== undefined)
         {
@@ -513,7 +511,6 @@ root.object.__get__ = function (name)
 
     return undefined;
 }
-/*
 root.object.__new__ = function () 
 {
     var new_map     = this.__map__.__new__();

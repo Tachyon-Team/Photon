@@ -5,6 +5,12 @@
 #include <sys/mman.h>
 #include <assert.h>
 
+/*
+ * The PP_NARG macro evaluates to the number of arguments that have been
+ * passed to it.
+ *
+ * Laurent Deniau, "__VA_NARG__," 17 January 2006, <comp.std.c> (29 November 2007).
+ */
 #define PHOTON_PP_NARG(...) \
          PHOTON_PP_NARG_(__VA_ARGS__,PHOTON_PP_RSEQ_N()) 
 #define PHOTON_PP_NARG_(...) \
@@ -273,6 +279,14 @@ inline ssize_t ref_to_fixnum(struct object *obj)
 //--------------------------------- Object Model Primitives --------------------
 struct object *map_lookup(size_t n, struct map *self, struct object *name);
 
+// Special send for 0 argument case since the PP_NARG macro does not detect
+// it correctly
+#define send0(RCV, MSG) ({                                             \
+    struct object *r      = (struct object *)(RCV);		               \
+    struct lookup _l      = _bind(r, (MSG));                           \
+    (_l.offset == UNDEFINED) ? UNDEFINED :                             \
+        ((method_t)(_l.rcv->_hd[-1].values[fx(_l.offset)]))(0, r);\
+});
 
 #define send(RCV, MSG, ARGS...) ({                                             \
     struct object *r      = (struct object *)(RCV);		                       \
@@ -854,24 +868,24 @@ extern void bootstrap()
     ((struct map *)root_map)->count = ref(0);
 
     printf("Initializing Root Map\n");
-    s_lookup      = object_allocate(2, NIL, ref(0), ref(7));
+    s_lookup      = object_allocate(2, NIL, ref(0), ref(11));
     map_set(2, (struct map *)root_map, s_lookup, (struct object *)map_lookup);
-    s_set         = object_allocate(2, NIL, ref(0), ref(4));
+    s_set         = object_allocate(2, NIL, ref(0), ref(8));
     map_set(2, (struct map *)root_map, s_set, (struct object *)map_set);
 
     printf("Create implementation symbols\n");
-    s_add         = object_allocate(2, NIL, ref(0), ref(4));
-    s_allocate    = object_allocate(2, NIL, ref(0), ref(8));
-    s_clone       = object_allocate(2, NIL, ref(0), ref(6));
-    s_create      = object_allocate(2, NIL, ref(0), ref(7));
-    s_delete      = object_allocate(2, NIL, ref(0), ref(7));
-    s_get         = object_allocate(2, NIL, ref(0), ref(4));
-    s_intern      = object_allocate(2, NIL, ref(0), ref(7));
+    s_add         = object_allocate(2, NIL, ref(0), ref(8));
+    s_allocate    = object_allocate(2, NIL, ref(0), ref(12));
+    s_clone       = object_allocate(2, NIL, ref(0), ref(10));
+    s_create      = object_allocate(2, NIL, ref(0), ref(11));
+    s_delete      = object_allocate(2, NIL, ref(0), ref(11));
+    s_get         = object_allocate(2, NIL, ref(0), ref(8));
+    s_intern      = object_allocate(2, NIL, ref(0), ref(11));
     s_length      = object_allocate(2, NIL, ref(0), ref(7));
-    s_new         = object_allocate(2, NIL, ref(0), ref(4));
-    s_push        = object_allocate(2, NIL, ref(0), ref(5));
-    s_remove      = object_allocate(2, NIL, ref(0), ref(7));
-    s_symbols     = object_allocate(2, NIL, ref(0), ref(8));
+    s_new         = object_allocate(2, NIL, ref(0), ref(8));
+    s_push        = object_allocate(2, NIL, ref(0), ref(9));
+    s_remove      = object_allocate(2, NIL, ref(0), ref(11));
+    s_symbols     = object_allocate(2, NIL, ref(0), ref(12));
 
     printf("Add primitive methods on Root Map\n");
     send(root_map, s_set, s_clone,    (struct object *)map_clone);
@@ -959,20 +973,20 @@ extern void bootstrap()
     send(symbols, s_push, s_set);
     send(symbols, s_push, s_symbols);
 
-    strcpy((char*)s_add,      "add");
-    strcpy((char*)s_allocate, "allocate");
-    strcpy((char*)s_clone,    "clone");
-    strcpy((char*)s_create,   "create");
-    strcpy((char*)s_delete,   "delete");
-    strcpy((char*)s_get,      "get");
-    strcpy((char*)s_intern,   "intern");
+    strcpy((char*)s_add,      "__add__");
+    strcpy((char*)s_allocate, "__allocate__");
+    strcpy((char*)s_clone,    "__clone__");
+    strcpy((char*)s_create,   "__create__");
+    strcpy((char*)s_delete,   "__delete__");
+    strcpy((char*)s_get,      "__get__");
+    strcpy((char*)s_intern,   "__intern__");
     strcpy((char*)s_length,   "length");
-    strcpy((char*)s_lookup,   "lookup");
-    strcpy((char*)s_new,      "new");
-    strcpy((char*)s_push,     "push");
-    strcpy((char*)s_remove,   "remove");
-    strcpy((char*)s_set,      "set");
-    strcpy((char*)s_symbols,  "symbols");
+    strcpy((char*)s_lookup,   "__lookup__");
+    strcpy((char*)s_new,      "__new__");
+    strcpy((char*)s_push,     "__push__");
+    strcpy((char*)s_remove,   "__remove__");
+    strcpy((char*)s_set,      "__set__");
+    strcpy((char*)s_symbols,  "__symbols__");
 
     printf("Add primitive methods on Root Symbol\n");
     send(root_symbol, s_set, s_intern, symbol_intern);

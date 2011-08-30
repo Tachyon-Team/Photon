@@ -90,7 +90,7 @@ ometa PhotonParser <: Parser {
                | "void"   unary:p                                                    -> [#unop,  "void",     p]
                | "delete" unary:p                                                    -> [#unop,  "delete",   p]
                | "typeof" unary:p                                                    -> [#unop,  "typeof",   p]
-               | "~"      unary:p                                                    -> [#unop,  "~",   p]
+               | "~"      unary:p                                                    -> [#unop,  "~",        p]
                | postfix,
   postfix      = primExpr:p ( spacesNoNl ("++" -> "+"
                                          |"--" -> "-"):op                            -> [#begin, 
@@ -107,7 +107,8 @@ ometa PhotonParser <: Parser {
                             | "(" listOf(#expr, ','):as ")"                          -> [#call, p].concat(as)
                             )
                | primExprHd,
-  primExprHd   = "(" expr:e ")"                                                      -> e
+  primExprHd   = "super" "(" expr:e ")"                                              -> [#super, e] 
+               | "(" expr:e ")"                                                      -> e
                | "this"                                                              -> [#this]
                | "name":n                                                            -> [#get, n]
                | "number":n                                                          -> [#number, n]
@@ -172,7 +173,7 @@ ometa PhotonParser <: Parser {
 PhotonParser.hexDigits = "0123456789abcdef"
 PhotonParser.keywords  = { }
 keywords = ["break", "case", "catch", "continue", "default", "delete", "do", "else", "finally", "for", "function", "if", "in",
-            "instanceof", "new", "return", "switch", "this", "throw", "try", "typeof", "var", "void", "while", "with", "ometa", "const", "global_return", "macro"]
+            "instanceof", "new", "return", "switch", "this", "throw", "try", "typeof", "var", "void", "while", "with", "ometa", "const", "global_return", "macro", "super"]
 for (var idx = 0; idx < keywords.length; idx++)
   PhotonParser.keywords[keywords[idx]] = true
 PhotonParser._isKeyword = function(k) { return this.keywords.hasOwnProperty(k) }
@@ -228,6 +229,7 @@ ometa PhotonASTTraversal {
   gets     trans:fd trans:x,
   mreturn  trans:x trans:y,
   code     :c,
+  super    trans:e,
   macro    :n :args :ctxt curlyTrans:body
 }
 
@@ -282,13 +284,13 @@ ometa PhotonCompiler {
            | #null     -> _$(_NIL)
            | :x ?(PhotonCompiler._hasLocal(x)) -> _mem(PhotonCompiler._loc(x), _EBP)):x
                                                               -> _op("mov", x, _EAX),
-  get      :x                                                 -> _send(_arg(_mref(photon.global)), _symbol("get"), [_symbol(x)]),
-  getp     trans:fd trans:x                                   -> _send(x, _symbol("get"), [fd]),
+  get      :x                                                 -> _send(_arg(_mref(photon.global)), _symbol("__get__"), [_symbol(x)]),
+  getp     trans:fd trans:x                                   -> _send(x, _symbol("__get__"), [fd]),
   gets     trans:fd trans:x                                   -> [fd, _op("dec", _EAX), _op("push", _EAX), 
                                                                    x, _op("pop", _EBX), _op("mov", _mem(0, _EAX, _EBX, 2), _EAX)],
   set      [#get :x] ?(PhotonCompiler._hasLocal(x)) trans:rhs  -> [rhs, _op("mov", _EAX, _mem(PhotonCompiler._loc(x), _EBP))],
-  set      [#get :x] trans:rhs                                -> _send(_arg(_mref(photon.global)), _symbol("set"), [_symbol(x), rhs]),
-  set      [#getp trans:fd trans:rcv] trans:rhs               -> _send(rcv, _symbol("set"), [fd, rhs]),
+  set      [#get :x] trans:rhs                                -> _send(_arg(_mref(photon.global)), _symbol("__set__"), [_symbol(x), rhs]),
+  set      [#getp trans:fd trans:rcv] trans:rhs               -> _send(rcv, _symbol("__set__"), [fd, rhs]),
   set      [#gets trans:fd trans:rcv] trans:rhs               -> [rhs, _op("push", _EAX), 
                                                                   fd,  _op("dec", _EAX), _op("push", _EAX), 
                                                                   rcv, _op("mov", _EAX, _ECX),
@@ -305,8 +307,8 @@ ometa PhotonCompiler {
                               _op("mov", _$(_FALSE), _EBX),
                               _op("cmovz", _EBX, _EAX)]):op 
              trans:x                                          -> [x, op],
-  unop     ( 'typeof' trans:rcv                               -> _send(rcv, _symbol("typeof"), [])
-           | 'delete' ([#getp trans:f trans:rcv]              -> _send(rcv, _symbol("delete"), [f])
+  unop     ( 'typeof' trans:rcv                               -> _send(rcv, _symbol("__typeof__"), [])
+           | 'delete' ([#getp trans:f trans:rcv]              -> _send(rcv, _symbol("__delete__"), [f])
                       |[#get :n]                              -> _op("mov", _$(_FALSE), _EAX))),
 
   binop    ( '+' -> "add"
@@ -325,9 +327,6 @@ ometa PhotonCompiler {
            | '!='         -> []                                          
            | '==='        -> _rel("cmovz", false)                        
            | '!=='        -> _rel("cmovnz", false)                       
-           // TODO: Implement non evaluation of rhs if lhs is 'false' for '&&' or 'true' for '||'
-           | '&&'         -> _logic("and")                               
-           | '||'         -> _logic("or")                                
            | '>>'         -> _shiftop("sar")                             
            | '>>>'        -> _shiftop("shr")                             
            | '<<'         -> _shiftop("sal")                             
@@ -335,7 +334,12 @@ ometa PhotonCompiler {
            | '&'          -> _bitwise("and")                                          
            | '|'          -> _bitwise("or")):op                                          
            trans:x trans:y                                    -> [x, _op("push", _EAX), y, op, _op("add", _$(4), _ESP)],
-  binop      'instanceof' trans:x trans:y                     -> _send(x, _symbol("instanceof"), [y]),
+  binop    ( '||' (empty -> _TRUE):skip  -> _logic("or")
+           | '&&' (empty -> _FALSE):skip -> _logic("and")):op  
+           trans:x trans:y                                    -> {var END = _label();
+                                                                  [x, _op("cmp", _$(skip), _EAX), _op("je", END),
+                                                                   _op("push", _EAX), y, op, _op("add", _$(4), _ESP), END]},
+  binop      'instanceof' trans:x trans:y                     -> _send(x, _symbol("__instanceof__"), [y]),
   preop    :op trans:x                                        -> {throw "Unimplemented preop '" + op + "'";},
   postop   :op trans:x                                        -> {throw "Unimplemented postop '" + op + "'";},
   return   trans:x                                            -> [x, _epilogue()],
@@ -383,6 +387,7 @@ ometa PhotonCompiler {
                                                                   PhotonCompiler._popLocals();
                                                                   _op("mov", _mref(_fct([ _prologue(loc_nb, args.length), body])), _EAX);},
   send     trans:msg trans:rcv trans*:args                    -> _send(rcv, msg, args),
+  call     [#getp trans:msg [#super trans:rcv]] trans*:args   -> _super_send(rcv, msg, args),
   call     [#getp trans:msg trans:rcv]  trans*:args           -> _send(rcv, msg, args),
   call     trans:fn trans*:args                               -> [_push_args(args),
                                                                   _op("push", _$(0)),           // Null receiver
@@ -391,7 +396,7 @@ ometa PhotonCompiler {
                                                                   _pop_args(args.length + 2)],
   new      trans:cls trans*:args                              -> [],
   var      :name ?(PhotonCompiler._hasLocal(name)) trans:val  -> [val, _op("mov", _EAX, _mem(PhotonCompiler._loc(name), _EBP))],
-  var      :name trans:val                                    -> _send(_arg(_mref(photon.global)), _symbol("set"), [_symbol(name), val]),
+  var      :name trans:val                                    -> _send(_arg(_mref(photon.global)), _symbol("__set__"), [_symbol(name), val]),
   throw    trans:x                                            -> [],
   try      curlyTrans:x :name curlyTrans:c curlyTrans:f       -> [],
   // TODO: Make sure fixnums are internalized to their own value as symbols
