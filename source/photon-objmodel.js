@@ -9,7 +9,7 @@ var root = {
 // Constants
 const sizeof_ref                   = 4;
 const sizeof_header                = 4*sizeof_ref;
-const sizeof_property              = 2*sizeof_ref; 
+const sizeof_property              = 4*sizeof_ref; 
 
 const array_value_offset           = 1;
 const default_object_value_nb      = 4;
@@ -23,6 +23,7 @@ const object_values_offset         = -4;
 //--------------------------------- C Primitives -------------------------------
 
 //@{["ref", photon.function]}@.__allocate__ = function (values_size, payload_size) {}
+//@{["ref", photon.function]}@.__intern__   = function (code) {}
 
 //@{["ref", photon.object]}@.__allocate__   = function (values_size, payload_size) {}
 //@{["ref", photon.object]}@.__load__       = function (i, width) {}
@@ -50,31 +51,37 @@ macro array_indexed_values_size_set(a, v)
 }
 macro map_length_get(m)
 {
-    return m[@map_length_offset];
+    // FIXME: Hard-coded constant until constant propagation is implanted
+    return m[@0];
 }
 macro map_length_set(m, v)
 {
-    return m[@map_length_offset] = v;
+    // FIXME: Hard-coded constant until constant propagation is implanted
+    return m[@0] = v;
 }
 macro map_properties_size(m)        
 {
-    return (object_payload_size_get(m) - sizeof_ref) / sizeof_property;
+    return ((object_payload_size(m) - sizeof_ref) / sizeof_property);
 }
 macro map_property_name_get(m,i)    
 {
-    return m[@i*2 + map_properties_offset];
+    // FIXME: Hard-coded constant until constant propagation is implanted
+    return m[@i*4 + 1];
 }
 macro map_property_name_set(m,i,v)  
 {
-    return m[@i*2 + map_properties_offset] = v;
+    // FIXME: Hard-coded constant until constant propagation is implanted
+    return m[@i*4 + 1] = v;
 }
 macro map_property_location_get(m,i)  
 {
-    return m[@i*2 + 1 + map_properties_offset];
+    // FIXME: Hard-coded constant until constant propagation is implanted
+    return m[@i*4 + 2];
 }
 macro map_property_location_set(m,i,v)
 {
-    return m[@i*2 + 1 + map_properties_offset] = v;
+    // FIXME: Hard-coded constant until constant propagation is implanted
+    return m[@i*4 + 2] = v;
 }
 macro map_values_are_immutable(m)   
 {
@@ -88,9 +95,10 @@ macro object_map(o)
 {
     return o[@-1];
 }
-macro object_payload_size_get(o)    
+macro object_payload_size(o)    
 {
-    return o[@object_payload_size_offset];
+    // FIXME: Hard-coded constant until constant propagation is implanted
+    return o[@-3];
 }
 macro object_proto(o)
 {
@@ -99,11 +107,11 @@ macro object_proto(o)
 macro object_value_get(o, i)
 {
     // FIXME: Hard-coded constant until constant propagation is implanted
-    return o[@-4 + i];
+    return o[@i + -4];
 }
 macro object_value_set(o, i, v)
 {
-    return o[@object_values_offset + i] = v;
+    return o[@i + object_values_offset] = v;
 }
 macro object_values_count_dec(o)    
 {
@@ -135,11 +143,11 @@ macro ref_is_fixnum(r)
     return @{["begin", 
         ["get", "r"],
         ["code",
-            [_op("mov", _EAX, _EBX),
-             _op("and", _$(1), _EBX),
+            [_op("mov", _EAX, _ECX),
+             _op("and", _$(1), _ECX),
              _op("mov", _$(_TRUE), _EAX),
-             _op("mov", _$(_FALSE), _EBX),
-             _op("cmovz", _EBX, _EAX)]]
+             _op("mov", _$(_FALSE), _ECX),
+             _op("cmovz", _ECX, _EAX)]]
     ]}@;
 }
 
@@ -232,35 +240,28 @@ root.array.__set__ = function (name, value)
     return value;
 }
 
-/*
-root.function.__intern__ = function (code) 
-{
-    for (var i = 0; i < code.length; ++i)
-    {
-        this.__store__(i, code[i] & 255, 8);
-    }
-
-    return this;
-}
-
 root.function.__new__ = function (size) 
 {
-    var new_fct = this.__allocate__(default_object_value_nb, size);
-    new_fct.__map__   = this.__map__.__new__();
-    new_fct.__proto__ = this;
+    var new_fct           = this.__allocate__(default_object_value_nb, size);
+    object_map(new_fct)   = object_map(this).__new__();
+    object_proto(new_fct) = this;
+
+    new_fct.prototype = @{["ref", photon.object]}@.__new__();
+
+    return new_fct;
 }
 
 root.map.__clone__ = function (payload_size) 
 {
-    assert(payload_size >= sizeof_ref);
-
     var new_map    = super(this).__clone__(payload_size);
-    new_map.length = (payload_size - sizeof_ref) / (sizeof_property);
+    new_map.length = this.length;
 
     for (var i = 0; i < new_map.length; ++i)
     {
-        map_property_name_set(new_map, i, map_property_name_get(this, i));
-        map_property_location_set(new_map, i, map_property_location_get(this, i));
+        map_property_name_set(new_map, i, 
+            map_property_name_get(this, i));
+        map_property_location_set(new_map, i, 
+            map_property_location_get(this, i));
     }
 
     if (map_values_are_immutable(this))
@@ -271,6 +272,11 @@ root.map.__clone__ = function (payload_size)
     return new_map;
 }
 
+root.map.__test__ = function (name)
+{
+    return this.length;
+}
+
 root.map.__create__ = function (name) 
 {
     if (this.length === map_properties_size(this))
@@ -278,13 +284,13 @@ root.map.__create__ = function (name)
         var payload_size = this.__payload_size__ + sizeof_property; 
     } else
     {
-        var payload_size = this.__payload_size;
+        var payload_size = this.__payload_size__;
     }
 
     var new_map = this.__clone__(payload_size);
-
+    
     new_map.length = this.length + 1;
-   
+
     map_property_name_set(new_map, this.length, name);
     map_property_location_set(new_map, this.length, -new_map.length);
 
@@ -328,6 +334,7 @@ root.map.__delete__ = function (name)
         }
     }
 }
+
 root.map.__get__ = function (name)
 {
     if (name === "length")
@@ -335,14 +342,13 @@ root.map.__get__ = function (name)
         return map_length_get(this);     
     } else
     {
-        super(this).__get__(name);
+        return super(this).__get__(name);
     }
 }
 
-
 root.map.__lookup__ = function (name) 
 {
-    for (var i = 0; i < this.length; ++i)
+    for (var i = 0; i < map_length_get(this); ++i)
     {
         if (name === map_property_name_get(this, i))
         {
@@ -356,12 +362,12 @@ root.map.__lookup__ = function (name)
 root.map.__new__ = function () 
 {
     var new_map = this.__allocate__(
-        default_object_value_nb, 
+        default_object_value_nb,
         default_map_payload_size
     );
 
-    new_map.__map__   = this.__map__;
-    new_map.__proto__ = this; 
+    object_map(new_map)   = object_map(this);
+    object_proto(new_map) = this; 
     new_map.length = 0;
 
     return new_map;
@@ -387,7 +393,7 @@ root.map.__remove__ = function (name)
             // move the last property in the deleted property
             // slot.
             map_property_name_set(new_map, i, 
-                map_property_name_get(this, new_map.length + 1));
+                map_property_name_get(this, new_map.length));
             map_property_location_set(new_map, i, 
                 map_property_location_get(this, i));
         }
@@ -400,9 +406,13 @@ root.map.__remove__ = function (name)
 root.map.__set__ = function (name, value) 
 {
     if (name === "length")
-    {
         return map_length_set(this, value);
-    }
+
+    if (name === "__map__") 
+        return super(this).__set__(name, value);
+
+    if (name === "__proto__")
+        return super(this).__set__(name, value);
 
     var offset = this.__map__.__lookup__(name);
 
@@ -417,7 +427,7 @@ root.map.__set__ = function (name, value)
             {
                 // Add both on map's map and this
                 var new_map = this.__map__.__create__(name);
-                new_map.__map__ = new_map;
+                object_map(new_map) = new_map;
 
                 object_values_count_inc(new_map);
                 object_values_count_inc(this);
@@ -426,15 +436,17 @@ root.map.__set__ = function (name, value)
                 object_value_set(this,    -object_values_count_get(this), value);
             } else
             {
-                if (this.length === map_properties_size(this))
+                var l = this.length;
+
+                if (l === map_properties_size(this))
                 {
                     // TODO
                 }
 
                 // Add property on map
-                map_property_name_set(this, this.length, name);
-                map_property_location_set(this, this.length, -this.length - 1);
-                this.length += 1;
+                map_property_name_set(this, l, name);
+                map_property_location_set(this, l, -l - 1);
+                this.length = l + 1;
 
                 // Add property in values
                 object_values_count_inc(this);
@@ -450,9 +462,7 @@ root.map.__set__ = function (name, value)
         return object_value_set(this, offset, value);    
     }
 }
-*/
-
-root.object.__clone2__ = function (payload_size) 
+root.object.__clone__ = function (payload_size) 
 {
     var clone = this.__allocate__(object_values_size_get(this), payload_size);    
 
@@ -481,10 +491,10 @@ root.object.__delete__ = function (name)
         
         // If the deleted property is not the last, move the value of the last
         // property in the deleted slot
-        if (-offset < object_values_size_get(this))
+        if (-offset < object_values_count_get(this))
         {
             object_value_set(this, offset, 
-                object_value_get(this, -object_values_size_get(this)));
+                object_value_get(this, -object_values_count_get(this)));
         }
 
         object_values_count_dec(this);
@@ -495,6 +505,16 @@ root.object.__delete__ = function (name)
 
 root.object.__get__ = function (name) 
 {
+    if (name === "__proto__")
+        return object_proto(this);
+
+    if (name === "__map__")
+        return object_map(this);
+
+    if (name === "__payload_size__")
+        return object_payload_size(this);
+
+
     var offset = undefined;
     var rcv  = this;
 
@@ -520,11 +540,19 @@ root.object.__new__ = function ()
     object_map(child)   = new_map;
     object_proto(child) = this;
 
+    child.constructor   = undefined;
+
     return child;
 }
 
 root.object.__set__ = function (name, value) 
 {
+    if (name === "__proto__")
+        return object_proto(this) = value;
+
+    if (name === "__map__")
+        return object_map(this) = value;
+
     var offset = object_map(this).__lookup__(name);
 
     if (offset === undefined)

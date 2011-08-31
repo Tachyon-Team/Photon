@@ -87,8 +87,6 @@ PhotonMacroRep.initialize = function (args, macros)
     this.macro_actual_args = args;
     this.macros = macros;
 
-    print("macros : " + macros);
-
     this.bindings = {};
 
     this.bind = function (args)

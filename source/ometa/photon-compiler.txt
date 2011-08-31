@@ -287,16 +287,16 @@ ometa PhotonCompiler {
   get      :x                                                 -> _send(_arg(_mref(photon.global)), _symbol("__get__"), [_symbol(x)]),
   getp     trans:fd trans:x                                   -> _send(x, _symbol("__get__"), [fd]),
   gets     trans:fd trans:x                                   -> [fd, _op("dec", _EAX), _op("push", _EAX), 
-                                                                   x, _op("pop", _EBX), _op("mov", _mem(0, _EAX, _EBX, 2), _EAX)],
+                                                                   x, _op("pop", _ECX), _op("mov", _mem(0, _EAX, _ECX, 2), _EAX)],
   set      [#get :x] ?(PhotonCompiler._hasLocal(x)) trans:rhs  -> [rhs, _op("mov", _EAX, _mem(PhotonCompiler._loc(x), _EBP))],
   set      [#get :x] trans:rhs                                -> _send(_arg(_mref(photon.global)), _symbol("__set__"), [_symbol(x), rhs]),
   set      [#getp trans:fd trans:rcv] trans:rhs               -> _send(rcv, _symbol("__set__"), [fd, rhs]),
   set      [#gets trans:fd trans:rcv] trans:rhs               -> [rhs, _op("push", _EAX), 
                                                                   fd,  _op("dec", _EAX), _op("push", _EAX), 
                                                                   rcv, _op("mov", _EAX, _ECX),
-                                                                  _op("pop", _EBX), 
+                                                                  _op("pop", _EDX), 
                                                                   _op("pop", _EAX),
-                                                                  _op("mov", _EAX, _mem(0, _ECX, _EBX, 2))],
+                                                                  _op("mov", _EAX, _mem(0, _ECX, _EDX, 2))],
   mset     trans:lhs :op trans:rhs                            -> {throw "Unimplemented mset '" + op + "'";},
   unop     ( '-'          -> [_op("push", _$(1)), 
                               _arith("sub"),
@@ -304,8 +304,8 @@ ometa PhotonCompiler {
                               _op("add", _$(4), _ESP)]
            | '!'          -> [_op("cmp", _$(_TRUE), _EAX),
                               _op("mov", _$(_TRUE), _EAX),
-                              _op("mov", _$(_FALSE), _EBX),
-                              _op("cmovz", _EBX, _EAX)]):op 
+                              _op("mov", _$(_FALSE), _ECX),
+                              _op("cmovz", _ECX, _EAX)]):op 
              trans:x                                          -> [x, op],
   unop     ( 'typeof' trans:rcv                               -> _send(rcv, _symbol("__typeof__"), [])
            | 'delete' ([#getp trans:f trans:rcv]              -> _send(rcv, _symbol("__delete__"), [f])

@@ -389,7 +389,7 @@ struct object *array_new(size_t n, struct array *self, struct object *size)
         ref(fx(size)*sizeof(struct object *) + sizeof(struct object *))
     );
 
-    new_array->_hd[-1].map       = (struct map *)send(self->_hd[-1].map, s_new);
+    new_array->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
     new_array->_hd[-1].prototype = (struct object *)self;
     
     ((struct array *)new_array)->count = ref(0);
@@ -488,7 +488,7 @@ struct object *function_new(size_t n, struct function *self, struct object *size
 {
     struct object *new_fct = send(self, s_allocate, ref(4), size);
 
-    new_fct->_hd[-1].map       = (struct map *)send(self->_hd[-1].map, s_new);
+    new_fct->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
     new_fct->_hd[-1].prototype = (struct object *)self;
 
     return new_fct;
@@ -499,6 +499,7 @@ struct object *map_clone(size_t n, struct map *self, struct object *payload_size
     assert(fx(payload_size) >= fx(self->_hd[-1].payload_size));
     
     ssize_t i;
+
     struct map* new_map = (struct map *)super_send(self, s_clone, payload_size);
     new_map->count = self->count;
 
@@ -506,6 +507,7 @@ struct object *map_clone(size_t n, struct map *self, struct object *payload_size
     {
         new_map->properties[i] = self->properties[i];
     }
+
 
     if (map_values_are_immutable(self))
     {
@@ -628,7 +630,7 @@ struct object *map_remove(size_t n, struct map *self, struct object *name)
         ref(fx(self->_hd[-1].payload_size) - sizeof(struct property))
     );
 
-    new_map->count = ref(fx(new_map->count) - 1);
+    new_map->count = ref(fx(self->count) - 1);
 
     for (i=0; i < fx(new_map->count); ++i)
     {
@@ -640,7 +642,7 @@ struct object *map_remove(size_t n, struct map *self, struct object *name)
             // The deleted property is not the last one,
             // move the last property in the deleted property
             // slot.
-            new_map->properties[i]          = self->properties[fx(new_map->count) + 1];
+            new_map->properties[i]          = self->properties[fx(new_map->count)];
             new_map->properties[i].location = self->properties[i].location;
         }
     }
@@ -769,9 +771,9 @@ struct object *object_delete(size_t n, struct object *self, struct object *name)
 
         // If the deleted property is not the last, move the value of the last
         // property in the deleted slot
-        if (-fx(offset) < object_values_size(self))
+        if (-fx(offset) < object_values_count(self))
         {
-            self->_hd[-1].values[fx(offset)] = self->_hd[-1].values[-object_values_size(self)];
+            self->_hd[-1].values[fx(offset)] = self->_hd[-1].values[-object_values_count(self)];
         }
 
         object_values_count_dec(self);
@@ -795,7 +797,7 @@ struct object *object_get(size_t n, struct object *self, struct object *name)
 
 struct object *object_new(size_t n, struct object *self)
 {
-    struct map    *new_map   = (struct map *)send(self->_hd[-1].map, s_new);
+    struct map    *new_map   = (struct map *)send0(self->_hd[-1].map, s_new);
     struct object *child     = send(self, s_clone, 0);
     child->_hd[-1].map       = new_map;
     child->_hd[-1].prototype = self;
@@ -846,34 +848,39 @@ struct object *symbol_new(size_t n, struct object *self, char *string)
         ref(0), 
         ref(strlen(string) + 1)
     );
-    new_symbol->_hd[-1].map = (struct map *)send(self->_hd[-1].map, s_new);
+    new_symbol->_hd[-1].map = (struct map *)send0(self->_hd[-1].map, s_new);
     new_symbol->_hd[-1].prototype = self;
     strcpy((char *)new_symbol, string);
 
     return new_symbol;
 }
 
+void log(const char* s)
+{
+    //printf("%s", s); 
+}
+
 //--------------------------------- Bootstrap ----------------------------------
 extern void bootstrap()
 {
-    printf("Create Root Map\n");
+    log("Create Root Map\n");
     root_map = object_allocate(
         2,
         NIL, 
-        ref(7), 
-        ref(7*sizeof(struct property) + sizeof(struct object *))
+        ref(20), 
+        ref(20*sizeof(struct property) + sizeof(struct object *))
     ); 
     root_map->_hd[-1].map       = (struct map *)root_map;
     root_map->_hd[-1].prototype = NIL;
     ((struct map *)root_map)->count = ref(0);
 
-    printf("Initializing Root Map\n");
+    log("Initializing Root Map\n");
     s_lookup      = object_allocate(2, NIL, ref(0), ref(11));
     map_set(2, (struct map *)root_map, s_lookup, (struct object *)map_lookup);
     s_set         = object_allocate(2, NIL, ref(0), ref(8));
     map_set(2, (struct map *)root_map, s_set, (struct object *)map_set);
 
-    printf("Create implementation symbols\n");
+    log("Create implementation symbols\n");
     s_add         = object_allocate(2, NIL, ref(0), ref(8));
     s_allocate    = object_allocate(2, NIL, ref(0), ref(12));
     s_clone       = object_allocate(2, NIL, ref(0), ref(10));
@@ -887,19 +894,19 @@ extern void bootstrap()
     s_remove      = object_allocate(2, NIL, ref(0), ref(11));
     s_symbols     = object_allocate(2, NIL, ref(0), ref(12));
 
-    printf("Add primitive methods on Root Map\n");
+    log("Add primitive methods on Root Map\n");
     send(root_map, s_set, s_clone,    (struct object *)map_clone);
     send(root_map, s_set, s_create,   (struct object *)map_create);
     send(root_map, s_set, s_delete,   (struct object *)map_delete);
     send(root_map, s_set, s_new,      (struct object *)map_new);
     send(root_map, s_set, s_remove,   (struct object *)map_remove);
 
-    printf("Create Root Object\n");
+    log("Create Root Object\n");
     root_object = object_allocate(2, NIL, ref(20), ref(0)); 
     root_object->_hd[-1].prototype = NIL;
     root_map->_hd[-1].prototype = root_object;
 
-    printf("Create Root Object Map\n");
+    log("Create Root Object Map\n");
     root_object->_hd[-1].map = (struct map *)object_allocate(
         2,
         NIL, 
@@ -917,7 +924,7 @@ extern void bootstrap()
     object_values_count_set((struct object *)root_object->_hd[-1].map, 0);
     object_values_count_set(root_object, 3);
 
-    printf("Create Root Object Map's Map\n");
+    log("Create Root Object Map's Map\n");
     struct map *root_object_map_map = (struct map *)object_allocate(
         2,
         NIL, 
@@ -932,7 +939,7 @@ extern void bootstrap()
     root_object->_hd[-1].map->_hd[-1].map = root_object_map_map;
 
 
-    printf("Add primitive methods on Root Object\n");
+    log("Add primitive methods on Root Object\n");
     object_set(2, root_object, s_set, (struct object *)object_set);
 
     send(root_object, s_set, s_allocate, (struct object *)object_allocate);
@@ -941,20 +948,20 @@ extern void bootstrap()
     send(root_object, s_set, s_get,      (struct object *)object_get);
     send(root_object, s_set, s_new,      (struct object *)object_new);
 
-    printf("Create Root Array Object\n");
-    root_array = send(root_object, s_new);
+    log("Create Root Array Object\n");
+    root_array = send0(root_object, s_new);
 
-    printf("Add primitive methods on Root Array\n");
+    log("Add primitive methods on Root Array\n");
     send(root_array,  s_set, s_delete,   array_delete);
     send(root_array,  s_set, s_get,      array_get);
     send(root_array,  s_set, s_new,      array_new);
     send(root_array,  s_set, s_set,      array_set);
     send(root_array,  s_set, s_push,     array_push);
 
-    printf("Create Root Symbol\n");
-    root_symbol = send(root_object, s_new);
+    log("Create Root Symbol\n");
+    root_symbol = send0(root_object, s_new);
 
-    printf("Add string values to symbols\n");
+    log("Add string values to symbols\n");
     struct object *symbols = send(root_array, s_new, ref(100));
     send(root_symbol,  s_set, s_symbols, symbols); 
 
@@ -988,20 +995,20 @@ extern void bootstrap()
     strcpy((char*)s_set,      "__set__");
     strcpy((char*)s_symbols,  "__symbols__");
 
-    printf("Add primitive methods on Root Symbol\n");
+    log("Add primitive methods on Root Symbol\n");
     send(root_symbol, s_set, s_intern, symbol_intern);
     send(root_symbol, s_set, s_new,    symbol_new);
 
-    printf("Create Root Function object\n");
-    root_function = send(root_object, s_new);
+    log("Create Root Function object\n");
+    root_function = send0(root_object, s_new);
 
-    printf("Add primitive methods on Root Function object\n");
+    log("Add primitive methods on Root Function object\n");
     send(root_function, s_set, s_allocate, function_allocate);
     send(root_function, s_set, s_intern,   function_intern);
     send(root_function, s_set, s_new,      function_new);
 
-    printf("Create Root Fixnum object\n");
-    root_fixnum = send(root_object, s_new);
+    log("Create Root Fixnum object\n");
+    root_fixnum = send0(root_object, s_new);
 
     roots = send(root_array, s_new, ref(20));
 

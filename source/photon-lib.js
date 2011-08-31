@@ -82,7 +82,6 @@ const _reg       = x86.Assembler.prototype.register;
 const _ESP       = _reg.esp;
 const _EBP       = _reg.ebp;
 const _EAX       = _reg.eax;
-const _EBX       = _reg.ebx;
 const _ECX       = _reg.ecx;
 const _EDX       = _reg.edx;
 const _$         = x86.Assembler.prototype.immediateValue;
@@ -159,19 +158,19 @@ function _type_check(n)
 
     a.
     genListing("TYPE TEST:").
-    mov(_EAX, _EBX).
-    and(_$(1), _EBX);
+    mov(_EAX, _ECX).
+    and(_$(1), _ECX);
 
     if (n === 2)
     {
         a.
-        and(_mem(0, _ESP), _EBX);
+        and(_mem(0, _ESP), _ECX);
     }
 
     a.
     jne(FAST).
-    mov(_$(0), _EBX).
-    call(_EBX).
+    mov(_$(0), _ECX).
+    call(_ECX).
     //jmp(CONT).
     label(FAST);
 
@@ -187,8 +186,8 @@ function _ovf_check()
 
     a.
     jno(NO_OVF).
-    mov(_$(0), _EBX).
-    call(_EBX).
+    mov(_$(0), _ECX).
+    call(_ECX).
     label(NO_OVF);
 
     return a.codeBlock.code;
@@ -222,26 +221,26 @@ function _arith(op, commut)
     function f(a)
     {
         a.
-        mov(_EAX, _EBX);
+        mov(_EAX, _ECX);
 
         if (commut === true)
         {
-            a[op](_mem(0, _ESP), _EBX);
+            a[op](_mem(0, _ESP), _ECX);
         } else
         {
             a.
-            xchg(_mem(0, _ESP), _EBX)
-            [op](_mem(0, _ESP), _EBX);
+            xchg(_mem(0, _ESP), _ECX)
+            [op](_mem(0, _ESP), _ECX);
         }
 
         var NO_OVF = _label("NO_OVF");
 
         a.
         jno(NO_OVF).
-        mov(_$(0), _EBX).
-        call(_EBX).
+        mov(_$(0), _ECX).
+        call(_ECX).
         label(NO_OVF).
-        mov(_EBX, _EAX);
+        mov(_ECX, _EAX);
 
     }
 
@@ -253,10 +252,10 @@ function _arith_cste(op, cste)
 {
     return [
         _type_check(1),
-        _op("mov", _EAX, _EBX),
-        _op(op, cste, _EBX),
+        _op("mov", _EAX, _ECX),
+        _op(op, cste, _ECX),
         _ovf_check(),
-        _op("mov", _EBX, _EAX)
+        _op("mov", _ECX, _EAX)
     ];
 }
 
@@ -265,14 +264,13 @@ function _arith_div(isMod)
     var code = 
     [
         _type_check(2),
-        _op("mov", _EAX, _EBX),
-        _op("dec", _EBX),
+        _op("mov", _EAX, _ECX),
+        _op("dec", _ECX),
         _op("mov", _mem(0, _ESP), _EAX),
         _op("dec", _EAX),
         _op("cdq"),
-        _op("idiv", _EBX),
-        _ovf_check(),
-        _op("add", _$(4), _ESP)
+        _op("idiv", _ECX),
+        _ovf_check()
     ];
 
     if (isMod)
@@ -294,9 +292,9 @@ function _arith_mul()
         _type_check(2), 
         _op("mov", _EAX, _ECX), 
         _op("sar", _$(1), _EAX), 
-        _op("mov", _mem(0, _ESP), _EBX),
-        _op("dec", _EBX), 
-        _op("imul", _EBX), 
+        _op("mov", _mem(0, _ESP), _ECX),
+        _op("dec", _ECX), 
+        _op("imul", _ECX), 
         _ovf_check(),
         _op("inc", _EAX)
     ];
@@ -309,8 +307,8 @@ function _rel(op, type_check)
         a.
         cmp(_EAX, _mem(0, _ESP)).
         mov(_$(_FALSE), _EAX).
-        mov(_$(_TRUE), _EBX)
-        [op](_EBX, _EAX);
+        mov(_$(_TRUE), _ECX)
+        [op](_ECX, _EAX);
     }
 
     return _binop(f, type_check);
@@ -323,8 +321,8 @@ function _logic(op)
         a
         [op](_mem(0, _ESP), _EAX).
         cmp(_$(_TRUE), _EAX).
-        mov(_$(_FALSE), _EBX).
-        cmovnz(_EBX, _EAX);
+        mov(_$(_FALSE), _ECX).
+        cmovnz(_ECX, _EAX);
     }
 
     return _binop(f);
@@ -440,11 +438,11 @@ function _send(rcv, msg, args)
         // Code patching
         _op("call", SELF),
         SELF,
-        _op("pop", _EBX),
+        _op("pop", _EDX),
         _op("mov", _mem(4, _ESP), _ECX),
         _op("mov", _mem(-4, _ECX), _ECX),
-        _op("mov", _ECX, _mem(-45, _EBX)), // set previousMap
-        _op("mov", _EAX, _mem(-38, _EBX)), // set previousMethod
+        _op("mov", _ECX, _mem(-45, _EDX)), // set previousMap
+        _op("mov", _EAX, _mem(-38, _EDX)), // set previousMethod
         */
 
         // Call
@@ -525,14 +523,14 @@ function _compile(s)
 {
     try {
         var r = PhotonParser.matchAll(s, "topLevel");
-        print("Macro Exp");
+        //print("Macro Exp");
         //print(r);
         r = PhotonMacroExp.matchAll([r], "trans");
         //print(r);
-        print("AST: '" + r + "'");
-        print("VarAnalysis");
+        //print("AST: '" + r + "'");
+        //print("VarAnalysis");
         var r = PhotonVarAnalysis.matchAll([r], "trans");
-        print("Compilation");
+        //print("Compilation");
         code = PhotonCompiler.matchAll([r], "trans");
         //print("Code: '" + code.length + "'");
 
