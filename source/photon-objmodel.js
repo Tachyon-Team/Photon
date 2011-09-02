@@ -198,7 +198,6 @@ root.array.__new__ = function (size)
     object_proto(new_array) = this;
     array_indexed_values_count_set(new_array, 0);
 
-    new_array.__extended__ = null;
     return new_array;
 }
 
@@ -540,7 +539,10 @@ root.object.__get__ = function (name)
 
         if (offset !== undefined)
         {
-            return object_value_get(rcv, offset);
+            if (offset < 0)
+                return object_value_get(rcv, offset);
+            else
+                return rcv.__extended__[offset];
         }
         
         rcv = object_proto(rcv);
