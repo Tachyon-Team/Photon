@@ -262,6 +262,21 @@ root.function.__new__ = function (size)
     return new_fct;
 }
 
+// TODO: Check why compiled JS method do not work when setting __set_prop_offset
+root.map.__set_prop_offset__ = function (name, offset)
+{
+    for (var i = 0; i < map_length_get(this); ++i)
+    {
+        if (name === map_property_name_get(this, i))
+        {
+            return map_property_location_set(this, i, offset);    
+        }
+    }
+
+    return false;
+}
+
+
 root.map.__clone__ = function (payload_size) 
 {
     var new_map    = super(this).__clone__(payload_size);
@@ -381,8 +396,6 @@ root.map.__new__ = function ()
     object_proto(new_map) = this; 
     new_map.length = 0;
 
-    //new_map.__extended__ = null;
-
     return new_map;
 }
 
@@ -477,6 +490,8 @@ root.map.__set__ = function (name, value)
         return object_value_set(this, offset, value);    
     }
 }
+
+
 root.object.__clone__ = function (payload_size) 
 {
     var clone = this.__allocate__(object_values_size_get(this), payload_size);    
@@ -574,12 +589,25 @@ root.object.__set__ = function (name, value)
 
     if (offset === undefined)
     {
-        if (object_values_count_get(this) === object_values_size_get(this))
+        if (object_values_count_get(this) >= object_values_size_get(this))
         {
+            print("object.__set__: extending object");
 
-            // TODO
-            print("Object: not enough space left");
-            return false;
+            if (this.__extended__ === null)
+            {
+                this.__extended__ = [];
+            }
+
+            var i = this.__extended__.length;
+
+            this.__extended__.__push__(value);
+
+            var new_map      = object_map(this).__create__(name);
+            new_map.__set_prop_offset__(name, i);
+            object_map(this) = new_map;
+            object_values_count_inc(this);
+
+            return value;
         } else
         {
             var new_map      = object_map(this).__create__(name);
@@ -589,6 +617,9 @@ root.object.__set__ = function (name, value)
         }
     } else
     {
-        return object_value_set(this, offset, value);
+        if (offset < 0)
+            return object_value_set(this, offset, value);
+        else 
+            this.__extended__[offset] = value;
     }
 }
