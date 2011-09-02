@@ -82,6 +82,7 @@ const _reg       = x86.Assembler.prototype.register;
 const _ESP       = _reg.esp;
 const _EBP       = _reg.ebp;
 const _EAX       = _reg.eax;
+const _EBX       = _reg.ebx;
 const _ECX       = _reg.ecx;
 const _EDX       = _reg.edx;
 const _$         = x86.Assembler.prototype.immediateValue;
@@ -362,15 +363,31 @@ function _bitwise(op)
     return _binop(f, true);
 }
 
-function _push_args(args)
+function _push_args(args, extra_nb)
 {
-    var code = [];
+    if (extra_nb === undefined)
+    {
+        extra_nb = 0;
+    }
 
-    code.push(_op("sub", _$(args.length * 4), _ESP));
+    var code = [
+        _op("mov", _ESP, _ECX),
+
+        //_op("sub", _$((args.length + extra_nb)*4), _ESP)
+        // Align stack for OS X ABI 
+        _op("sub", _$((args.length + extra_nb + 1)* 4), _ESP),
+        _op("and", _$(-16), _ESP),
+
+        // Preserve old stack pointer
+        _op("mov", _ECX, _mem((args.length + extra_nb)*4, _ESP))
+
+    ];
+
+    // Place all new arguments
     for (var i = 0; i < args.length; ++i)
     {
         code.push(args[i]);
-        code.push(_op("mov", _EAX, _mem((i)*4, _ESP)));
+        code.push(_op("mov", _EAX, _mem((i + extra_nb)*4, _ESP)));
     }
 
     return code;
@@ -378,7 +395,12 @@ function _push_args(args)
 
 function _pop_args(n)
 {
-    return _op("add", _$(n * 4), _ESP);
+    return [
+        _op("add", _$(n * 4), _ESP),
+
+        // Restore old stack pointer
+        _op("pop", _ESP)
+    ];
 }
 
 function _mref(m)
@@ -398,18 +420,42 @@ function _symbol(s)
     return _op("mov", _mref(photon.send(photon.symbol, "__intern__", s)), _EAX);
 }
 
-function _send(rcv, msg, args)
+function _send(rcv, msg, args, bind_helper)
 {
+    if (bind_helper === undefined)
+    {
+        bind_helper = photon.bind;
+    }
+
     var CONT      = _label();
-    var BIND      = _label();
-    var SELF      = _label();
 
     return [
-        _listing("SEND:"),
-        _push_args(args),
+        _push_args(args, 2),
         rcv,
+        //_op("sub", _$(8), _ESP),
+        //_op("push", _EAX),
+        //_op("push", _$(args.length)),
+        _op("mov", _EAX, _mem(4, _ESP)),
+        _op("mov", _$(args.length), _mem(0, _ESP), 32),
+
+        // Bind
+        msg,
         _op("push", _EAX),
-        _op("push", _$(args.length)),
+        _op("mov", _mref(bind_helper), _EAX),
+        _op("push", _$(0)), // NULL RECEIVER
+        _op("push", _$(3)),  // Arg number
+        _op("call", _EAX),
+        _op("add", _$(12), _ESP),
+
+        _op("cmp", _$(_UNDEFINED), _EAX),
+        _op("je", CONT),
+
+        // Call
+        _op("call", _EAX),
+        
+        CONT,
+        _pop_args(args.length + 2),
+    ];
 
         /*
         // Inline cache
@@ -421,19 +467,7 @@ function _send(rcv, msg, args)
         _op("jmp", CONT),
         */
 
-        BIND,
-        // Bind
-        msg,
-        _op("push", _EAX),
-        _op("mov", _mref(photon.bind), _EAX),
-        _op("push", _$(0)), // NULL RECEIVER
-        _op("push", _$(3)),  // Arg number
-        _op("call", _EAX),
-        _op("add", _$(12), _ESP),
 
-        _op("cmp", _$(_UNDEFINED), _EAX),
-        _op("je", CONT),
-       
         /*
         // Code patching
         _op("call", SELF),
@@ -444,78 +478,70 @@ function _send(rcv, msg, args)
         _op("mov", _ECX, _mem(-45, _EDX)), // set previousMap
         _op("mov", _EAX, _mem(-38, _EDX)), // set previousMethod
         */
-
-        // Call
-        _op("call", _EAX),
-        
-        CONT,
-        _pop_args(args.length + 2)
-    ];
-}
-
-function _super_send(rcv, msg, args)
-{
-    var CONT      = _label();
-
-    return [
-        _push_args(args),
-        rcv,
-        _op("push", _EAX),
-        _op("push", _$(args.length)),
-
-        // Bind
-        msg,
-        _op("push", _EAX),
-        _op("mov", _mref(photon.super_bind), _EAX),
-        _op("push", _$(0)), // NULL RECEIVER
-        _op("push", _$(3)),  // Arg number
-        _op("call", _EAX),
-        _op("add", _$(12), _ESP),
-
-        _op("cmp", _$(_UNDEFINED), _EAX),
-        _op("je", CONT),
-
-        // Call
-        _op("call", _EAX),
-        
-        CONT,
-        _pop_args(args.length + 2)
-    ];
 }
 
 function _array(xs)
 {
-    return [_send(_arg(_mref(photon.array)), 
+    r_xs = xs.slice(0).reverse();
+
+    return [r_xs.map(function (x)
+            {
+                return [x, _op("push", _EAX)];
+            }),
+            _send(_arg(_mref(photon.array)), 
                   _symbol("__new__"), 
                   [_arg(_$(_ref(xs.length + 10)))]),
-            _op("push", _EAX),
+            _op("mov", _EAX, _EDX),
             xs.map(function (x) 
             {
-                return _send(
-                    _op("mov", _mem(4, _ESP), _EAX),
-                    _symbol("__push__"),
-                    [x]
-                );
+                return [
+                    _op("pop", _EAX),
+                    _op("push", _EDX),
+                    _send(
+                        _op("mov", _EDX, _EAX),
+                        _symbol("__push__"),
+                        [[]]
+                    ),
+                    _op("pop", _EDX)
+                ];
             }),
-            _op("pop", _EAX)
+            _op("mov", _EDX, _EAX)
            ]; 
 }
 
 function _object(xs)
 {
-    return [_send(_arg(_mref(photon.object)), 
-                  _symbol("__new__"), 
-                  []),
-            _op("push", _EAX),
+    return [
+            _op("push", _EBX),        // Extra register needed, 
+                                      // ECX is used for stack alignment
             xs.map(function (x) 
             {
-                return _send(
-                    _op("mov", _mem(8, _ESP), _EAX),
-                    _symbol("__set__"),
-                    [_symbol(x[0]), x[1]]
-                );
+                return [
+                    _symbol(x[0]), // name
+                    _op("push", _EAX),
+                    x[1],          // value
+                    _op("push", _EAX),
+                ];
             }),
-            _op("pop", _EAX)
+            _send(_arg(_mref(photon.object)), 
+                  _symbol("__new__"), 
+                  []),
+            _op("mov", _EAX, _EDX),
+            xs.map(function (x) 
+            {
+                return [
+                    _op("pop", _EBX), // value
+                    _op("pop", _EAX), // name
+                    _op("push", _EDX),// preserve rcv for next prop
+                    _send(
+                        _op("mov", _EDX, _EAX),
+                        _symbol("__set__"),
+                        [[], _op("mov", _EBX, _EAX)]),
+                    _op("pop", _EDX)
+                ];
+            }),
+            _op("mov", _EDX, _EAX),
+            _op("pop", _EBX)          // Extra register restored
            ]; 
 }
 

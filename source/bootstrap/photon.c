@@ -397,6 +397,12 @@ struct object *array_new(size_t n, struct array *self, struct object *size)
     return new_array;
 }
 
+struct object *array_print(size_t n, struct array *self)
+{
+    printf("[Array]\n");
+    return UNDEFINED;
+}
+
 struct object *array_push(size_t n, struct array *self, struct object *value)
 {
     assert(array_indexed_values_size(self) > fx(self->count));
@@ -446,6 +452,12 @@ struct object *array_set(
     return value;
 }
 
+struct object *fixnum_print(size_t n, struct object *self)
+{
+    printf("%zd\n", fx(self));
+    return UNDEFINED;
+}
+
 struct object *function_allocate(
     size_t n,
     struct function *self,
@@ -492,6 +504,12 @@ struct object *function_new(size_t n, struct function *self, struct object *size
     new_fct->_hd[-1].prototype = (struct object *)self;
 
     return new_fct;
+}
+
+struct object *function_print(size_t n, struct function *self)
+{
+    printf("[Function]\n");
+    return UNDEFINED;
 }
 
 struct object *map_clone(size_t n, struct map *self, struct object *payload_size)
@@ -618,6 +636,12 @@ struct object *map_new(size_t n, struct map *self)
     new_map->count             = ref(0);
 
     return (struct object *)new_map;
+}
+
+struct object *map_print(size_t n, struct map *self)
+{
+    printf("[Map]\n"); 
+    return UNDEFINED;
 }
 
 struct object *map_remove(size_t n, struct map *self, struct object *name)
@@ -804,6 +828,12 @@ struct object *object_new(size_t n, struct object *self)
     return child;
 }
 
+struct object *object_print(size_t n, struct object *self)
+{
+    printf("[Object]\n");
+    return UNDEFINED;
+}
+
 struct object *object_set(size_t n, struct object *self, struct object *name, struct object *value)
 {
     struct map *new_map;
@@ -853,6 +883,12 @@ struct object *symbol_new(size_t n, struct object *self, char *string)
     strcpy((char *)new_symbol, string);
 
     return new_symbol;
+}
+
+struct object *symbol_print(size_t n, struct object *self)
+{
+    printf("%s\n", (const char *)self);
+    return UNDEFINED;
 }
 
 void log(const char* s)
@@ -1033,6 +1069,14 @@ extern void bootstrap()
     send(roots_names, s_push, name); 
     name = send(root_symbol, s_intern, "symbol");
     send(roots_names, s_push, name); 
+
+    // Debugging support
+    name = send(root_symbol, s_intern, "__print__");
+    send(root_symbol, s_set, name, symbol_print);
+    send(root_map, s_set, name, map_print);
+    send(root_object, s_set, name, object_print);
+    send(root_array, s_set, name, array_print);
+    send(root_fixnum, s_set, name, fixnum_print);
 
     // ---- Minimal support completed! Rest done in JavaScript
 

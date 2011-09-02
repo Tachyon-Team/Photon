@@ -1,6 +1,7 @@
 var root = {
     array:      @{["ref", photon.array]}@,
     "function": @{["ref", photon.function]}@,
+    global:     @{["ref", photon.global]}@,
     map:        @{["ref", photon.map]}@,
     object:     @{["ref", photon.object]}@,
     symbol:     @{["ref", photon.symbol]}@
@@ -41,13 +42,17 @@ macro array_indexed_value_set(a, i, v)
 {
     return a[@i + array_value_offset] = v;
 }
-macro array_indexed_values_size_get(a)  
+macro array_indexed_values_count_get(a)  
 {
     return a[@0];
 }
-macro array_indexed_values_size_set(a, v)
+macro array_indexed_values_count_set(a, v)
 {
     return a[@0] = v;
+}
+macro array_indexed_values_size_get(a)  
+{
+    return object_payload_size(a) - sizeof_ref;
 }
 macro map_length_get(m)
 {
@@ -179,7 +184,7 @@ root.array.__get__ = function (name)
         }
     } else if (name === "length")
     {
-        return array_indexed_values_size_get(this);
+        return array_indexed_values_count_get(this);
     } else     
     {
         return super(this).__get__(name);
@@ -191,8 +196,9 @@ root.array.__new__ = function (size)
     var new_array = this.__allocate__(4, (size + 1) * sizeof_ref); 
     object_map(new_array)   = object_map(this).__new__();     
     object_proto(new_array) = this;
-    array_indexed_values_size_set(new_array, 0);
+    array_indexed_values_count_set(new_array, 0);
 
+    new_array.__extended__ = null;
     return new_array;
 }
 
@@ -210,6 +216,8 @@ root.array.__set__ = function (name, value)
             if (name >= array_indexed_values_size_get(this))
             {
                 // TODO
+                print("Array: not enough space left 0");
+                print(name);
             }
 
             this.length = name + 1;
@@ -223,6 +231,8 @@ root.array.__set__ = function (name, value)
             if (value >= array_indexed_values_size_get(this))
             {
                 // TODO
+                print("Array: not enough space left 1");
+                print(value);
             }
 
             for (var i = this.length; i < value; ++i)
@@ -231,7 +241,7 @@ root.array.__set__ = function (name, value)
             }
         }
 
-        array_indexed_values_size_set(this, value);
+        array_indexed_values_count_set(this, value);
     } else
     {
         return super(this).__set__(name, value);
@@ -247,6 +257,8 @@ root.function.__new__ = function (size)
     object_proto(new_fct) = this;
 
     new_fct.prototype = @{["ref", photon.object]}@.__new__();
+
+    new_fct.__extended__ = null;
 
     return new_fct;
 }
@@ -370,6 +382,8 @@ root.map.__new__ = function ()
     object_proto(new_map) = this; 
     new_map.length = 0;
 
+    //new_map.__extended__ = null;
+
     return new_map;
 }
 
@@ -441,6 +455,8 @@ root.map.__set__ = function (name, value)
                 if (l === map_properties_size(this))
                 {
                     // TODO
+                    print("Map: not enough space left");
+                    return false;
                 }
 
                 // Add property on map
@@ -539,9 +555,8 @@ root.object.__new__ = function ()
     var child           = this.__clone__(0);
     object_map(child)   = new_map;
     object_proto(child) = this;
-
-    child.constructor   = undefined;
-
+    child.constructor   = Object;
+    child.__extended__  = null;
     return child;
 }
 
@@ -559,7 +574,10 @@ root.object.__set__ = function (name, value)
     {
         if (object_values_count_get(this) === object_values_size_get(this))
         {
+
             // TODO
+            print("Object: not enough space left");
+            return false;
         } else
         {
             var new_map      = object_map(this).__create__(name);

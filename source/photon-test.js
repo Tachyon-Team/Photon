@@ -1,41 +1,8 @@
+print("Initializing C object model");
 photon.init();
 
+print("Creating global object");
 photon.global = photon.send(photon.object, "__new__");
-
-/*
-_ast_frequency([
-   //"utility/debug.js",
-   //"utility/num.js",
-   //"utility/misc.js",
-   //"utility/iterators.js",
-   //"utility/arrays.js",
-   //"stdlib/array.js",
-   //"stdlib/string.js",
-   //"stdlib/function.js",
-   //"stdlib/object.js",
-   //"backend/asm.js",
-   //"backend/x86/asm.js",
-   "ometa-js/lib.js", 
-   "ometa-js/ometa-base.js", 
-   "ometa-js/parser.js", 
-   "ometa-js/photon-compiler.js",
-   //"photon-lib.js",
-   "photon-test.js"
-].map(readFile).join("\n"));
-*/
-
-//_compile(readFile("test.js"));
-//_ast_frequency(readFile("ometa-js/photon-compiler.js"));
-//_ast_frequency(readFile("test.js"));
-//_ast_frequency(readFile("photon-lib2.js"));
-//_ast_frequency(readFile("backend/x86/asm.js"));
-
-/*
-print(PhotonMacroExp.matchAll(
-    [["begin",
-        ["macro", "object_map", ["o"], {}, ["begin", ["return", ["get", "o"]]]], 
-        ["set", ["call", ["get", "object_map"], ["this"]], ["number", 42]]]], "trans"));
-*/
 
 print("Creating bind function");
 photon.bind = photon.send(photon.function, "__new__", 10);
@@ -153,3 +120,8 @@ var end   = new Date().getTime();
 print(r);
 print("execution time: " + ((end - start)) + " ms");
 
+
+print("Compiling test");
+var f = _compile(readFile("test.js"));
+print("Executing test");
+photon.send({f:f}, "f");

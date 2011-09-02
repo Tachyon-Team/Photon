@@ -385,13 +385,16 @@ ometa PhotonCompiler {
            (:ctxt  -> {PhotonCompiler._addLocals(ctxt.scope);})
            curlyTrans:body                                    -> {var loc_nb = PhotonCompiler._loc_nb();
                                                                   PhotonCompiler._popLocals();
-                                                                  _op("mov", _mref(_fct([ _prologue(loc_nb, args.length), body])), _EAX);},
-  send     trans:msg trans:rcv trans*:args                    -> _send(rcv, msg, args),
-  call     [#getp trans:msg [#super trans:rcv]] trans*:args   -> _super_send(rcv, msg, args),
-  call     [#getp trans:msg trans:rcv]  trans*:args           -> _send(rcv, msg, args),
-  call     trans:fn trans*:args                               -> [_push_args(args),
-                                                                  _op("push", _$(0)),           // Null receiver
-                                                                  _op("push", _$(args.length)),
+                                                                  _op("mov", _mref(_fct([ _prologue(loc_nb, args.length), 
+                                                                                          body, 
+                                                                                          _op("mov", _$(_UNDEFINED), _EAX), 
+                                                                                          _epilogue()])), _EAX);},
+  send     trans:msg trans:rcv trans*:args                    -> _send(rcv, msg, args, photon.bind),
+  call     [#getp trans:msg [#super trans:rcv]] trans*:args   -> _send(rcv, msg, args, photon.super_bind),
+  call     [#getp trans:msg trans:rcv]  trans*:args           -> _send(rcv, msg, args, photon.bind),
+  call     trans:fn trans*:args                               -> [_push_args(args, 2),
+                                                                  _op("mov", _$(0), _mem(0, _ESP), 32),
+                                                                  _op("mov", _$(args.length), _mem(0, _ESP), 32),
                                                                   fn, _op("call", _EAX), 
                                                                   _pop_args(args.length + 2)],
   new      trans:cls trans*:args                              -> [],
