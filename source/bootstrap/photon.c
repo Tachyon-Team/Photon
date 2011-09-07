@@ -1031,6 +1031,19 @@ extern void bootstrap()
     strcpy((char*)s_set,      "__set__");
     strcpy((char*)s_symbols,  "__symbols__");
 
+    struct map *empty_map = (struct map *)send0(
+        root_symbol->_hd[-1].map,
+        s_new
+    );
+
+    for (ssize_t i = 0; i < fx(((struct array *)symbols)->count); ++i)
+    {
+        ((struct array *)symbols)->indexed_values[i]->_hd[-1].map = empty_map;
+        ((struct array *)symbols)->indexed_values[i]->_hd[-1].prototype = 
+            root_symbol;
+    }
+
+
     log("Add primitive methods on Root Symbol\n");
     send(root_symbol, s_set, s_intern, symbol_intern);
     send(root_symbol, s_set, s_new,    symbol_new);

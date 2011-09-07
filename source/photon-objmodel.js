@@ -52,7 +52,7 @@ macro array_indexed_values_count_set(a, v)
 }
 macro array_indexed_values_size_get(a)  
 {
-    return object_payload_size(a) - sizeof_ref;
+    return (object_payload_size(a) - sizeof_ref) / sizeof_ref;
 }
 macro map_length_get(m)
 {
@@ -63,6 +63,16 @@ macro map_length_set(m, v)
 {
     // FIXME: Hard-coded constant until constant propagation is implanted
     return m[@0] = v;
+}
+macro map_next_offset_get(m)
+{
+    // FIXME: Hard-coded constant until constant propagation is implanted
+    return m[@1];
+}
+macro map_next_offset_set(m, v)
+{
+    // FIXME: Hard-coded constant until constant propagation is implanted
+    return m[@1] = v;
 }
 macro map_properties_size(m)        
 {
@@ -156,6 +166,178 @@ macro ref_is_fixnum(r)
     ]}@;
 }
 
+//--------------------------------- Root Objects Adjustments ------------------
+
+// Add an indirection level to existing arrays to allow reallocation
+// while preserving the identity of the object
+root.array.__array__              = root.array;
+root.symbol.__symbols__.__array__ = root.symbol.__symbols__;
+
+// Do the same for objects
+root.array.__object__              = root.array;
+root.function.__object__           = root.function;
+root.global.__object__             = root.global;
+root.object.__object__             = root.object;
+root.symbol.__object__             = root.symbol;
+root.symbol.__symbols__.__object__ = root.symbol.__symbols__;
+root.map.__object__                = root.map;
+
+// TODO: Add __object__ property to existing non-root maps
+
+
+//--------------------------------- Bootstrap ---------------------------------
+(function () {
+    var root_map           = root.object.__allocate__(20, 20*sizeof_property + 2*sizeof_ref);
+    object_map(root_map)   = root_map;
+    object_proto(root_map) = root.map;
+    object_value_set(root_map, -1, root_map);
+    object_values_count_inc(root_map);
+
+    map_property_name_set(root_map, 0, "__map__");
+    map_property_location_set(root_map, 0, 3);
+
+    map_property_name_set(root_map, 1, "__proto__");
+    map_property_location_set(root_map, 1, 2);
+
+    map_property_name_set(root_map, 2, "__payload_size__");
+    map_property_location_set(root_map, 2, 1);
+
+    map_property_name_set(root_map, 3, "__flags__");
+    map_property_location_set(root_map, 3, 0);
+
+    map_property_name_set(root_map, 4, "__object__");
+    map_property_location_set(root_map, 4, -1);
+
+    map_property_name_set(root_map, 5, "__length__");
+    map_property_location_set(root_map, 5, 5);
+
+    map_property_name_set(root_map, 6, "__next_offset__");
+    map_property_location_set(root_map, 6, 6);
+
+    map_length_set(root_map, 7);
+    map_next_offset_set(root_map, -2);
+
+    function map_clone(map1, map2)
+    {
+        for (var i = 1; i <= object_values_count_get(map1); ++i)
+        {
+            object_value_set(map2, -i, object_value_get(map1, -i));
+        }
+
+        object_values_count_set(map2, object_values_count_get(map1));
+
+        for(var i = 0; i < map_length_get(map2); ++i)
+        {
+            map_property_name_set(map2, i,
+                    map_property_name_get(map1, i));
+            map_property_location_set(map2, i,
+                    map_property_location_get(map1, i));
+        }
+    }
+
+    var map_map           = root.object.__allocate__(1, 7*sizeof_property + 2*sizeof_ref);
+    map_length_set(map_map, 7);
+    map_next_offset_set(map_map, -2);
+    map_clone(root_map, map_map);
+    map_values_set_immutable(map_map);
+
+    object_map(map_map)   = map_map;
+    object_proto(map_map) = root_map;
+    object_value_set(map_map, -1, map_map);
+
+    function map_set(map, name, value)
+    {
+        var i = map_length_get(map);    
+        var offset = map_next_offset_get(map);
+
+        map_property_name_set(map, i, name);
+        map_property_location_set(map, i, offset);
+        map_next_offset_set(map, offset - 1); 
+
+        object_value_set(map, offset, value);
+        object_values_count_inc(map);
+    }
+
+    map_set(root_map, "__lookup__", function (name)
+    {
+        for (var i = 0; i < map_length_get(this); ++i)
+        {
+            if (name === map_property_name_get(this, i))
+            {
+                return map_property_location_get(this, i);    
+            }
+        }
+
+        return undefined;
+    });
+
+    var map               = root.object.__allocate__(1, 5*sizeof_property + 2*sizeof_ref);
+    map_length_set(map, 5);
+    map_next_offset_set(map_map, -2);
+    map_clone(map_map, map);
+
+    object_map(map)   = map_map;
+    object_proto(map) = root_map;
+    object_value_set(map, -1, map);
+
+    var object           = root.object.__allocate__(20, 0);
+    object_map(object)   = map;
+    object_proto(object) = root.object;
+    object.__object__    = object;
+    object_values_count_inc(object);
+
+    print(object.__map__ === map);
+    print(object.__proto__ === root.object);
+    print(object.__payload_size__ === 0);
+    print(object.__flags__);
+    print(object.__object__ === object);
+
+    object.foo = 42;
+    object.bar = 24;
+
+    object.__get2__ = function (name) 
+    {
+        var offset = undefined;
+        var rcv = this;
+
+        while (rcv !== null)
+        {
+            offset = object_map(rcv).__lookup__(name);
+
+            if (offset !== undefined)
+            {
+                return object_value_get(rcv, offset);
+            }
+            
+            rcv = object_proto(rcv);
+        }
+
+        return undefined;
+    }
+
+    print("Updated");
+    print(object.__map__.__lookup__("__get2__"));
+    //print(object.__get__("__map__"));
+    /*
+    print(object.__map__.__lookup__("foo"));
+    print(object.__map__ === map);
+    print(object.__proto__ === root.object);
+    print(object.__payload_size__ === 0);
+    print(object.__flags__);
+    print(object.__object__ === object);
+    */
+
+
+
+    /*
+
+    object_proto(object) = null;
+    */
+})();
+
+
+
+
 //--------------------------------- Object Primitives -------------------------
 root.array.__delete__ = function (name) 
 {
@@ -175,16 +357,16 @@ root.array.__get__ = function (name)
 {   
     if (ref_is_fixnum(name) && name >= 0)
     {
-        if (name >= this.__get__("length"))
+        if (name >= this.__array__.length)
         {
             return undefined;
         } else
         {
-            return array_indexed_value_get(this, name);
+            return array_indexed_value_get(this.__array__, name);
         }
     } else if (name === "length")
     {
-        return array_indexed_values_count_get(this);
+        return array_indexed_values_count_get(this.__array__);
     } else     
     {
         return super(this).__get__(name);
@@ -198,6 +380,9 @@ root.array.__new__ = function (size)
     object_proto(new_array) = this;
     array_indexed_values_count_set(new_array, 0);
 
+    new_array.__object__ = new_array;
+    new_array.__array__  = new_array;
+
     return new_array;
 }
 
@@ -208,39 +393,55 @@ root.array.__push__ = function (value)
 
 root.array.__set__ = function (name, value) 
 {
+    var array = this.__array__;
     if (ref_is_fixnum(name) && name >= 0)
     {
-        if (name >= this.length)
+        if (name >= array.length)
         {
-            if (name >= array_indexed_values_size_get(this))
+            if (name >= array_indexed_values_size_get(array))
             {
-                // TODO
-                print("Array: not enough space left 0");
-                print(name);
-            }
+                var new_array = array.__new__(name * 2);
 
-            this.length = name + 1;
+                new_array.length = name + 1;
+
+                for (var i = 0; i < array.length; ++i)
+                {
+                    new_array[i] = array[i];
+                }
+
+                array = new_array;
+                this.__array__ = new_array;
+            } else
+            {
+                array_indexed_values_count_set(array, name + 1);
+            }
         }
 
-        array_indexed_value_set(this, name, value);
+        array_indexed_value_set(array, name, value);
     } else if (name === "length" && ref_is_fixnum(value))
     {
-        if (value > this.length)
+        if (value > array.length)
         {
-            if (value >= array_indexed_values_size_get(this))
+            if (value >= array_indexed_values_size_get(array))
             {
-                // TODO
-                print("Array: not enough space left 1");
-                print(value);
-            }
+                var new_array = array.__new__(value);
 
-            for (var i = this.length; i < value; ++i)
+                for (var i = 0; i < array.length; ++i)
+                {
+                    new_array[i] = array[i];
+                }
+
+                array = new_array;
+                this.__array__ = new_array;
+            } 
+
+            for (var i = array.length; i < value; ++i)
             {
-                array_indexed_value_set(this, i, undefined);
+                array_indexed_value_set(array, i, undefined);
             }
         }
 
-        array_indexed_values_count_set(this, value);
+        array_indexed_values_count_set(array, value);
     } else
     {
         return super(this).__set__(name, value);
@@ -255,14 +456,13 @@ root.function.__new__ = function (size)
     object_map(new_fct)   = object_map(this).__new__();
     object_proto(new_fct) = this;
 
+    new_fct.__object__ = new_fct;
     new_fct.prototype = @{["ref", photon.object]}@.__new__();
-
-    new_fct.__extended__ = null;
 
     return new_fct;
 }
 
-// TODO: Check why compiled JS method do not work when setting __set_prop_offset
+// TODO: Check why compiled JS method do not work when setting __set_prop_offset__
 root.map.__set_prop_offset__ = function (name, offset)
 {
     for (var i = 0; i < map_length_get(this); ++i)
@@ -544,9 +744,25 @@ root.object.__get__ = function (name)
     if (name === "__payload_size__")
         return object_payload_size(this);
 
+    if (name === "__object__")
+    {
+        var offset = object_map(this).__lookup__(name);
+        return (offset === undefined) ? 
+                undefined : 
+                object_value_get(this, offset);
+    }
+
 
     var offset = undefined;
-    var rcv  = this;
+
+    // TODO: Ensure EVERY object has a __object__ property
+    if (this.__object__ !== undefined)
+    {
+        var rcv = this.__object__;
+    } else
+    {
+        var rcv = this; 
+    }
 
     while (rcv !== null)
     {
@@ -572,54 +788,70 @@ root.object.__new__ = function ()
     var child           = this.__clone__(0);
     object_map(child)   = new_map;
     object_proto(child) = this;
-    child.constructor   = Object;
+
+    child.__object__    = child;
     child.__extended__  = null;
     return child;
 }
 
 root.object.__set__ = function (name, value) 
 {
+    if (this.__object__ === undefined && 
+        name === "__object__")
+    {
+        var new_map      = object_map(this).__create__(name);
+        object_map(this) = new_map;
+        object_values_count_inc(this);
+        return object_value_set(this, -object_values_count_get(this), value);
+    }
+
+    var obj = this.__object__;
+
     if (name === "__proto__")
-        return object_proto(this) = value;
+        return object_proto(obj) = value;
 
     if (name === "__map__")
-        return object_map(this) = value;
+        return object_map(obj) = value;
 
-    var offset = object_map(this).__lookup__(name);
+    var offset = object_map(obj).__lookup__(name);
 
     if (offset === undefined)
     {
-        if (object_values_count_get(this) >= object_values_size_get(this))
+        if (object_values_count_get(obj) >= object_values_size_get(obj))
         {
-            print("object.__set__: extending object");
+            //print("object.__set__: extending object");
 
-            if (this.__extended__ === null)
+            if (obj.__extended__ === null)
             {
-                this.__extended__ = [];
+                obj.__extended__ = [];
             }
 
-            var i = this.__extended__.length;
 
-            this.__extended__.__push__(value);
+            var i = obj.__extended__.length;
 
-            var new_map      = object_map(this).__create__(name);
+            //print(i);
+            //print(array_indexed_values_size_get(this.__extended__));
+
+            obj.__extended__.__push__(value);
+
+            var new_map      = object_map(obj).__create__(name);
             new_map.__set_prop_offset__(name, i);
-            object_map(this) = new_map;
-            object_values_count_inc(this);
+            object_map(obj) = new_map;
+            object_values_count_inc(obj);
 
             return value;
         } else
         {
-            var new_map      = object_map(this).__create__(name);
-            object_map(this) = new_map;
-            object_values_count_inc(this);
-            return object_value_set(this, -object_values_count_get(this), value);
+            var new_map      = object_map(obj).__create__(name);
+            object_map(obj) = new_map;
+            object_values_count_inc(obj);
+            return object_value_set(obj, -object_values_count_get(obj), value);
         }
     } else
     {
         if (offset < 0)
-            return object_value_set(this, offset, value);
+            return object_value_set(obj, offset, value);
         else 
-            this.__extended__[offset] = value;
+            obj.__extended__[offset] = value;
     }
 }
