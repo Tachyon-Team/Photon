@@ -22,14 +22,15 @@ global_return function (msg, n, rcv)
                   ["number", 1],
                   ["ref",    photon.map],
                   ["string", "__lookup__"]]}@;
-        return l_rcv[@l_offset - 4];
+        return (ref_is_fixnum(l_offset)) ? l_rcv[@l_offset - 4] : l_offset;
     }
 
     if (ref_is_fixnum(rcv))
     {
         var l_rcv = @{["ref", photon.fixnum]}@;
         var l_offset = l_rcv[@-1].__lookup__(msg);
-        return (l_offset === undefined) ? undefined : l_rcv[@l_offset - 4];    
+        //return (l_offset === undefined) ? undefined : 
+        return ref_is_fixnum(l_offset) ? l_rcv[@l_offset - 4] : l_offset;
     }
 
     var l_offset = undefined;
@@ -41,7 +42,7 @@ global_return function (msg, n, rcv)
 
         if (l_offset !== undefined)
         {
-            return l_rcv[@l_offset - 4];
+            return ref_is_fixnum(l_offset) ? l_rcv[@l_offset - 4] : l_offset;
         }
         
         l_rcv = l_rcv[@-2];

@@ -26,6 +26,21 @@ var f = _compile(readFile("photon-objmodel.js"));
 var end   = new Date().getTime();
 print("compile time: " + ((end - start)) + " ms");
 photon.send({f:f}, "f");
+ 
+print("Removing dependencies to old object model");
+print("Recreating bind function");
+photon.bind = photon.send(photon.function, "__new__", 10);
+var g = _compile(readFile("_bind.js"));
+var _bind = photon.bind;
+photon.bind = photon.send({g:g}, "g");
+
+photon.send(_bind, "__intern__", 
+            clean(_op("mov", _mref(photon.bind), _EAX).concat(_op("jmp", _EAX))));
+
+print("Recreating super_bind function");
+photon.super_bind = photon.send({f:_compile(readFile("super_bind.js"))}, "f");
+
+print("Bootstrap done");
 
 var start = new Date().getTime();
 
@@ -82,11 +97,13 @@ assert(photon.send({f:f}, "f") === 42);
 var m = photon.send(o, "__get__", "__map__");
 
 // Tests requiring extensions from C object model
+/*
 assert(photon.send([1,2,3,42,26], "__get__", "length") === 5);
 var c = photon.send({foo:42}, "__clone__", 0);
 var m = photon.send(c, "__get__", "__map__");
 assert(photon.send(m, "__lookup__", "foo") !== undefined);
 assert(photon.send(m, "__lookup__", "bar") === undefined);
+*/
 
 print("Tests passed");
 

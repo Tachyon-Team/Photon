@@ -1,3 +1,16 @@
+macro ref_is_fixnum(r)              
+{
+    return @{["begin", 
+        ["get", "r"],
+        ["code",
+            [_op("mov", _EAX, _ECX),
+             _op("and", _$(1), _ECX),
+             _op("mov", _$(_TRUE), _EAX),
+             _op("mov", _$(_FALSE), _ECX),
+             _op("cmovz", _ECX, _EAX)]]
+    ]}@;
+}
+
 global_return function (msg, n, rcv)
 {
     var l_offset = undefined;
@@ -16,7 +29,7 @@ global_return function (msg, n, rcv)
                 continue;
             }
 
-            return l_rcv[@l_offset - 4];
+            return ref_is_fixnum(l_offset) ? l_rcv[@l_offset - 4] : l_offset;
         }
         
         l_rcv = l_rcv[@-2];

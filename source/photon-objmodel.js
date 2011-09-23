@@ -14,7 +14,7 @@ const sizeof_property              = 4*sizeof_ref;
 
 const array_value_offset           = 1;
 const default_object_value_nb      = 4;
-const default_map_payload_size     = 4*sizeof_property + sizeof_ref;
+const default_map_payload_size     = 10*sizeof_property + 2*sizeof_ref;
 const map_length_offset            = 0;
 const map_properties_offset        = 1;
 const object_payload_size_offset   = -3;
@@ -27,11 +27,7 @@ const object_values_offset         = -4;
 //@{["ref", photon.function]}@.__intern__   = function (code) {}
 
 //@{["ref", photon.object]}@.__allocate__   = function (values_size, payload_size) {}
-//@{["ref", photon.object]}@.__load__       = function (i, width) {}
-//@{["ref", photon.object]}@.__store__      = function (i, value, width) {}
 
-//@{["ref", photon.symbol]}@.__intern__     = function (string) {}
-//@{["ref", photon.symbol]}@.__new__        = function (string) {}
 
 //--------------------------------- Macros -------------------------------------
 macro array_indexed_value_get(a, i)             
@@ -76,27 +72,27 @@ macro map_next_offset_set(m, v)
 }
 macro map_properties_size(m)        
 {
-    return ((object_payload_size(m) - sizeof_ref) / sizeof_property);
+    return ((object_payload_size(m) - 2*sizeof_ref) / sizeof_property);
 }
 macro map_property_name_get(m,i)    
 {
     // FIXME: Hard-coded constant until constant propagation is implanted
-    return m[@i*4 + 1];
+    return m[@i*4 + 2];
 }
 macro map_property_name_set(m,i,v)  
 {
     // FIXME: Hard-coded constant until constant propagation is implanted
-    return m[@i*4 + 1] = v;
+    return m[@i*4 + 2] = v;
 }
 macro map_property_location_get(m,i)  
 {
     // FIXME: Hard-coded constant until constant propagation is implanted
-    return m[@i*4 + 2];
+    return m[@i*4 + 3];
 }
 macro map_property_location_set(m,i,v)
 {
     // FIXME: Hard-coded constant until constant propagation is implanted
-    return m[@i*4 + 2] = v;
+    return m[@i*4 + 3] = v;
 }
 macro map_values_are_immutable(m)   
 {
@@ -105,6 +101,21 @@ macro map_values_are_immutable(m)
 macro map_values_set_immutable(m)   
 {
     return m[@object_flags_offset] |= 0x10000;
+}
+macro object_load_byte(o, offset)
+{
+    return @{["begin",
+        ["get", "offset"],
+        ["code", _op("push", _EAX)],
+        ["get", "o"],
+        ["code", 
+            [_op("pop", _ECX),
+             _op("sar", _$(1), _ECX),
+             _op("mov", _mem(0, _EAX, _ECX), _EAX),
+             _op("and", _$(0xFF), _EAX),
+             _op("sal", _$(1), _EAX),
+             _op("add", _$(1), _EAX)]]
+    ]}@;
 }
 macro object_map(o)
 {
@@ -153,6 +164,28 @@ macro object_values_size_set(o, s)
     return o[@object_flags_offset] = (o[@object_flags_offset] & -65281) | ((s & 255) << 8);
 }
 
+macro object_self(o)
+{
+    return o[@-5];
+}
+macro object_store_byte(o, offset, b)
+{
+    return @{["begin",
+        ["get", "b"],
+        ["code", _op("push", _EAX)],
+        ["get", "offset"],
+        ["code", _op("push", _EAX)],
+        ["get", "o"],
+        ["code", 
+            [_op("pop", _ECX),
+             _op("sar", _$(1), _ECX),
+             _op("pop", _EDX),
+             _op("sar", _$(1), _EDX),
+             _op("mov", _reg.dl, _mem(0, _EAX, _ECX))]],
+        ["get", "b"]
+    ]}@;
+}
+
 macro ref_is_fixnum(r)              
 {
     return @{["begin", 
@@ -166,8 +199,9 @@ macro ref_is_fixnum(r)
     ]}@;
 }
 
-//--------------------------------- Root Objects Adjustments ------------------
 
+//--------------------------------- Root Objects Adjustments ------------------
+/*
 // Add an indirection level to existing arrays to allow reallocation
 // while preserving the identity of the object
 root.array.__array__              = root.array;
@@ -180,85 +214,56 @@ root.global.__object__             = root.global;
 root.object.__object__             = root.object;
 root.symbol.__object__             = root.symbol;
 root.symbol.__symbols__.__object__ = root.symbol.__symbols__;
-root.map.__object__                = root.map;
+//root.map.__object__                = root.map;
 
 // TODO: Add __object__ property to existing non-root maps
+*/
 
 
 //--------------------------------- Bootstrap ---------------------------------
 (function () {
-    var root_map           = root.object.__allocate__(20, 20*sizeof_property + 2*sizeof_ref);
-    object_map(root_map)   = root_map;
-    object_proto(root_map) = root.map;
-    object_value_set(root_map, -1, root_map);
-    object_values_count_inc(root_map);
+    var ss_map = root.map.__clone__(object_payload_size(root.map));
 
-    map_property_name_set(root_map, 0, "__map__");
-    map_property_location_set(root_map, 0, 3);
+    object_map(ss_map)     = root.map;
+    object_proto(ss_map)   = root.map;
 
-    map_property_name_set(root_map, 1, "__proto__");
-    map_property_location_set(root_map, 1, 2);
-
-    map_property_name_set(root_map, 2, "__payload_size__");
-    map_property_location_set(root_map, 2, 1);
-
-    map_property_name_set(root_map, 3, "__flags__");
-    map_property_location_set(root_map, 3, 0);
-
-    map_property_name_set(root_map, 4, "__object__");
-    map_property_location_set(root_map, 4, -1);
-
-    map_property_name_set(root_map, 5, "__length__");
-    map_property_location_set(root_map, 5, 5);
-
-    map_property_name_set(root_map, 6, "__next_offset__");
-    map_property_location_set(root_map, 6, 6);
-
-    map_length_set(root_map, 7);
-    map_next_offset_set(root_map, -2);
-
-    function map_clone(map1, map2)
+    function map_add_property(m, name, f)
     {
-        for (var i = 1; i <= object_values_count_get(map1); ++i)
-        {
-            object_value_set(map2, -i, object_value_get(map1, -i));
-        }
 
-        object_values_count_set(map2, object_values_count_get(map1));
-
-        for(var i = 0; i < map_length_get(map2); ++i)
+        for (var i = 0; i < map_length_get(m); ++i)
         {
-            map_property_name_set(map2, i,
-                    map_property_name_get(map1, i));
-            map_property_location_set(map2, i,
-                    map_property_location_get(map1, i));
+            if (m[@4*i + 1] === name)
+            {
+                m[@4*i + 2] = f;
+                return;
+            }
         }
+        
+        var i = map_length_get(m);
+        m[@4*i+1] = name;
+        m[@4*i + 2] = f;
+        map_length_set(m, i+1);
     }
 
-    var map_map           = root.object.__allocate__(1, 7*sizeof_property + 2*sizeof_ref);
-    map_length_set(map_map, 7);
-    map_next_offset_set(map_map, -2);
-    map_clone(root_map, map_map);
-    map_values_set_immutable(map_map);
-
-    object_map(map_map)   = map_map;
-    object_proto(map_map) = root_map;
-    object_value_set(map_map, -1, map_map);
-
-    function map_set(map, name, value)
+    map_add_property(ss_map, "__add_property__", function (name, value)
     {
-        var i = map_length_get(map);    
-        var offset = map_next_offset_get(map);
+        for (var i = 0; i < map_length_get(this); ++i)
+        {
+            if (map_property_name_get(this, i) === name)
+            {
+                map_property_location_set(this, i, value);
+                return;
+            }
+        }
 
-        map_property_name_set(map, i, name);
-        map_property_location_set(map, i, offset);
-        map_next_offset_set(map, offset - 1); 
+        var i = map_length_get(this);
+        map_property_name_set(this, i, name);
+        map_property_location_set(this, i, value);
+        map_length_set(this, i+1);
+    });
 
-        object_value_set(map, offset, value);
-        object_values_count_inc(map);
-    }
 
-    map_set(root_map, "__lookup__", function (name)
+    map_add_property(ss_map, "__lookup__", function (name)
     {
         for (var i = 0; i < map_length_get(this); ++i)
         {
@@ -271,74 +276,560 @@ root.map.__object__                = root.map;
         return undefined;
     });
 
-    var map               = root.object.__allocate__(1, 5*sizeof_property + 2*sizeof_ref);
-    map_length_set(map, 5);
-    map_next_offset_set(map_map, -2);
-    map_clone(map_map, map);
-
-    object_map(map)   = map_map;
-    object_proto(map) = root_map;
-    object_value_set(map, -1, map);
-
-    var object           = root.object.__allocate__(20, 0);
-    object_map(object)   = map;
-    object_proto(object) = root.object;
-    object.__object__    = object;
-    object_values_count_inc(object);
-
-    print(object.__map__ === map);
-    print(object.__proto__ === root.object);
-    print(object.__payload_size__ === 0);
-    print(object.__flags__);
-    print(object.__object__ === object);
-
-    object.foo = 42;
-    object.bar = 24;
-
-    object.__get2__ = function (name) 
+    map_add_property(ss_map, "__set__", function (name, value)
     {
-        var offset = undefined;
-        var rcv = this;
+        var offset = this.__map__.__lookup__(name);
+
+        if (ref_is_fixnum(offset))
+        {
+            return object_value_set(this, offset, value);
+        }
+
+        return false;
+    });
+
+    map_add_property(ss_map, "__map__", 3);
+    map_add_property(ss_map, "__proto__", 2);
+    map_add_property(ss_map, "__payload_size__", 1);
+    map_add_property(ss_map, "__flags__", 0);
+    map_add_property(ss_map, "length", 4);
+    map_add_property(ss_map, "__next_offset__", 5);
+    map_add_property(ss_map, "__object__", -1);
+
+    var root_map = root.object.__allocate__(1, 20*sizeof_property + 2*sizeof_ref); 
+
+    object_map(root_map)     = ss_map;
+    object_proto(root_map)   = ss_map;
+
+    object_values_count_inc(root_map);
+
+    root_map.length          = 0;
+    root_map.__next_offset__ = -2;
+
+    //print(root_map.length);
+    //print(root_map.__next_offset__);
+
+    // Adding properties for maps
+    root_map.__add_property__("__map__",          3);
+    root_map.__add_property__("__proto__",        2);
+    root_map.__add_property__("__payload_size__", 1);
+    root_map.__add_property__("__flags__",        0);
+    root_map.__add_property__("length",           4);
+    root_map.__add_property__("__next_offset__",  5);
+    root_map.__add_property__("__object__",      -1);
+
+    // Adding methods for maps
+    root_map.__add_property__("__add_property__",
+            ss_map.__lookup__("__add_property__"));
+
+    root_map.__add_property__("__clone__",  function (payload_size) 
+    {
+        var new_map    = super(this).__clone__(payload_size);
+        new_map.length = this.length;
+
+        for (var i = 0; i < new_map.length; ++i)
+        {
+            map_property_name_set(new_map, i, 
+                map_property_name_get(this, i));
+            map_property_location_set(new_map, i, 
+                map_property_location_get(this, i));
+        }
+
+        if (map_values_are_immutable(this))
+        {
+            map_values_set_immutable(new_map);
+        }
+
+        return new_map;
+    });
+
+    root_map.__add_property__("__create__", function (name) 
+    {
+        if (this.length === map_properties_size(this))
+        {
+            var payload_size = this.__payload_size__ + sizeof_property; 
+        } else
+        {
+            var payload_size = this.__payload_size__;
+        }
+
+        var new_map = this.__clone__(payload_size);
+        
+        new_map.length = this.length + 1;
+        new_map.__next_offset__ = this.__next_offset__;
+
+        map_property_name_set(new_map, this.length, name);
+        map_property_location_set(new_map, this.length, new_map.__next_offset__--);
+
+        return new_map;
+    });
+
+    root_map.__add_property__("__delete__", function (name) 
+    {
+        return false;
+    });
+
+    root_map.__add_property__("__lookup__", function (name) 
+    {
+        for (var i = 0; i < map_length_get(this); ++i)
+        {
+            if (name === map_property_name_get(this, i))
+            {
+                return map_property_location_get(this, i);    
+            }
+        }
+
+        return undefined;
+    });
+
+    root_map.__add_property__("__new__", function ()
+    {
+        var new_map = this.__allocate__(
+            default_object_value_nb,
+            default_map_payload_size
+        );
+
+        object_map(new_map)   = this;
+        object_proto(new_map) = object_proto(this); 
+
+        new_map.length          = 0;
+        new_map.__next_offset__ = -2;
+
+        new_map.__add_property__("__map__",          3);
+        new_map.__add_property__("__proto__",        2);
+        new_map.__add_property__("__payload_size__", 1);
+        new_map.__add_property__("__flags__",        0);
+        new_map.__add_property__("__object__",      -1);
+
+        return new_map;
+            
+    });
+
+    root_map.__add_property__("__remove__", function (name) 
+    {
+        var new_map = super(this).__clone__(this.__payload_size__ - sizeof_property);
+        new_map.length = this.length - 1;
+
+        for (var i = 0; i < new_map.length; ++i)
+        {
+            if (map_property_name_get(this, i) !== name)
+            {
+                // Copy property
+                map_property_name_set(new_map, i, 
+                    map_property_name_get(this, i));
+                map_property_location_set(new_map, i, 
+                    map_property_location_get(this, i));
+            } else
+            {
+                // The deleted property is not the last one,
+                // move the last property in the deleted property
+                // slot.
+                map_property_name_set(new_map, i, 
+                    map_property_name_get(this, new_map.length));
+                map_property_location_set(new_map, i, 
+                    map_property_location_get(this, i));
+            }
+
+        }
+
+        return new_map;
+    });
+
+    root_map.__add_property__("__set__", function (name, value)
+    {
+        var offset = object_map(this).__lookup__(name);
+
+        if (ref_is_fixnum(offset))
+        {
+            return object_value_set(this, offset, value);
+        }
+
+        return false;
+    });
+
+    for (var i = 0; i < root_map.length; ++i)
+    {
+        map_add_property(ss_map, map_property_name_get(root_map, i),
+            map_property_location_get(root_map, i));
+    }
+
+    var map = root_map.__new__();
+
+    // Root object methods
+    map.__add_property__("__allocate__", root.object.__allocate__);
+
+    map.__add_property__("__clone__", function (payload_size) 
+    {
+        var clone = this.__allocate__(object_values_size_get(this), payload_size);    
+
+        for (var i = 1; i <= object_values_size_get(this); ++i)
+        {
+            object_value_set(clone, -i, object_value_get(this, -i));
+        }
+
+        object_map(clone)   = object_map(this);
+        object_proto(clone) = object_proto(this);
+
+        return clone;
+    });
+
+    map.__add_property__("__delete__", function (name) 
+    {
+        var offset = object_map(this).__lookup__(name);
+
+        if (offset === undefined)
+        {
+            return false;
+        } else
+        {
+            var new_map      = object_map(this).__remove__(name);
+            object_map(this) = new_map;
+            
+            // If the deleted property is not the last, move the value of the last
+            // property in the deleted slot
+            if (-offset < object_values_count_get(this))
+            {
+                object_value_set(this, offset, 
+                    object_value_get(this, -object_values_count_get(this)));
+            }
+
+            object_values_count_dec(this);
+            
+            return true;
+        }
+    });
+
+    map.__add_property__("__get__", function (name)
+    {
+        var value = undefined;
+        var rcv   = this; 
 
         while (rcv !== null)
         {
-            offset = object_map(rcv).__lookup__(name);
+            value = object_map(rcv).__lookup__(name);
 
-            if (offset !== undefined)
+            if (value !== undefined)
             {
-                return object_value_get(rcv, offset);
+                if (ref_is_fixnum(value))
+                    return object_value_get(rcv, value);
+                else
+                    return value; 
             }
             
             rcv = object_proto(rcv);
         }
 
         return undefined;
+    });
+
+    map.__add_property__("__new__", function (payload_size) 
+    {
+        var new_map         = this.__map__.__map__.__new__();
+        var child           = this.__clone__(payload_size);
+        object_map(child)   = new_map;
+        object_proto(child) = this;
+
+        return child;
+    });
+
+    map.__add_property__("__set__", function (name, value) 
+    {
+        var obj = this;
+
+        var offset = object_map(obj).__lookup__(name);
+
+        if (offset === undefined)
+        {
+            if (object_values_count_get(obj) >= object_values_size_get(obj))
+            {
+                // TODO
+                print("TODO: add extension support to objects");
+
+            } else
+            {
+                var new_map      = object_map(obj).__create__(name);
+                var offset       = new_map.__lookup__(name);
+
+                object_map(obj) = new_map;
+                object_values_count_inc(obj);
+                return object_value_set(obj, offset, value);
+            }
+        } else
+        {
+            return object_value_set(obj, offset, value);
+        }
+    });
+
+    // Root object
+    var object = root.object.__new__();
+    object_map(object) = map;
+    object_proto(object) = null;
+
+    root_map.__proto__ = object;
+    map.__proto__ = object;
+
+    var array = object.__new__(sizeof_ref);
+
+    array.__map__.__add_property__("length", 4);
+    array.length = 0;
+
+    array.__map__.__add_property__("__delete__", function (name) 
+    {
+        if (ref_is_fixnum(name))
+        {
+            return false;
+        } else if (name === "length")
+        {
+            return false;
+        } else
+        {
+            return super(this).__delete__(name);
+        }
+    });
+
+    array.__map__.__add_property__("__get__", function (name) 
+    {   
+        if (ref_is_fixnum(name) && name >= 0)
+        {
+            if (name >= this.length)
+            {
+                return undefined;
+            } else
+            {
+                return array_indexed_value_get(this, name);
+            }
+        } else
+        {
+            return super(this).__get__(name);
+        }
+    });
+
+    array.__map__.__add_property__("__new__", function (size) 
+    {
+        var new_array = this.__allocate__(4, (size + 1) * sizeof_ref); 
+        var new_map = this.__map__.__map__.__new__();
+        object_map(new_array)   = new_map;
+        object_proto(new_array) = this;
+
+        new_map.__add_property__("length", 4);
+        array_indexed_values_count_set(new_array, 0);
+
+        return new_array;
+    });
+
+    array.__map__.__add_property__("__push__", function (value) 
+    {
+        return this.__set__(this.length, value);
+    });
+
+    array.__map__.__add_property__("__set__", function (name, value) 
+    {
+        var array = this;
+
+        if (ref_is_fixnum(name) && name >= 0)
+        {
+            if (name >= array.length)
+            {
+                if (name >= array_indexed_values_size_get(array))
+                {
+                    var new_array = array.__new__(name * 2);
+
+                    new_array.length = name + 1;
+
+                    for (var i = 0; i < array.length; ++i)
+                    {
+                        new_array[i] = array[i];
+                    }
+
+                    array = new_array;
+                    this.__array__ = new_array;
+                } else
+                {
+                    array_indexed_values_count_set(array, name + 1);
+                }
+            }
+
+            array_indexed_value_set(array, name, value);
+        } else if (name === "length" && ref_is_fixnum(value))
+        {
+            if (value > array.length)
+            {
+                if (value >= array_indexed_values_size_get(array))
+                {
+                    var new_array = array.__new__(value);
+
+                    for (var i = 0; i < array.length; ++i)
+                    {
+                        new_array[i] = array[i];
+                    }
+
+                    array = new_array;
+                    this.__array__ = new_array;
+                } 
+
+                for (var i = array.length; i < value; ++i)
+                {
+                    array_indexed_value_set(array, i, undefined);
+                }
+            }
+
+            array_indexed_values_count_set(array, value);
+        } else
+        {
+            return super(this).__set__(name, value);
+        }
+
+        return value;
+    });
+
+    // Root symbol
+    var symbol_map = root_map.__new__();
+    symbol_map.__add_property__("__intern__", function (string)
+    {
+        var symbols = this.__symbols__;
+
+        function streq(s1, s2)
+        {
+            var b1, b2;
+            var i = 0;
+            do {
+                b1 = object_load_byte(s1, i);
+                b2 = object_load_byte(s2, i);
+
+                if (b1 !== b2)
+                {
+                    return false;
+                }
+
+                i++;
+            } while (b1 !== 0 && b2 !== 0);
+
+            if (b1 !== 0 || b2 !== 0)
+            {
+                return false;
+            } else
+            {
+                return true;
+            }
+        }
+
+        for (var i = 0; i < symbols.length; ++i)
+        {
+            if (streq(string, symbols[i]))
+                return symbols[i];
+        }
+
+        var new_symbol = this.__new__(string);
+        symbols.__push__(new_symbol);
+
+        return new_symbol;
+    });
+
+    symbol_map.__add_property__("__new__", function (string)
+    {
+        function strlen(s)
+        {
+            var i = 0;
+            var b;
+
+            do 
+            {
+                b = object_load_byte(s, i);
+                i++;
+            } while (b !== 0);
+            
+            return i;
+        }
+
+        function strcpy(copy, string)
+        {
+            var i = 0;
+            var b;
+
+            do 
+            {
+                b = object_load_byte(string, i);
+                object_store_byte(copy, i, b);
+                i++;
+            } while (b !== 0);
+        }
+
+        var new_symbol = this.__allocate__(0, strlen(string));
+
+        object_map(new_symbol)   = this.__map__.__map__.__new__();
+        object_proto(new_symbol) = this;
+
+        strcpy(new_symbol, string);
+
+        return new_symbol; 
+    });
+
+    symbol_map.__next_offset__ = -3;
+
+    var symbol = object.__new__(1);
+    object_store_byte(symbol, 0, 0);
+
+    symbol.__map__ = symbol_map;
+
+    symbol.__symbols__ = array.__new__(100);
+
+    var s = root.symbol.__symbols__[0];
+    symbol.__intern__(s);
+
+    var s = root.symbol.__symbols__[1];
+    symbol.__intern__(s);
+
+
+    // Converting old symbols to new representation
+    for (var i = 0; i < root.symbol.__symbols__[@0]; ++i)
+    {
+        var s = root.symbol.__symbols__[i];
+
+        symbol.__intern__(s);
     }
 
-    print("Updated");
-    print(object.__map__.__lookup__("__get2__"));
-    //print(object.__get__("__map__"));
-    /*
-    print(object.__map__.__lookup__("foo"));
-    print(object.__map__ === map);
-    print(object.__proto__ === root.object);
-    print(object.__payload_size__ === 0);
-    print(object.__flags__);
-    print(object.__object__ === object);
-    */
 
+    var fn = object.__new__(0);
+    fn.__map__.__add_property__("__intern__", function (code)
+    {
+        for (var i = 0; i < code.length; ++i)
+        {
+            object_store_byte(this, i, code[i]);
+        }
 
+        return this;
+    });
 
-    /*
+    fn.__map__.__add_property__("__new__", function (size)
+    {
+        var new_fct = this.__allocate__(4, size);
 
-    object_proto(object) = null;
-    */
+        object_map(new_fct)   = this.__map__.__map__.__new__();
+        object_proto(new_fct) = this;
+
+        return new_fct;
+    });
+
+    fn.__map__.__add_property__("__allocate__", root.function.__allocate__);
+
+    var code = array.__new__(7);
+    code.__push__(0xb8);
+    code.__push__(9);
+    code.__push__(0);
+    code.__push__(0);
+    code.__push__(0);
+    code.__push__(0xc3);
+
+    var new_fn = fn.__new__(7);
+    new_fn.__intern__(code);
+
 })();
 
 
 
 
 //--------------------------------- Object Primitives -------------------------
+/*
 root.array.__delete__ = function (name) 
 {
     if (ref_is_fixnum(name))
@@ -855,3 +1346,4 @@ root.object.__set__ = function (name, value)
             obj.__extended__[offset] = value;
     }
 }
+*/
