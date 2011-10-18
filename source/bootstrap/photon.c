@@ -166,6 +166,7 @@ struct object *s_clone       = (struct object *)0;
 struct object *s_create      = (struct object *)0;
 struct object *s_delete      = (struct object *)0;
 struct object *s_get         = (struct object *)0;
+struct object *s_init        = (struct object *)0;
 struct object *s_intern      = (struct object *)0;
 struct object *s_length      = (struct object *)0;
 struct object *s_lookup      = (struct object *)0;
@@ -281,6 +282,7 @@ struct object *map_lookup(size_t n, struct map *self, struct object *name);
 
 // Special send for 0 argument case since the PP_NARG macro does not detect
 // it correctly
+/*
 #define send0(RCV, MSG) ({                                             \
     struct object *r      = (struct object *)(RCV);		               \
     struct lookup _l      = _bind(r, (MSG));                           \
@@ -304,6 +306,37 @@ struct object *map_lookup(size_t n, struct map *self, struct object *name);
     assert(_l.offset != UNDEFINED);                                            \
     (_l.offset == UNDEFINED) ? UNDEFINED :                                     \
         ((method_t)(_l.rcv->_hd[-1].values[fx(_l.offset)]))(PHOTON_PP_NARG(ARGS), r, ##ARGS);\
+});
+*/
+typedef struct object *(*bind_t)(
+    struct object *null_n, 
+    struct object *null_rcv, 
+    struct object *msg, 
+    struct object *n, 
+    struct object *rcv
+);
+bind_t g_bind       = 0;
+bind_t g_super_bind = 0;
+
+#define send0(RCV, MSG) ({                                                     \
+    struct object *r      = (struct object *)(RCV);		                       \
+    struct object *m      = g_bind(0, 0, (MSG), 0, r);                         \
+    (m == UNDEFINED) ? UNDEFINED :                                             \
+        ((method_t)m)(0, r);\
+});
+
+#define send(RCV, MSG, ARGS...) ({                                             \
+    struct object *r      = (struct object *)(RCV);		                       \
+    struct object *m      = g_bind(0, 0, (MSG), 0, r);                         \
+    (m == UNDEFINED) ? UNDEFINED :                                             \
+        ((method_t)m)(PHOTON_PP_NARG(ARGS), r, ##ARGS);\
+});
+
+#define super_send(RCV, MSG, ARGS...) ({                                       \
+    struct object *r      = (struct object *)(RCV);		                       \
+    struct object *m      = g_super_bind(0, 0, (MSG), 0, r);                   \
+    (m == UNDEFINED) ? UNDEFINED :                                             \
+        ((method_t)m)(PHOTON_PP_NARG(ARGS), r, ##ARGS);\
 });
 
 struct lookup _bind(struct object *rcv, struct object *msg)
@@ -341,6 +374,27 @@ struct lookup _bind(struct object *rcv, struct object *msg)
     }
 
     return _l;
+}
+
+struct object *bind(struct object *null_n, struct object *null_rcv, struct object *msg, struct object *n, struct object *rcv)
+{
+    struct lookup _l = _bind(rcv, msg);
+
+    return (_l.offset == UNDEFINED) ? UNDEFINED : 
+           (ref_is_fixnum(_l.offset) ? _l.rcv->_hd[-1].values[fx(_l.offset)] :
+            _l.offset);
+}
+
+struct object *super_bind(struct object *null_n, struct object *null_rcv, struct object *msg, struct object *n, struct object *rcv)
+{
+    struct lookup _l      = _bind(rcv, msg);                                   
+    assert(_l.rcv != NIL);                                                     
+                  _l      = _bind(_l.rcv->_hd[-1].prototype, msg);           
+    assert(_l.rcv != NIL);                                                     
+    assert(_l.offset != UNDEFINED);                                            
+    return (ref_is_fixnum(_l.offset) ? _l.rcv->_hd[-1].values[fx(_l.offset)] :
+            _l.offset);
+
 }
 
 //--------------------------------- Object Primitives --------------------------
@@ -384,7 +438,7 @@ struct object *array_new(size_t n, struct array *self, struct object *size)
 
     struct object *new_array = send(
         self, 
-        s_allocate, 
+        s_init, 
         ref(4), 
         ref(fx(size)*sizeof(struct object *) + sizeof(struct object *))
     );
@@ -461,24 +515,16 @@ struct object *fixnum_print(size_t n, struct object *self)
 struct object *function_allocate(
     size_t n,
     struct function *self,
-    struct object   *values_size, 
+    struct object   *prelude_size, 
     struct object   *payload_size)
 {
     char *ptr = (char *)ealloc(
-        fx(values_size) * sizeof(struct object *) + 
-            sizeof(struct header) + fx(payload_size)
+        fx(prelude_size) + fx(payload_size)
     );
 
     assert(ptr != MAP_FAILED);
    
-    struct object *po = (struct object *)(
-        ptr + fx(values_size) * sizeof(struct object *) + sizeof(struct header)
-    );
-
-    po->_hd[-1].payload_size  = payload_size;
-
-    object_values_size_set(po, fx(values_size));
-    object_values_count_set(po, 0);
+    struct object *po = (struct object *)(ptr + fx(prelude_size));
 
     return po;
 }
@@ -498,7 +544,7 @@ struct object *function_intern(size_t n, struct function *self, struct array *co
 
 struct object *function_new(size_t n, struct function *self, struct object *size)
 {
-    struct object *new_fct = send(self, s_allocate, ref(4), size);
+    struct object *new_fct = send(self, s_init, ref(4), size);
 
     new_fct->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
     new_fct->_hd[-1].prototype = (struct object *)self;
@@ -626,7 +672,7 @@ struct object *map_new(size_t n, struct map *self)
 {
     struct map* new_map = (struct map *)send(
         self, 
-        s_allocate, 
+        s_init, 
         ref(4), 
         ref(4*sizeof(struct property) + sizeof(struct object *))
     );
@@ -735,27 +781,16 @@ struct object *map_set(size_t n, struct map *self, struct object *name, struct o
 struct object *object_allocate(
     size_t n,
     struct object *self, 
-    struct object *values_size, 
+    struct object *prelude_size, 
     struct object *payload_size
 )
 {
     char *ptr = (char *)raw_calloc(
         1, 
-        fx(values_size) * sizeof(struct object *) + 
-            sizeof(struct header) + fx(payload_size)
+        fx(prelude_size) + fx(payload_size)
     );
     
-    struct object *po = (struct object *)(
-        ptr + fx(values_size) * sizeof(struct object *) + sizeof(struct header)
-    );
-
-    po->_hd[-1].payload_size  = payload_size;
-
-    assert(fx(values_size) < 256); 
-    object_values_size_set(po, fx(values_size));
-    object_values_count_set(po, 0);
-
-    return po;
+    return (struct object *)(ptr + fx(prelude_size));
 }
 
 struct object *object_clone(size_t n, struct object *self, struct object *payload_size)
@@ -763,7 +798,7 @@ struct object *object_clone(size_t n, struct object *self, struct object *payloa
     ssize_t i;
     struct object* clone = send(
         self, 
-        s_allocate, 
+        s_init, 
         ref(object_values_size(self)),
         payload_size
     );
@@ -817,6 +852,52 @@ struct object *object_get(size_t n, struct object *self, struct object *name)
     {
         return _l.rcv->_hd[-1].values[fx(_l.offset)];
     } 
+}
+
+struct object *object_init(
+    size_t n,
+    struct object *self, 
+    struct object *values_size, 
+    struct object *payload_size
+)
+{
+    struct object *po = send(
+        self, 
+        s_allocate, 
+        ref(fx(values_size) * sizeof(struct object *) + sizeof(struct header)),
+        payload_size
+    );
+
+    po->_hd[-1].payload_size  = payload_size;
+
+    assert(fx(values_size) < 256); 
+    object_values_size_set(po, fx(values_size));
+    object_values_count_set(po, 0);
+
+    return po;
+}
+
+struct object *object_init_static(
+    size_t n,
+    struct object *self, 
+    struct object *values_size, 
+    struct object *payload_size
+)
+{
+    struct object *po = object_allocate(
+        2, 
+        self, 
+        ref(fx(values_size) * sizeof(struct object *) + sizeof(struct header)),
+        payload_size
+    );
+
+    po->_hd[-1].payload_size  = payload_size;
+
+    assert(fx(values_size) < 256); 
+    object_values_size_set(po, fx(values_size));
+    object_values_count_set(po, 0);
+
+    return po;
 }
 
 struct object *object_new(size_t n, struct object *self)
@@ -874,7 +955,7 @@ struct object *symbol_new(size_t n, struct object *self, char *string)
 {
     struct object *new_symbol = send(
         self, 
-        s_allocate, 
+        s_init, 
         ref(0), 
         ref(strlen(string) + 1)
     );
@@ -893,14 +974,17 @@ struct object *symbol_print(size_t n, struct object *self)
 
 void log(const char* s)
 {
-    //printf("%s", s); 
+    printf("%s", s); 
 }
 
 //--------------------------------- Bootstrap ----------------------------------
 extern void bootstrap()
 {
+    g_bind       = (bind_t)bind;
+    g_super_bind = (bind_t)super_bind;
+
     log("Create Root Map\n");
-    root_map = object_allocate(
+    root_map = object_init_static(
         2,
         NIL, 
         ref(20), 
@@ -911,24 +995,25 @@ extern void bootstrap()
     ((struct map *)root_map)->count = ref(0);
 
     log("Initializing Root Map\n");
-    s_lookup      = object_allocate(2, NIL, ref(0), ref(11));
+    s_lookup      = object_init_static(2, NIL, ref(0), ref(11));
     map_set(2, (struct map *)root_map, s_lookup, (struct object *)map_lookup);
-    s_set         = object_allocate(2, NIL, ref(0), ref(8));
+    s_set         = object_init_static(2, NIL, ref(0), ref(8));
     map_set(2, (struct map *)root_map, s_set, (struct object *)map_set);
 
     log("Create implementation symbols\n");
-    s_add         = object_allocate(2, NIL, ref(0), ref(8));
-    s_allocate    = object_allocate(2, NIL, ref(0), ref(12));
-    s_clone       = object_allocate(2, NIL, ref(0), ref(10));
-    s_create      = object_allocate(2, NIL, ref(0), ref(11));
-    s_delete      = object_allocate(2, NIL, ref(0), ref(11));
-    s_get         = object_allocate(2, NIL, ref(0), ref(8));
-    s_intern      = object_allocate(2, NIL, ref(0), ref(11));
-    s_length      = object_allocate(2, NIL, ref(0), ref(7));
-    s_new         = object_allocate(2, NIL, ref(0), ref(8));
-    s_push        = object_allocate(2, NIL, ref(0), ref(9));
-    s_remove      = object_allocate(2, NIL, ref(0), ref(11));
-    s_symbols     = object_allocate(2, NIL, ref(0), ref(12));
+    s_add         = object_init_static(2, NIL, ref(0), ref(8));
+    s_allocate    = object_init_static(2, NIL, ref(0), ref(13));
+    s_clone       = object_init_static(2, NIL, ref(0), ref(10));
+    s_create      = object_init_static(2, NIL, ref(0), ref(11));
+    s_delete      = object_init_static(2, NIL, ref(0), ref(11));
+    s_get         = object_init_static(2, NIL, ref(0), ref(8));
+    s_init        = object_init_static(2, NIL, ref(0), ref(9));
+    s_intern      = object_init_static(2, NIL, ref(0), ref(11));
+    s_length      = object_init_static(2, NIL, ref(0), ref(7));
+    s_new         = object_init_static(2, NIL, ref(0), ref(8));
+    s_push        = object_init_static(2, NIL, ref(0), ref(9));
+    s_remove      = object_init_static(2, NIL, ref(0), ref(11));
+    s_symbols     = object_init_static(2, NIL, ref(0), ref(12));
 
     log("Add primitive methods on Root Map\n");
     send(root_map, s_set, s_clone,    (struct object *)map_clone);
@@ -938,16 +1023,16 @@ extern void bootstrap()
     send(root_map, s_set, s_remove,   (struct object *)map_remove);
 
     log("Create Root Object\n");
-    root_object = object_allocate(2, NIL, ref(20), ref(0)); 
+    root_object = object_init_static(2, NIL, ref(20), ref(0)); 
     root_object->_hd[-1].prototype = NIL;
     root_map->_hd[-1].prototype = root_object;
 
     log("Create Root Object Map\n");
-    root_object->_hd[-1].map = (struct map *)object_allocate(
+    root_object->_hd[-1].map = (struct map *)object_init_static(
         2,
         NIL, 
-        ref(3), 
-        ref(3*sizeof(struct property) + sizeof(struct object *))
+        ref(4), 
+        ref(4*sizeof(struct property) + sizeof(struct object *))
     );
     root_object->_hd[-1].map->_hd[-1].prototype = root_map;
     root_object->_hd[-1].map->count = ref(0);
@@ -956,12 +1041,13 @@ extern void bootstrap()
     root_object->_hd[-1].map->_hd[-1].map = root_object->_hd[-1].map;
     send(root_object->_hd[-1].map, s_set, s_allocate, NIL);
     send(root_object->_hd[-1].map, s_set, s_clone,    NIL);
+    send(root_object->_hd[-1].map, s_set, s_init,     NIL);
     send(root_object->_hd[-1].map, s_set, s_set,      NIL);
     object_values_count_set((struct object *)root_object->_hd[-1].map, 0);
-    object_values_count_set(root_object, 3);
+    object_values_count_set(root_object, 4);
 
     log("Create Root Object Map's Map\n");
-    struct map *root_object_map_map = (struct map *)object_allocate(
+    struct map *root_object_map_map = (struct map *)object_init_static(
         2,
         NIL, 
         ref(0), 
@@ -978,8 +1064,10 @@ extern void bootstrap()
     log("Add primitive methods on Root Object\n");
     object_set(2, root_object, s_set, (struct object *)object_set);
 
+    log("Add remaining methods\n");
     send(root_object, s_set, s_allocate, (struct object *)object_allocate);
     send(root_object, s_set, s_clone,    (struct object *)object_clone);
+    send(root_object, s_set, s_init,     (struct object *)object_init);
     send(root_object, s_set, s_delete,   (struct object *)object_delete);
     send(root_object, s_set, s_get,      (struct object *)object_get);
     send(root_object, s_set, s_new,      (struct object *)object_new);
@@ -1007,6 +1095,7 @@ extern void bootstrap()
     send(symbols, s_push, s_create);
     send(symbols, s_push, s_delete);
     send(symbols, s_push, s_get);
+    send(symbols, s_push, s_init);
     send(symbols, s_push, s_intern);
     send(symbols, s_push, s_length);
     send(symbols, s_push, s_lookup);
@@ -1022,6 +1111,7 @@ extern void bootstrap()
     strcpy((char*)s_create,   "__create__");
     strcpy((char*)s_delete,   "__delete__");
     strcpy((char*)s_get,      "__get__");
+    strcpy((char*)s_init,     "__init__");
     strcpy((char*)s_intern,   "__intern__");
     strcpy((char*)s_length,   "length");
     strcpy((char*)s_lookup,   "__lookup__");
@@ -1042,7 +1132,6 @@ extern void bootstrap()
         ((struct array *)symbols)->indexed_values[i]->_hd[-1].prototype = 
             root_symbol;
     }
-
 
     log("Add primitive methods on Root Symbol\n");
     send(root_symbol, s_set, s_intern, symbol_intern);

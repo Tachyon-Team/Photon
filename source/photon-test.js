@@ -1,3 +1,22 @@
+/*
+
+Assumptions about the object model:
+1. A type object is located at offset -1 from object reference
+2. immediate integers at tagged with '1'
+3. objects references are tagged with '0'
+4. object new method takes no parameters
+5. object set method takes 2 object parameters
+5. array  new method takes 1 integer parameter
+6. array  push method takes 1 object parameter 
+7. function are called with the C calling convention
+
+TODO:
+1. Allow bind and super_bind to be redefined in C
+
+
+*/
+
+
 print("Initializing C object model");
 photon.init();
 
@@ -25,7 +44,22 @@ var start = new Date().getTime();
 var f = _compile(readFile("photon-objmodel.js"));
 var end   = new Date().getTime();
 print("compile time: " + ((end - start)) + " ms");
-photon.send({f:f}, "f");
+var r = photon.send({f:f}, "f");
+
+print("Retrieving new objects");
+var new_root = {};
+new_root.array    = photon.send(r, "__get__", "array");
+new_root.function = photon.send(r, "__get__", "function");
+new_root.map      = photon.send(r, "__get__", "map");
+new_root.object   = photon.send(r, "__get__", "object");
+new_root.symbol   = photon.send(r, "__get__", "symbol");
+
+print("Adding conversion functions to objects");
+var start = new Date().getTime();
+var f = _compile(readFile("photon-convert.js"));
+var end   = new Date().getTime();
+print("compile time: " + ((end - start)) + " ms");
+var r = photon.send({f:f}, "f");
  
 print("Removing dependencies to old object model");
 print("Recreating bind function");
@@ -33,6 +67,10 @@ photon.bind = photon.send(photon.function, "__new__", 10);
 var g = _compile(readFile("_bind.js"));
 var _bind = photon.bind;
 photon.bind = photon.send({g:g}, "g");
+
+print("Number of references in g compiled code");
+print(photon.send(g, "__load_ref__", 0).__addr__);
+print(photon.bind.__addr__);
 
 photon.send(_bind, "__intern__", 
             clean(_op("mov", _mref(photon.bind), _EAX).concat(_op("jmp", _EAX))));

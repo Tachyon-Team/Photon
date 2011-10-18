@@ -323,7 +323,7 @@ x86.Assembler.prototype.provide = function (linkObj)
     @augments x86.Assembler.obj
     @param {Number} value Defaults to 0.
 */
-x86.Assembler.prototype.immediateValue = function (value)
+x86.Assembler.prototype.immediateValue = function (value, label)
 {
     if (value === undefined)
         value = 0;
@@ -335,6 +335,9 @@ x86.Assembler.prototype.immediateValue = function (value)
 
     /** @private */
     that.value = value;
+
+    /** @private */
+    that.label = label;
 
     return that;
 };
@@ -1504,16 +1507,25 @@ x86.Assembler.prototype.movImm = function (dest, src, width)
     {
         var value;
 
+
         if (isLink)
         {
             value = src;
             that.require(value);
-        } else if (max32 === true)
+        } else 
         {
-            value = that.genImmNum(k, width);
-        } else
-        {
-            value = that._genImmNum(k, width);
+            if (src.label !== undefined)
+            {
+                that.label(src.label);
+            }
+
+            if (max32 === true)
+            {
+                value = that.genImmNum(k, width);
+            } else
+            {
+                value = that._genImmNum(k, width);
+            }
         }
         
         listing(width, value);

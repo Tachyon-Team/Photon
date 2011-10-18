@@ -271,26 +271,30 @@ ometa PhotonCompiler {
 
   global   :ctxt trans:r                                      -> [r, _op("ret")],
   this                                                        -> _op("mov", _mem(12, _EBP), _EAX),
-  break                                                       -> _op("jmp", self.break_lbl()),
-  continue                                                    -> _op("jmp", self.cont_lbl()),
+  break                                                       -> _op("jmp", self.context.break_lbl()),
+  continue                                                    -> _op("jmp", self.context.cont_lbl()),
   number   :n                                                 -> _op("mov", _$(_ref(n)), _EAX),  
-  string   :s                                                 -> _symbol(s), 
+  string   :s                                                 -> self.context.gen_symbol(s), 
   ref      :s (?(typeof s === "object" && 
-                 s.__addr__ !== undefined))                   -> _op("mov", _mref(s), _EAX),
-  arr      trans*:xs                                          -> _array(xs),
-  get      ( #true     -> _$(_TRUE)
-           | #false    -> _$(_FALSE)
-           | #undefined-> _$(_UNDEFINED)
-           | #null     -> _$(_NIL)
-           | :x ?(PhotonCompiler._hasLocal(x)) -> _mem(PhotonCompiler._loc(x), _EBP)):x
+                 s.__addr__ !== undefined))                   -> _op("mov", self.context.gen_mref(s), _EAX),
+  arr      trans*:xs                                          -> self.context.gen_array(xs),
+  get      ( #true      -> _$(_TRUE)
+           | #false     -> _$(_FALSE)
+           | #undefined -> _$(_UNDEFINED)
+           | #null      -> _$(_NIL)
+           | :x ?(self.context.has_local(x))                  -> _mem(self.context.loc(x), _EBP)):x
                                                               -> _op("mov", x, _EAX),
-  get      :x                                                 -> _send(_arg(_mref(photon.global)), _symbol("__get__"), [_symbol(x)]),
-  getp     trans:fd trans:x                                   -> _send(x, _symbol("__get__"), [fd]),
+  get      :x                                                 -> self.context.gen_send(
+                                                                    self.context.gen_arg(self.context.gen_mref(photon.global)), 
+                                                                    self.context.gen_symbol("__get__"), [self.context.gen_symbol(x)]),
+  getp     trans:fd trans:x                                   -> self.context.gen_send(x, self.context.gen_symbol("__get__"), [fd]),
   gets     trans:fd trans:x                                   -> [fd, _op("dec", _EAX), _op("push", _EAX), 
                                                                    x, _op("pop", _ECX), _op("mov", _mem(0, _EAX, _ECX, 2), _EAX)],
-  set      [#get :x] ?(PhotonCompiler._hasLocal(x)) trans:rhs  -> [rhs, _op("mov", _EAX, _mem(PhotonCompiler._loc(x), _EBP))],
-  set      [#get :x] trans:rhs                                -> _send(_arg(_mref(photon.global)), _symbol("__set__"), [_symbol(x), rhs]),
-  set      [#getp trans:fd trans:rcv] trans:rhs               -> _send(rcv, _symbol("__set__"), [fd, rhs]),
+  set      [#get :x] ?(self.context.has_local(x)) trans:rhs   -> [rhs, _op("mov", _EAX, _mem(self.context.loc(x), _EBP))],
+  set      [#get :x] trans:rhs                                -> self.context.gen_send(
+                                                                    self.context.gen_arg(self.context.gen_mref(photon.global)), 
+                                                                    self.context.gen_symbol("__set__"), [self.context.gen_symbol(x), rhs]),
+  set      [#getp trans:fd trans:rcv] trans:rhs               -> self.context.gen_send(rcv, self.context.gen_symbol("__set__"), [fd, rhs]),
   set      [#gets trans:fd trans:rcv] trans:rhs               -> [rhs, _op("push", _EAX), 
                                                                   fd,  _op("dec", _EAX), _op("push", _EAX), 
                                                                   rcv, _op("mov", _EAX, _ECX),
@@ -299,7 +303,7 @@ ometa PhotonCompiler {
                                                                   _op("mov", _EAX, _mem(0, _ECX, _EDX, 2))],
   mset     trans:lhs :op trans:rhs                            -> {throw "Unimplemented mset '" + op + "'";},
   unop     ( '-'          -> [_op("push", _$(1)), 
-                              _arith("sub"),
+                              self.context.gen_arith("sub"),
                               _op("inc", _EAX),
                               _op("add", _$(4), _ESP)]
            | '!'          -> [_op("cmp", _$(_TRUE), _EAX),
@@ -307,50 +311,51 @@ ometa PhotonCompiler {
                               _op("mov", _$(_FALSE), _ECX),
                               _op("cmovz", _ECX, _EAX)]):op 
              trans:x                                          -> [x, op],
-  unop     ( 'typeof' trans:rcv                               -> _send(rcv, _symbol("__typeof__"), [])
-           | 'delete' ([#getp trans:f trans:rcv]              -> _send(rcv, _symbol("__delete__"), [f])
+  unop     ( 'typeof' trans:rcv                               -> self.context.gen_send(rcv, self.context.gen_symbol("__typeof__"), [])
+           | 'delete' ([#getp trans:f trans:rcv]              -> self.context.gen_send(rcv, self.context.gen_symbol("__delete__"), [f])
                       |[#get :n]                              -> _op("mov", _$(_FALSE), _EAX))),
 
   binop    ( '+' -> "add"
-           | '-' -> "sub"):op trans:x [#number :n]            -> [x, _arith_cste(op,  _$(n*2))],
+           | '-' -> "sub"):op trans:x [#number :n]            -> [x, self.context.gen_arith_cste(op,  _$(n*2))],
 
-  binop    ( '+'          -> [_arith("add", true), _op("dec", _EAX)]     
-           | '-'          -> [_arith("sub", false), _op("inc", _EAX)]    
-           | '*'          -> _arith_mul()    
-           | '/'          -> _arith_div(false)
-           | '%'          -> _arith_div(true)
-           | '<'          -> _rel("cmovl", true)                         
-           | '<='         -> _rel("cmovle", true)                       
-           | '>'          -> _rel("cmovnle", true)                       
-           | '>='         -> _rel("cmovnl", true)                        
+  binop    ( '+'          -> [self.context.gen_arith("add", true), _op("dec", _EAX)]     
+           | '-'          -> [self.context.gen_arith("sub", false), _op("inc", _EAX)]    
+           | '*'          -> self.context.gen_arith_mul()    
+           | '/'          -> self.context.gen_arith_div(false)
+           | '%'          -> self.context.gen_arith_div(true)
+           | '<'          -> self.context.gen_rel("cmovl", true)                         
+           | '<='         -> self.context.gen_rel("cmovle", true)                       
+           | '>'          -> self.context.gen_rel("cmovnle", true)                       
+           | '>='         -> self.context.gen_rel("cmovnl", true)                        
            | '=='         -> []                                          
            | '!='         -> []                                          
-           | '==='        -> _rel("cmovz", false)                        
-           | '!=='        -> _rel("cmovnz", false)                       
-           | '>>'         -> _shiftop("sar")                             
-           | '>>>'        -> _shiftop("shr")                             
-           | '<<'         -> _shiftop("sal")                             
-           | '^'          -> _bitwise("xor")                                         
-           | '&'          -> _bitwise("and")                                          
-           | '|'          -> _bitwise("or")):op                                          
+           | '==='        -> self.context.gen_rel("cmovz", false)                        
+           | '!=='        -> self.context.gen_rel("cmovnz", false)                       
+           | '>>'         -> self.context.gen_shiftop("sar")                             
+           | '>>>'        -> self.context.gen_shiftop("shr")                             
+           | '<<'         -> self.context.gen_shiftop("sal")                             
+           | '^'          -> self.context.gen_bitwise("xor")                                         
+           | '&'          -> self.context.gen_bitwise("and")                                          
+           | '|'          -> self.context.gen_bitwise("or")):op                                          
            trans:x trans:y                                    -> [x, _op("push", _EAX), y, op, _op("add", _$(4), _ESP)],
-  binop    ( '||' (empty -> _TRUE):skip  -> _logic("or")
-           | '&&' (empty -> _FALSE):skip -> _logic("and")):op  
+  binop    ( '||' (empty -> _TRUE):skip  -> self.context.gen_logic("or")
+           | '&&' (empty -> _FALSE):skip -> self.context.gen_logic("and")):op  
            trans:x trans:y                                    -> {var END = _label();
                                                                   [x, _op("cmp", _$(skip), _EAX), _op("je", END),
                                                                    _op("push", _EAX), y, op, _op("add", _$(4), _ESP), END]},
-  binop      'instanceof' trans:x trans:y                     -> _send(x, _symbol("__instanceof__"), [y]),
+  binop      'instanceof' trans:x trans:y                     -> self.context.gen_send(x, self.context.gen_symbol("__instanceof__"), [y]),
   preop    :op trans:x                                        -> {throw "Unimplemented preop '" + op + "'";},
   postop   :op trans:x                                        -> {throw "Unimplemented postop '" + op + "'";},
-  return   trans:x                                            -> [x, _epilogue()],
+  return   trans:x                                            -> [x, self.context.gen_epilogue()],
   with     trans:x curlyTrans:s                               -> {throw "Unimplemented with statement"},
   if       (empty -> _label()):FALSE 
            ([#binop ('<'   -> "jge"
                     |'<='  -> "jg"
                     |'>'   -> "jle"
                     |'>='  -> "jl"):jcc
-               trans:x ([#number :n] -> [_type_check(1), _op("cmp", _$(_ref(n)), _EAX)]
-                       | trans:y     -> [_op("push", _EAX), y, _type_check(2), _op("cmp", _EAX, _mem(0, _ESP)), _op("pop", _EAX)]):cmp]    
+               trans:x ([#number :n] -> [self.context.gen_type_check(1), _op("cmp", _$(_ref(n)), _EAX)]
+                       | trans:y     -> [_op("push", _EAX), y, self.context.gen_type_check(2), 
+                                         _op("cmp", _EAX, _mem(0, _ESP)), _op("pop", _EAX)]):cmp]    
                                             -> [x, cmp, _op(jcc, FALSE)]
            | trans:cond                     -> [cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", FALSE)]):cond                      
            curlyTrans:t curlyTrans:e                          -> {var END = _label(); 
@@ -363,129 +368,80 @@ ometa PhotonCompiler {
                                                                   _op("jne", FALSE),
                                                                      t, _op("jmp", END), FALSE, 
                                                                      e, END, _listing("END:")];},
-  while    (empty -> self.push_block())
+  while    (empty -> self.context.push_block())
            trans:cond curlyTrans:body                         -> {var LOOP = _label(); var END = _label();
-                                                                  [LOOP, self.cont_lbl(),
+                                                                  var CONT = self.context.cont_lbl(); var BREAK = self.context.break_lbl();
+                                                                  self.context.pop_block();
+                                                                  [LOOP, CONT,
                                                                    cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", END),
-                                                                         body, _op("jmp", LOOP), self.break_lbl(), END]},
-  doWhile  (empty -> self.push_block())
+                                                                         body, _op("jmp", LOOP), BREAK, END]},
+  doWhile  (empty -> self.context.push_block())
            curlyTrans:body trans:cond                         -> {var LOOP = _label(); var END = _label();
-                                                                  [self.cont_lbl(), 
-                                                                   LOOP, body, cond, _op("cmp", _$(_TRUE), _EAX), _op("je", LOOP), 
-                                                                   self.break_lbl(), END]},
-  for      (empty -> self.push_block()) 
+                                                                  var CONT = self.context.cont_lbl(); var BREAK = self.context.break_lbl();
+                                                                  self.context.pop_block();
+                                                                  [LOOP, CONT, body, cond, _op("cmp", _$(_TRUE), _EAX), _op("je", LOOP), 
+                                                                   BREAK, END]},
+  for      (empty -> self.context.push_block()) 
            trans:init trans:cond trans:upd
            curlyTrans:body                                    -> {var LOOP = _label(); var END = _label();
+                                                                  var CONT = self.context.cont_lbl(); var BREAK = self.context.break_lbl();
+                                                                  self.context.pop_block();
                                                                   [init, LOOP, cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", END),
-                                                                         body, self.cont_lbl(), upd, _op("jmp", LOOP), self.break_lbl(), END]},
+                                                                         body, CONT, upd, _op("jmp", LOOP), BREAK, END]},
   forIn    trans:x trans:arr curlyTrans:body                  -> [],
   begin    trans:x end                                        -> [x],
   begin    trans*:xs                                          -> xs,
-  func     (:args  -> {PhotonCompiler._addArgs(args);})
-           (:ctxt  -> {PhotonCompiler._addLocals(ctxt.scope);})
-           curlyTrans:body                                    -> {var loc_nb = PhotonCompiler._loc_nb();
-                                                                  PhotonCompiler._popLocals();
-                                                                  _op("mov", _mref(_fct([ _prologue(loc_nb, args.length), 
-                                                                                          body, 
-                                                                                          _op("mov", _$(_UNDEFINED), _EAX), 
-                                                                                          _epilogue()])), _EAX);},
-  send     trans:msg trans:rcv trans*:args                    -> _send(rcv, msg, args, photon.bind),
-  call     [#getp trans:msg [#super trans:rcv]] trans*:args   -> _send(rcv, msg, args, photon.super_bind),
-  call     [#getp trans:msg trans:rcv]  trans*:args           -> _send(rcv, msg, args, photon.bind),
-  call     trans:fn trans*:args                               -> [_push_args(args, 2),
+  func     (:args  -> {self.context.add_args(args);})
+           (:ctxt  -> {self.context.add_locals(ctxt.scope); self.context.new_ref_ctxt();})
+           curlyTrans:body                                    -> {var loc_nb = self.context.loc_nb(); self.context.pop_locals();
+                                                                  var ref_labels = self.context.ref_ctxt(); self.context.pop_ref_ctxt();
+                                                                  _op("mov", self.context.gen_mref(
+                                                                        self.context.gen_fct([
+                                                                            self.context.gen_prologue(loc_nb, args.length), 
+                                                                            body, 
+                                                                            _op("mov", _$(_UNDEFINED), _EAX), 
+                                                                            self.context.gen_epilogue()], ref_labels)), _EAX);},
+  send     trans:msg trans:rcv trans*:args                    -> self.context.gen_send(rcv, msg, args, photon.bind),
+  call     [#getp trans:msg [#super trans:rcv]] trans*:args   -> self.context.gen_send(rcv, msg, args, photon.super_bind),
+  call     [#getp trans:msg trans:rcv]  trans*:args           -> self.context.gen_send(rcv, msg, args, photon.bind),
+  call     trans:fn trans*:args                               -> [self.context.gen_push_args(args, 2),
                                                                   _op("mov", _$(0), _mem(0, _ESP), 32),
                                                                   _op("mov", _$(args.length), _mem(0, _ESP), 32),
                                                                   fn, _op("call", _EAX), 
-                                                                  _pop_args(args.length + 2)],
+                                                                  self.context.gen_pop_args(args.length + 2)],
   new      trans:cls trans*:args                              -> [],
-  var      :name ?(PhotonCompiler._hasLocal(name)) trans:val  -> [val, _op("mov", _EAX, _mem(PhotonCompiler._loc(name), _EBP))],
-  var      :name trans:val                                    -> _send(_arg(_mref(photon.global)), _symbol("__set__"), [_symbol(name), val]),
+  var      :name ?(self.context.has_local(name)) trans:val    -> [val, _op("mov", _EAX, _mem(self.context.loc(name), _EBP))],
+  var      :name trans:val                                    -> self.context.gen_send(
+                                                                    self.context.gen_arg(
+                                                                        self.context.gen_mref(photon.global)), 
+                                                                        self.context.gen_symbol("__set__"), 
+                                                                        [self.context.gen_symbol(name), val]),
   throw    trans:x                                            -> [],
   try      curlyTrans:x :name curlyTrans:c curlyTrans:f       -> [],
   // TODO: Make sure fixnums are internalized to their own value as symbols
-  json     trans*:props                                       -> _object(props),
+  json     trans*:props                                       -> self.context.gen_object(props),
   binding  :name trans:val                                    -> [name, val],
-  switch   (empty -> self.push_block()) trans:x trans*:cases  -> [x, _op("push", _EAX), cases, self.break_lbl(), _op("add", _$(4), _ESP)],
+  switch   (empty -> self.context.push_block()) 
+           trans:x trans*:cases                               -> {var BREAK = self.context.break_lbl(); self.context.pop_block();
+                                                                  [x, _op("push", _EAX), cases, BREAK, _op("add", _$(4), _ESP)]},
   case     trans:x trans:y                                    -> {var END = _label();
                                                                  [x, _op("cmp", _mem(0, _ESP), _EAX), _op("jne", END), y, END]},
   default          trans:y                                    -> [y],
 
   // Extensions
-  ccall    trans:fn trans*:args                               -> [_push_args(args),
+  ccall    trans:fn trans*:args                               -> [self.context.gen_push_args(args),
                                                                   fn, _op("call", _EAX), 
-                                                                  _pop_args(args.length)],
+                                                                  self.context.gen_pop_args(args.length)],
   global_return   trans:x                                     -> [x, _op("ret")],
-  mreturn  trans:x trans:y                                    -> [x, _op("push", _EAX), y, _op("mov", _EAX, _ECX), _op("pop", _EAX), _epilogue()],
+  mreturn  trans:x trans:y                                    -> [x, _op("push", _EAX), y, _op("mov", _EAX, _ECX), _op("pop", _EAX), 
+                                                                  self.context.gen_epilogue()],
   code     :c                                                 -> c
 }
+
 PhotonCompiler.initialize = function ()
 {
-    this.block = [{}];
-
-    this.push_block = function ()
-    {
-        this.block.push({"continue":_label(), "break":_label()});   
-    };
-
-    this.pop_block = function ()
-    {
-        this.block.pop(block);   
-    };
-
-    this.cont_lbl = function ()
-    {
-        return this.block[this.block.length - 1]["continue"];
-    };
-
-    this.break_lbl = function ()
-    {
-        return this.block[this.block.length - 1]["break"];
-    };
-}
-
-PhotonCompiler._addArgs = function (args)
-{
-    var mapping = [{}, 0];
-
-    for (var i = 0; i < args.length; ++i)
-    {
-        mapping[0][args[i]] = (i+4)*4;
-    }
-
-    PhotonCompiler._locals.push(mapping);
-}
-PhotonCompiler._addLocals = function (scope)
-{
-    var mapping = this._locals[this._locals.length - 1];
-    var i = -4;
-
-    for (var n in scope)
-    {
-        //print(n + " = " + scope[n]);
-        if (scope[n] === "local")
-        {
-            //print(n + " = " + i);
-            mapping[0][n] = i; 
-            mapping[1] = mapping[1] + 1;
-            i -= 4;
-        }
-    }
-}
-
-PhotonCompiler._hasLocal = function(name)
-{
-    return PhotonCompiler._locals[PhotonCompiler._locals.length - 1][0][name] !== undefined;
-}
-PhotonCompiler._locals = [[{}, 0]];
-PhotonCompiler._popLocals = function ()
-{
-    PhotonCompiler._locals.length -= 1;
+    this.context = PhotonCompiler.context.init();
 };
-PhotonCompiler._loc = function (name)
-{
-    return PhotonCompiler._locals[PhotonCompiler._locals.length - 1][0][name];
-};
-PhotonCompiler._loc_nb = function () 
-{ 
-    return PhotonCompiler._locals[PhotonCompiler._locals.length - 1][1];
-};
+
+PhotonCompiler.context = {init:function () { print("Invalid context"); }};
+
