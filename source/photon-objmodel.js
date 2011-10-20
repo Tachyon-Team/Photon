@@ -252,16 +252,16 @@ function bootstrap() {
 
         for (var i = 0; i < map_length_get(m); ++i)
         {
-            if (m[@4*i + 1] === name)
+            if (m[@4*i + 2] === name)
             {
-                m[@4*i + 2] = f;
+                m[@4*i + 3] = f;
                 return;
             }
         }
         
         var i = map_length_get(m);
-        m[@4*i+1] = name;
-        m[@4*i + 2] = f;
+        m[@4*i+2] = name;
+        m[@4*i + 3] = f;
         map_length_set(m, i+1);
     }
 
@@ -352,6 +352,7 @@ function bootstrap() {
     {
         var new_map    = super(this).__clone__(payload_size);
         new_map.length = this.length;
+        new_map.__next_offset__ = this.__next_offset__;
 
         for (var i = 0; i < new_map.length; ++i)
         {
@@ -845,17 +846,23 @@ function bootstrap() {
         return this;
     });
 
-    fn.__map__.__add_property__("__new__", function (size)
+    fn.__map__.__add_property__("__new__", function (payload_size, cell_nb)
     {
-        var new_fct = this.__init__(4, size);
+        //  TODO: Check for interference with initial offsets of a map
+        var new_fct = this.__init__(4+cell_nb, payload_size);
 
         object_map(new_fct)   = this.__map__.__map__.__new__();
         object_proto(new_fct) = this;
+
+        object_map(new_fct).__next_offset__ = -cell_nb - 1;
 
         return new_fct;
     });
 
     fn.__map__.__add_property__("__allocate__", root.function.__allocate__);
+
+
+    var f = root.function.__new__(10, 2);
 
     /*
     var code = array.__new__(7);
@@ -877,6 +884,8 @@ function bootstrap() {
         object:object,
         symbol:symbol
     };
+
+    
 };
 
 global_return bootstrap();

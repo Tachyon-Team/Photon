@@ -404,11 +404,7 @@ ometa PhotonCompiler {
   send     trans:msg trans:rcv trans*:args                    -> self.context.gen_send(rcv, msg, args, photon.bind),
   call     [#getp trans:msg [#super trans:rcv]] trans*:args   -> self.context.gen_send(rcv, msg, args, photon.super_bind),
   call     [#getp trans:msg trans:rcv]  trans*:args           -> self.context.gen_send(rcv, msg, args, photon.bind),
-  call     trans:fn trans*:args                               -> [self.context.gen_push_args(args, 2),
-                                                                  _op("mov", _$(0), _mem(0, _ESP), 32),
-                                                                  _op("mov", _$(args.length), _mem(0, _ESP), 32),
-                                                                  fn, _op("call", _EAX), 
-                                                                  self.context.gen_pop_args(args.length + 2)],
+  call     trans:fn trans*:args                               -> self.context.gen_call(fn, args),
   new      trans:cls trans*:args                              -> [],
   var      :name ?(self.context.has_local(name)) trans:val    -> [val, _op("mov", _EAX, _mem(self.context.loc(name), _EBP))],
   var      :name trans:val                                    -> self.context.gen_send(

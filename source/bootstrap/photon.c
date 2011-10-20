@@ -41,7 +41,7 @@ struct object;
 struct property;
 struct symbol;
 
-typedef struct object *(*method_t)(size_t n, struct object *receiver, ...);
+typedef struct object *(*method_t)(size_t n, struct object *receiver, struct object *closure, ...);
 
 //--------------------------------- Memory Allocation Primitives ---------------
 inline ssize_t ref_is_object(struct object *obj);
@@ -119,6 +119,11 @@ struct array {
     struct object     *indexed_values[0];
 };
 
+struct cell {
+    struct header      _hd[0];
+    struct object*     value;
+};
+
 struct function {
     struct header      _hd[0];
     char               code[0];
@@ -132,6 +137,7 @@ struct lookup {
 struct map {
     struct header      _hd[0];
     struct object     *count;
+    struct object     *next_offset;
     struct property    properties[0];
 };
 
@@ -148,6 +154,7 @@ struct symbol {
 struct object *roots              = (struct object *)0;
 struct object *roots_names        = (struct object *)0;
 struct object *root_array         = (struct object *)0;
+struct object *root_cell          = (struct object *)0;
 struct object *root_fixnum        = (struct object *)0;
 struct object *root_function      = (struct object *)0;
 struct object *root_map           = (struct object *)0;
@@ -278,7 +285,7 @@ inline ssize_t ref_to_fixnum(struct object *obj)
 }
 
 //--------------------------------- Object Model Primitives --------------------
-struct object *map_lookup(size_t n, struct map *self, struct object *name);
+struct object *map_lookup(size_t n, struct map *self, struct function *closure, struct object *name);
 
 // Special send for 0 argument case since the PP_NARG macro does not detect
 // it correctly
@@ -311,6 +318,7 @@ struct object *map_lookup(size_t n, struct map *self, struct object *name);
 typedef struct object *(*bind_t)(
     struct object *null_n, 
     struct object *null_rcv, 
+    struct object *null_closure,
     struct object *msg, 
     struct object *n, 
     struct object *rcv
@@ -320,23 +328,23 @@ bind_t g_super_bind = 0;
 
 #define send0(RCV, MSG) ({                                                     \
     struct object *r      = (struct object *)(RCV);		                       \
-    struct object *m      = g_bind(0, 0, (MSG), 0, r);                         \
+    struct object *m      = g_bind(0, 0, 0, (MSG), 0, r);                         \
     (m == UNDEFINED) ? UNDEFINED :                                             \
-        ((method_t)m)(0, r);\
+        ((method_t)m)(0, r, m);\
 });
 
 #define send(RCV, MSG, ARGS...) ({                                             \
     struct object *r      = (struct object *)(RCV);		                       \
-    struct object *m      = g_bind(0, 0, (MSG), 0, r);                         \
+    struct object *m      = g_bind(0, 0, 0, (MSG), 0, r);                         \
     (m == UNDEFINED) ? UNDEFINED :                                             \
-        ((method_t)m)(PHOTON_PP_NARG(ARGS), r, ##ARGS);\
+        ((method_t)m)(PHOTON_PP_NARG(ARGS), r, m, ##ARGS);\
 });
 
 #define super_send(RCV, MSG, ARGS...) ({                                       \
     struct object *r      = (struct object *)(RCV);		                       \
-    struct object *m      = g_super_bind(0, 0, (MSG), 0, r);                   \
+    struct object *m      = g_super_bind(0, 0, 0, (MSG), 0, r);                   \
     (m == UNDEFINED) ? UNDEFINED :                                             \
-        ((method_t)m)(PHOTON_PP_NARG(ARGS), r, ##ARGS);\
+        ((method_t)m)(PHOTON_PP_NARG(ARGS), r, m, ##ARGS);\
 });
 
 struct lookup _bind(struct object *rcv, struct object *msg)
@@ -347,7 +355,7 @@ struct lookup _bind(struct object *rcv, struct object *msg)
     if (msg == s_lookup && ((struct map *)rcv == rcv->_hd[-1].map))
     {
         _l.rcv    = root_map;
-        _l.offset = map_lookup(1, (struct map *)root_map, s_lookup);
+        _l.offset = map_lookup(1, (struct map *)root_map, (struct function *)NIL, s_lookup);
         return _l;
     }
 
@@ -376,7 +384,7 @@ struct lookup _bind(struct object *rcv, struct object *msg)
     return _l;
 }
 
-struct object *bind(struct object *null_n, struct object *null_rcv, struct object *msg, struct object *n, struct object *rcv)
+struct object *bind(struct object *null_n, struct object *null_rcv, struct object *null_closure, struct object *msg, struct object *n, struct object *rcv)
 {
     struct lookup _l = _bind(rcv, msg);
 
@@ -385,7 +393,7 @@ struct object *bind(struct object *null_n, struct object *null_rcv, struct objec
             _l.offset);
 }
 
-struct object *super_bind(struct object *null_n, struct object *null_rcv, struct object *msg, struct object *n, struct object *rcv)
+struct object *super_bind(struct object *null_n, struct object *null_rcv, struct object *null_closure, struct object *msg, struct object *n, struct object *rcv)
 {
     struct lookup _l      = _bind(rcv, msg);                                   
     assert(_l.rcv != NIL);                                                     
@@ -398,7 +406,7 @@ struct object *super_bind(struct object *null_n, struct object *null_rcv, struct
 }
 
 //--------------------------------- Object Primitives --------------------------
-struct object *array_delete(size_t n, struct array *self, struct object *name)
+struct object *array_delete(size_t n, struct array *self, struct function *closure, struct object *name)
 {
     if (ref_is_fixnum(name))
     {
@@ -414,7 +422,7 @@ struct object *array_delete(size_t n, struct array *self, struct object *name)
 
 }
 
-struct object *array_get(size_t n, struct array *self, struct object *name)
+struct object *array_get(size_t n, struct array *self, struct function *closure, struct object *name)
 {
     if (ref_is_fixnum(name) && fx(name) >= 0)
     {
@@ -431,7 +439,7 @@ struct object *array_get(size_t n, struct array *self, struct object *name)
     return super_send(self, s_get, name);
 }
 
-struct object *array_new(size_t n, struct array *self, struct object *size)
+struct object *array_new(size_t n, struct array *self, struct function *closure, struct object *size)
 {
     assert(ref_is_fixnum(size));
     assert(fx(size) >= 0);
@@ -451,13 +459,13 @@ struct object *array_new(size_t n, struct array *self, struct object *size)
     return new_array;
 }
 
-struct object *array_print(size_t n, struct array *self)
+struct object *array_print(size_t n, struct array *self, struct function *closure)
 {
     printf("[Array]\n");
     return UNDEFINED;
 }
 
-struct object *array_push(size_t n, struct array *self, struct object *value)
+struct object *array_push(size_t n, struct array *self, struct function *closure, struct object *value)
 {
     assert(array_indexed_values_size(self) > fx(self->count));
     return send(self, s_set, self->count, value);
@@ -466,6 +474,7 @@ struct object *array_push(size_t n, struct array *self, struct object *value)
 struct object *array_set(
     size_t n,
     struct array *self, 
+    struct function *closure,
     struct object *name, 
     struct object *value
 )
@@ -506,6 +515,18 @@ struct object *array_set(
     return value;
 }
 
+struct object *cell_new(size_t n, struct cell *self, struct function *closure)
+{
+    struct cell *new_cell = (struct cell *)send(self, s_init, ref(0), ref(sizeof(struct object *)));
+
+    new_cell->value = UNDEFINED;
+
+    new_cell->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
+    new_cell->_hd[-1].prototype = (struct object *)self;
+
+    return (struct object *)new_cell;
+}
+
 struct object *fixnum_print(size_t n, struct object *self)
 {
     printf("%zd\n", fx(self));
@@ -515,6 +536,7 @@ struct object *fixnum_print(size_t n, struct object *self)
 struct object *function_allocate(
     size_t n,
     struct function *self,
+    struct function *closure,
     struct object   *prelude_size, 
     struct object   *payload_size)
 {
@@ -529,7 +551,7 @@ struct object *function_allocate(
     return po;
 }
 
-struct object *function_intern(size_t n, struct function *self, struct array *code)
+struct object *function_intern(size_t n, struct function *self, struct function *closure, struct array *code)
 {
     assert(fx(self->_hd[-1].payload_size) >= array_indexed_values_size(code));
     ssize_t i;
@@ -542,12 +564,27 @@ struct object *function_intern(size_t n, struct function *self, struct array *co
     return (struct object *)self;
 }
 
-struct object *function_new(size_t n, struct function *self, struct object *size)
+struct object *function_new(
+    size_t n, 
+    struct function *self, 
+    struct function *closure,
+    struct object *payload_size,
+    struct object *cell_nb
+)
 {
-    struct object *new_fct = send(self, s_init, ref(4), size);
+    struct object *new_fct = send(self, s_init, ref(fx(cell_nb) + 4), payload_size);
 
     new_fct->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
     new_fct->_hd[-1].prototype = (struct object *)self;
+
+    new_fct->_hd[-1].map->next_offset = ref(-fx(cell_nb) - 1);
+
+    ssize_t i = 0;
+
+    for (i = 1; i <= fx(cell_nb); ++i)
+    {
+        new_fct->_hd[-1].values[-i] = UNDEFINED;
+    }
 
     return new_fct;
 }
@@ -558,7 +595,7 @@ struct object *function_print(size_t n, struct function *self)
     return UNDEFINED;
 }
 
-struct object *map_clone(size_t n, struct map *self, struct object *payload_size)
+struct object *map_clone(size_t n, struct map *self, struct function *closure, struct object *payload_size)
 {
     assert(fx(payload_size) >= fx(self->_hd[-1].payload_size));
     
@@ -566,6 +603,7 @@ struct object *map_clone(size_t n, struct map *self, struct object *payload_size
 
     struct map* new_map = (struct map *)super_send(self, s_clone, payload_size);
     new_map->count = self->count;
+    new_map->next_offset = self->next_offset; 
 
     for (i=0; i < fx(self->count); ++i)
     {
@@ -581,7 +619,7 @@ struct object *map_clone(size_t n, struct map *self, struct object *payload_size
     return (struct object *)new_map;
 }
 
-struct object *map_create(size_t n, struct map *self, struct object *name)
+struct object *map_create(size_t n, struct map *self, struct function *closure, struct object *name)
 {
     struct object *payload_size;
 
@@ -600,60 +638,21 @@ struct object *map_create(size_t n, struct map *self, struct object *name)
         payload_size
     );
 
-    size_t i = fx(new_map->count);
-    new_map->count = ref(fx(new_map->count) + 1);
+    new_map->properties[fx(new_map->count)].name     = name;
+    new_map->properties[fx(new_map->count)].location = new_map->next_offset;
 
-    new_map->properties[i].name     = name;
-    new_map->properties[i].location = ref(-fx(new_map->count));
+    new_map->count       = ref(fx(new_map->count) + 1);
+    new_map->next_offset = ref(fx(new_map->next_offset) - 1);
 
     return (struct object *)new_map;
 }
 
-struct object *map_delete(size_t n, struct map *self, struct object *name)
+struct object *map_delete(size_t n, struct map *self, struct function *closure, struct object *name)
 {
-    assert(self->_hd[-1].map->_hd[-1].map == self->_hd[-1].map);
-
-    ssize_t size;
-    struct map *new_map;
-    struct object *offset = send(self, s_lookup, name);
-    
-    if (offset == UNDEFINED)
-    {
-        return FALSE;
-    } else
-    {
-        // Recursively delete the property on the map's map
-        if (self->_hd[-1].map != self)
-        {
-            new_map = (struct map *)send(self->_hd[-1].map, s_remove, name);
-
-            // Preserve circularity on new_map
-            new_map->_hd[-1].map = new_map;
-
-            size = object_values_size((struct object *)self);
-
-            // If the deleted property is not the last, move the value of the
-            // last property in the deleted slot
-            if (-fx(offset) < size)
-            {
-                self->_hd[-1].values[fx(offset)]    = self->_hd[-1].values[-size];
-                new_map->_hd[-1].values[fx(offset)] =  
-                    new_map->_hd[-1].values[-size];
-            }
-
-            object_values_count_dec((struct object *)self);
-            object_values_count_dec((struct object *)new_map);
-
-            return TRUE;
-        } else
-        {
-            // Deleting properties on a circular map is not supported
-            return FALSE;
-        }
-    }
+    return FALSE;
 }
 
-struct object *map_lookup(size_t n, struct map *self, struct object *name)
+struct object *map_lookup(size_t n, struct map *self, struct function *closure, struct object *name)
 {
     ssize_t i;
 
@@ -668,7 +667,7 @@ struct object *map_lookup(size_t n, struct map *self, struct object *name)
     return UNDEFINED;
 }
 
-struct object *map_new(size_t n, struct map *self)
+struct object *map_new(size_t n, struct map *self, struct function *closure)
 {
     struct map* new_map = (struct map *)send(
         self, 
@@ -680,17 +679,18 @@ struct object *map_new(size_t n, struct map *self)
     new_map->_hd[-1].map       = self->_hd[-1].map;
     new_map->_hd[-1].prototype = (struct object *)self;
     new_map->count             = ref(0);
+    new_map->next_offset       = ref(-1);
 
     return (struct object *)new_map;
 }
 
-struct object *map_print(size_t n, struct map *self)
+struct object *map_print(size_t n, struct map *self, struct function *closure)
 {
     printf("[Map]\n"); 
     return UNDEFINED;
 }
 
-struct object *map_remove(size_t n, struct map *self, struct object *name)
+struct object *map_remove(size_t n, struct map *self, struct function *closure, struct object *name)
 {
     ssize_t i;
 
@@ -700,7 +700,8 @@ struct object *map_remove(size_t n, struct map *self, struct object *name)
         ref(fx(self->_hd[-1].payload_size) - sizeof(struct property))
     );
 
-    new_map->count = ref(fx(self->count) - 1);
+    new_map->count       = ref(fx(self->count) - 1);
+    new_map->next_offset = ref(fx(self->next_offset) + 1);
 
     for (i=0; i < fx(new_map->count); ++i)
     {
@@ -720,7 +721,7 @@ struct object *map_remove(size_t n, struct map *self, struct object *name)
     return (struct object *)new_map;
 }
 
-struct object *map_set(size_t n, struct map *self, struct object *name, struct object* value)
+struct object *map_set(size_t n, struct map *self, struct function *closure, struct object *name, struct object* value)
 {
     struct object *offset = send(self->_hd[-1].map, s_lookup, name);
 
@@ -736,37 +737,20 @@ struct object *map_set(size_t n, struct map *self, struct object *name, struct o
 
         if (self->_hd[-1].map->_hd[-1].map == self->_hd[-1].map)
         {
-            // Recursively add the property on the map's map
-            if (self->_hd[-1].map != self)
-            {
-                struct map *new_map = (struct map *)send(
-                    self->_hd[-1].map, 
-                    s_create, 
-                    name
-                );
-
-                // Preserve circularity on new_map
-                new_map->_hd[-1].map = new_map;
-
-                // Add the value on both the map's map and self
-                object_values_count_inc((struct object *)new_map);
-                object_values_count_inc((struct object *)self);
-                new_map->_hd[-1].values[-map_values_count(self)] = UNDEFINED;
-                self   ->_hd[-1].values[-map_values_count(self)] = value;
-            } else
-            {
-                assert(map_properties_count(self) < map_properties_size(self));
+            assert(self->_hd[-1].map == self);
+            assert(map_properties_count(self) < map_properties_size(self));
                 
-                // Add property on self's map
-                self->properties[fx(self->count)].name     = name;
-                self->properties[fx(self->count)].location = 
-                    ref(-fx(self->count) - 1);
-                self->count = ref(fx(self->count) + 1);
+            // Add property on self's map
+            self->properties[fx(self->count)].name     = name;
+            self->properties[fx(self->count)].location = self->next_offset;
+            self->count = ref(fx(self->count) + 1);
 
-                // Add value on self
-                object_values_count_inc((struct object *)self);
-                self->_hd[-1].values[-map_values_count(self)] = value;
-            }
+            // Add value on self
+            object_values_count_inc((struct object *)self);
+            self->_hd[-1].values[fx(self->next_offset)] = value;
+
+            self->next_offset = ref(fx(self->next_offset) - 1);
+
             return value;
         } else
         {
@@ -781,6 +765,7 @@ struct object *map_set(size_t n, struct map *self, struct object *name, struct o
 struct object *object_allocate(
     size_t n,
     struct object *self, 
+    struct function *closure,
     struct object *prelude_size, 
     struct object *payload_size
 )
@@ -793,7 +778,7 @@ struct object *object_allocate(
     return (struct object *)(ptr + fx(prelude_size));
 }
 
-struct object *object_clone(size_t n, struct object *self, struct object *payload_size)
+struct object *object_clone(size_t n, struct object *self, struct function *closure, struct object *payload_size)
 {
     ssize_t i;
     struct object* clone = send(
@@ -814,7 +799,7 @@ struct object *object_clone(size_t n, struct object *self, struct object *payloa
     return clone;
 }
 
-struct object *object_delete(size_t n, struct object *self, struct object *name)
+struct object *object_delete(size_t n, struct object *self, struct function *closure, struct object *name)
 {
     struct map *new_map;
 
@@ -841,7 +826,7 @@ struct object *object_delete(size_t n, struct object *self, struct object *name)
     }
 }
 
-struct object *object_get(size_t n, struct object *self, struct object *name)
+struct object *object_get(size_t n, struct object *self, struct function *closure, struct object *name)
 {
     struct lookup _l = _bind(self, name);
 
@@ -857,6 +842,7 @@ struct object *object_get(size_t n, struct object *self, struct object *name)
 struct object *object_init(
     size_t n,
     struct object *self, 
+    struct function *closure,
     struct object *values_size, 
     struct object *payload_size
 )
@@ -880,6 +866,7 @@ struct object *object_init(
 struct object *object_init_static(
     size_t n,
     struct object *self, 
+    struct function *closure,
     struct object *values_size, 
     struct object *payload_size
 )
@@ -887,6 +874,7 @@ struct object *object_init_static(
     struct object *po = object_allocate(
         2, 
         self, 
+        (struct function *)NIL,
         ref(fx(values_size) * sizeof(struct object *) + sizeof(struct header)),
         payload_size
     );
@@ -900,7 +888,7 @@ struct object *object_init_static(
     return po;
 }
 
-struct object *object_new(size_t n, struct object *self)
+struct object *object_new(size_t n, struct object *self, struct function *closure)
 {
     struct map    *new_map   = (struct map *)send0(self->_hd[-1].map, s_new);
     struct object *child     = send(self, s_clone, 0);
@@ -909,13 +897,13 @@ struct object *object_new(size_t n, struct object *self)
     return child;
 }
 
-struct object *object_print(size_t n, struct object *self)
+struct object *object_print(size_t n, struct object *self, struct function *closure)
 {
     printf("[Object]\n");
     return UNDEFINED;
 }
 
-struct object *object_set(size_t n, struct object *self, struct object *name, struct object *value)
+struct object *object_set(size_t n, struct object *self, struct function *closure, struct object *name, struct object *value)
 {
     struct map *new_map;
     struct object *offset = send(self->_hd[-1].map, s_lookup, name);
@@ -923,18 +911,21 @@ struct object *object_set(size_t n, struct object *self, struct object *name, st
     if (offset == UNDEFINED)
     {
         assert(object_values_count(self) < object_values_size(self));
+
+        ssize_t i = fx(self->_hd[-1].map->next_offset);
         
         new_map = (struct map *)send(self->_hd[-1].map, s_create, name);
         self->_hd[-1].map = new_map;  
         object_values_count_inc(self);
-        return self->_hd[-1].values[-object_values_count(self)] = value;
+
+        return self->_hd[-1].values[i] = value;
     } else
     {
         return self->_hd[-1].values[fx(offset)] = value;
     } 
 }
 
-struct object *symbol_intern(size_t n, struct object *self, char *string)
+struct object *symbol_intern(size_t n, struct object *self, struct function *closure, char *string)
 {
     ssize_t i; 
     struct array *symbols = (struct array *)send(self, s_get, s_symbols);
@@ -951,7 +942,7 @@ struct object *symbol_intern(size_t n, struct object *self, char *string)
     return new_symbol;
 }
 
-struct object *symbol_new(size_t n, struct object *self, char *string)
+struct object *symbol_new(size_t n, struct object *self, struct function *closure, char *string)
 {
     struct object *new_symbol = send(
         self, 
@@ -966,7 +957,7 @@ struct object *symbol_new(size_t n, struct object *self, char *string)
     return new_symbol;
 }
 
-struct object *symbol_print(size_t n, struct object *self)
+struct object *symbol_print(size_t n, struct object *self, struct function *closure)
 {
     printf("%s\n", (const char *)self);
     return UNDEFINED;
@@ -983,37 +974,41 @@ extern void bootstrap()
     g_bind       = (bind_t)bind;
     g_super_bind = (bind_t)super_bind;
 
+    struct function *NULL_CLOSURE = (struct function *)NIL;
+
     log("Create Root Map\n");
     root_map = object_init_static(
         2,
         NIL, 
+        NULL_CLOSURE,
         ref(20), 
         ref(20*sizeof(struct property) + sizeof(struct object *))
     ); 
     root_map->_hd[-1].map       = (struct map *)root_map;
     root_map->_hd[-1].prototype = NIL;
-    ((struct map *)root_map)->count = ref(0);
+    ((struct map *)root_map)->count       = ref(0);
+    ((struct map *)root_map)->next_offset = ref(-1);
 
     log("Initializing Root Map\n");
-    s_lookup      = object_init_static(2, NIL, ref(0), ref(11));
-    map_set(2, (struct map *)root_map, s_lookup, (struct object *)map_lookup);
-    s_set         = object_init_static(2, NIL, ref(0), ref(8));
-    map_set(2, (struct map *)root_map, s_set, (struct object *)map_set);
+    s_lookup      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
+    map_set(2, (struct map *)root_map, NULL_CLOSURE, s_lookup, (struct object *)map_lookup);
+    s_set         = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(8));
+    map_set(2, (struct map *)root_map, NULL_CLOSURE, s_set, (struct object *)map_set);
 
     log("Create implementation symbols\n");
-    s_add         = object_init_static(2, NIL, ref(0), ref(8));
-    s_allocate    = object_init_static(2, NIL, ref(0), ref(13));
-    s_clone       = object_init_static(2, NIL, ref(0), ref(10));
-    s_create      = object_init_static(2, NIL, ref(0), ref(11));
-    s_delete      = object_init_static(2, NIL, ref(0), ref(11));
-    s_get         = object_init_static(2, NIL, ref(0), ref(8));
-    s_init        = object_init_static(2, NIL, ref(0), ref(9));
-    s_intern      = object_init_static(2, NIL, ref(0), ref(11));
-    s_length      = object_init_static(2, NIL, ref(0), ref(7));
-    s_new         = object_init_static(2, NIL, ref(0), ref(8));
-    s_push        = object_init_static(2, NIL, ref(0), ref(9));
-    s_remove      = object_init_static(2, NIL, ref(0), ref(11));
-    s_symbols     = object_init_static(2, NIL, ref(0), ref(12));
+    s_add         = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(8));
+    s_allocate    = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(13));
+    s_clone       = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(10));
+    s_create      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
+    s_delete      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
+    s_get         = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(8));
+    s_init        = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(9));
+    s_intern      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
+    s_length      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(7));
+    s_new         = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(8));
+    s_push        = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(9));
+    s_remove      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
+    s_symbols     = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(12));
 
     log("Add primitive methods on Root Map\n");
     send(root_map, s_set, s_clone,    (struct object *)map_clone);
@@ -1023,7 +1018,7 @@ extern void bootstrap()
     send(root_map, s_set, s_remove,   (struct object *)map_remove);
 
     log("Create Root Object\n");
-    root_object = object_init_static(2, NIL, ref(20), ref(0)); 
+    root_object = object_init_static(2, NIL, NULL_CLOSURE, ref(20), ref(0)); 
     root_object->_hd[-1].prototype = NIL;
     root_map->_hd[-1].prototype = root_object;
 
@@ -1031,38 +1026,49 @@ extern void bootstrap()
     root_object->_hd[-1].map = (struct map *)object_init_static(
         2,
         NIL, 
+        NULL_CLOSURE,
         ref(4), 
         ref(4*sizeof(struct property) + sizeof(struct object *))
     );
     root_object->_hd[-1].map->_hd[-1].prototype = root_map;
-    root_object->_hd[-1].map->count = ref(0);
 
     // For bootstrapping purposes, create properties on the map first
-    root_object->_hd[-1].map->_hd[-1].map = root_object->_hd[-1].map;
-    send(root_object->_hd[-1].map, s_set, s_allocate, NIL);
-    send(root_object->_hd[-1].map, s_set, s_clone,    NIL);
-    send(root_object->_hd[-1].map, s_set, s_init,     NIL);
-    send(root_object->_hd[-1].map, s_set, s_set,      NIL);
-    object_values_count_set((struct object *)root_object->_hd[-1].map, 0);
+    root_object->_hd[-1].map->properties[0].name     = s_allocate;
+    root_object->_hd[-1].map->properties[0].location = ref(-1);
+
+    root_object->_hd[-1].map->properties[1].name     = s_clone;
+    root_object->_hd[-1].map->properties[1].location = ref(-2);
+
+    root_object->_hd[-1].map->properties[2].name     = s_init;
+    root_object->_hd[-1].map->properties[2].location = ref(-3);
+    
+    root_object->_hd[-1].map->properties[3].name     = s_set;
+    root_object->_hd[-1].map->properties[3].location = ref(-4);
+
+    root_object->_hd[-1].map->count       = ref(4);
+    root_object->_hd[-1].map->next_offset = ref(-5);
+
     object_values_count_set(root_object, 4);
 
     log("Create Root Object Map's Map\n");
     struct map *root_object_map_map = (struct map *)object_init_static(
         2,
         NIL, 
+        NULL_CLOSURE,
         ref(0), 
         ref(sizeof(struct object *))
     );
     root_object_map_map->_hd[-1].prototype = (struct object *)root_object_map_map;
     root_object_map_map->_hd[-1].map = root_object_map_map;
-    root_object_map_map->count = ref(0);
+    root_object_map_map->count       = ref(0);
+    root_object_map_map->next_offset = ref(-1);
     map_values_set_immutable(root_object_map_map);
 
     root_object->_hd[-1].map->_hd[-1].map = root_object_map_map;
 
 
     log("Add primitive methods on Root Object\n");
-    object_set(2, root_object, s_set, (struct object *)object_set);
+    object_set(2, root_object, NULL_CLOSURE, s_set, (struct object *)object_set);
 
     log("Add remaining methods\n");
     send(root_object, s_set, s_allocate, (struct object *)object_allocate);
@@ -1148,9 +1154,16 @@ extern void bootstrap()
     log("Create Root Fixnum object\n");
     root_fixnum = send0(root_object, s_new);
 
+    log("Create Root Cell object\n");
+    root_cell = send0(root_object, s_new);
+
+    log("Add primitive methods on Root Cell object\n");
+    send(root_cell, s_set, s_new, cell_new); 
+
     roots = send(root_array, s_new, ref(20));
 
     send(roots, s_push, root_array); 
+    send(roots, s_push, root_cell);
     send(roots, s_push, root_fixnum); 
     send(roots, s_push, root_function); 
     send(roots, s_push, root_map); 
@@ -1160,6 +1173,8 @@ extern void bootstrap()
     roots_names = send(root_array, s_new, ref(20));
 
     struct object *name = send(root_symbol, s_intern, "array");
+    send(roots_names, s_push, name); 
+    name = send(root_symbol, s_intern, "cell");
     send(roots_names, s_push, name); 
     name = send(root_symbol, s_intern, "fixnum");
     send(roots_names, s_push, name); 
@@ -1180,24 +1195,6 @@ extern void bootstrap()
     send(root_array, s_set, name, array_print);
     send(root_fixnum, s_set, name, fixnum_print);
 
-    // ---- Minimal support completed! Rest done in JavaScript
-
-    // Redefine Root Map, Root Object and Root Array "set" and "get" methods as
-    // well as Root Map "lookup" method to extend the object with an array when
-    // no more space left for values and take the extended object when performing
-    // a lookup
-
-    // Recompile and replace all methods as Function objects
-
-    // ---- Full bootstrap completed!
-
-    // Add a Root Global object
-
-    // Add support for the rest of the standard library
-
-    // ---- Full JavaScript boostrap completed
-
-    // Serialize the boostrapped image
 }
 /*
 int main()

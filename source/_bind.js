@@ -11,7 +11,7 @@ macro ref_is_fixnum(r)
     ]}@;
 }
 
-global_return function (msg, n, rcv)
+global_return function (msg, n, rcv, closure)
 {
     if (msg === "__lookup__" && rcv === rcv[@-1])
     {
@@ -21,6 +21,7 @@ global_return function (msg, n, rcv)
                   ["ref",    photon.send(photon.map, "__get__", "__lookup__")],
                   ["number", 1],
                   ["ref",    photon.map],
+                  ["get", "null"],
                   ["string", "__lookup__"]]}@;
         return (ref_is_fixnum(l_offset)) ? l_rcv[@l_offset - 4] : l_offset;
     }

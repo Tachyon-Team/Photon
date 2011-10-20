@@ -1,3 +1,8 @@
+photon.protocol = {
+    base_arg_nb:3
+};
+
+
 function _asm(code)
 {
     var a = new x86.Assembler(x86.target.x86);
@@ -89,7 +94,7 @@ function _fct(code, ref_labels)
     code = clean(codeBlock.code);
     var length = code.length;
 
-    var f = photon.send(photon.function, "__new__", length);
+    var f = photon.send(photon.function, "__new__", length, 0);
     photon.send(f, "__intern__", code);
 
     return f;
@@ -258,7 +263,7 @@ PhotonCompiler.context = {
 
         for (var i = 0; i < args.length; ++i)
         {
-            mapping[0][args[i]] = (i+4)*4;
+            mapping[0][args[i]] = (i+photon.protocol.base_arg_nb+2)*4;
         }
 
         this.locals.push(mapping);
@@ -348,7 +353,7 @@ PhotonCompiler.context = {
         
         //print("gen_fct code length: " + length);
 
-        var f = photon.send(photon.function, "__new__", length);
+        var f = photon.send(photon.function, "__new__", length, 0);
         photon.send(f, "__intern__", code);
 
         return f;
@@ -681,11 +686,12 @@ PhotonCompiler.context = {
         var CONT      = _label();
 
         return [
-            this.gen_push_args(args, 2),
+            this.gen_push_args(args, 3),
             rcv,
             //_op("sub", _$(8), _ESP),
             //_op("push", _EAX),
             //_op("push", _$(args.length)),
+            _op("mov", _$(0), _mem(8, _ESP), 32),
             _op("mov", _EAX, _mem(4, _ESP)),
             _op("mov", _$(args.length), _mem(0, _ESP), 32),
 
@@ -693,37 +699,35 @@ PhotonCompiler.context = {
             msg,
             _op("push", _EAX),
             _op("mov", this.gen_mref(bind_helper), _EAX),
+            _op("push", _$(0)), // NULL CLOSURE
             _op("push", _$(0)), // NULL RECEIVER
-            _op("push", _$(3)),  // Arg number
+            _op("push", _$(4)),  // Arg number
             _op("call", _EAX),
-            _op("add", _$(12), _ESP),
+            _op("add", _$(16), _ESP),
 
             _op("cmp", _$(_UNDEFINED), _EAX),
             _op("je", CONT),
 
             // Call
+            _op("mov", _EAX, _mem(8, _ESP)), // SET CLOSURE
             _op("call", _EAX),
             
             CONT,
-            this.gen_pop_args(args.length + 2),
+            this.gen_pop_args(args.length + 3),
         ];
+    },
 
-            // Inline cache
-            //_op("mov", _mem(-4, _EAX), _EAX),
-            //_op("cmp", _$(123456789), _EAX), // previousMap
-            //_op("jne", BIND),
-            //_op("mov", _$(0), _EAX), // previousMethod
-            //_op("call", _EAX),
-            //_op("jmp", CONT),
-
-            // Code patching
-            //_op("call", SELF),
-            //SELF,
-            //_op("pop", _EDX),
-            //_op("mov", _mem(4, _ESP), _ECX),
-            //_op("mov", _mem(-4, _ECX), _ECX),
-            //_op("mov", _ECX, _mem(-45, _EDX)), // set previousMap
-            //_op("mov", _EAX, _mem(-38, _EDX)), // set previousMethod
+    gen_call:function (fn, args)
+    {
+        return [
+            this.gen_push_args(args, 3),
+            _op("mov", this.gen_mref(photon.global), _mem(4, _ESP), 32),
+            _op("mov", _$(args.length), _mem(0, _ESP), 32),
+            fn, 
+            _op("mov", _EAX, _mem(8, _ESP)), 
+            _op("call", _EAX), 
+            this.gen_pop_args(args.length + 3)
+        ];
     },
 
     gen_array:function (xs)

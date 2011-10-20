@@ -24,7 +24,7 @@ print("Creating global object");
 photon.global = photon.send(photon.object, "__new__");
 
 print("Creating bind function");
-photon.bind = photon.send(photon.function, "__new__", 10);
+photon.bind = photon.send(photon.function, "__new__", 10, 0);
 var g = _compile(readFile("_bind.js"));
 var _bind = photon.bind;
 photon.bind = photon.send({g:g}, "g");
@@ -37,6 +37,7 @@ photon.super_bind = photon.send({f:_compile(readFile("super_bind.js"))}, "f");
 
 print("Installing standard library");
 var f = _compile(readFile("photon-stdlib.js"));
+print("Initializing standard library");
 photon.send({f:f}, "f");
 
 print("Bootstrapping JS object model");
@@ -63,7 +64,7 @@ var r = photon.send({f:f}, "f");
  
 print("Removing dependencies to old object model");
 print("Recreating bind function");
-photon.bind = photon.send(photon.function, "__new__", 10);
+photon.bind = photon.send(photon.function, "__new__", 10, 0);
 var g = _compile(readFile("_bind.js"));
 var _bind = photon.bind;
 photon.bind = photon.send({g:g}, "g");
@@ -127,7 +128,7 @@ assert(photon.send(o, "__get__", "bar") === 24);
 assert(photon.send(o, "__get__", "foo") === undefined);
 
 //print("Function tests");
-var f = photon.send(photon.function, "__new__", 10);
+var f = photon.send(photon.function, "__new__", 10, 0);
 photon.send(f, "__intern__", clean(flatten([_op("mov", _$(_ref(42)), _EAX), _op("ret")])));
 assert(photon.send({f:f}, "f") === 42);
 

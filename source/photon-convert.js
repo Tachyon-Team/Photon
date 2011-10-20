@@ -1,5 +1,6 @@
 var root = {
     array:      @{["ref", photon.array]}@,
+    cell:       @{["ref", photon.cell]}@,
     fixnum:     @{["ref", photon.fixnum]}@,
     "function": @{["ref", photon.function]}@,
     global:     @{["ref", photon.global]}@,
