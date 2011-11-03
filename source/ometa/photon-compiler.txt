@@ -155,7 +155,7 @@ ometa PhotonParser <: Parser {
                | "throw" spacesNoNl expr:e sc                                        -> [#throw, e]
                | "try" block:t "catch" "(" "name":e ")" block:c
                              ( "finally" block
-                             | empty -> [#get, 'undefined'] ):f                      -> [#try, t, e, c, f]
+                             | empty -> [#get, 'undefined'] ):f                      -> [#try, _new_context, t, e, c, f]
                | "return" ( expr
                           | empty -> [#get, 'undefined'] ):e sc                      -> [#return, e]
                | "global_return" ( expr
@@ -217,7 +217,7 @@ ometa PhotonASTTraversal {
   new      trans:fn trans*:args,
   var      :name trans:val,
   throw    trans:x,
-  try      curlyTrans:x :name curlyTrans:c curlyTrans:f,
+  try      :ctxt curlyTrans:x :name curlyTrans:c curlyTrans:f,
   json     trans*:props,
   binding  :name trans:val,
   switch   trans:x trans*:cases,
@@ -239,7 +239,8 @@ ometa PhotonVarAnalysis <: PhotonASTTraversal {
   func     :args 
            (:ctxt -> {self._ctxt.push(ctxt); self.add_args(args);})
            (curlyTrans:body ->{self._ctxt.pop();}), 
-  var      (:name -> {self.scope()[name] = (this._ctxt.length === 1) ? "global" : "local";}) trans:val
+  var      (:name -> {self.scope()[name] = (this._ctxt.length === 1) ? "global" : "local";}) trans:val,
+  try      :ctxt curlyTrans:x :name curlyTrans:c curlyTrans:f
 }
 
 PhotonVarAnalysis.initialize = function () { 
@@ -281,19 +282,12 @@ ometa PhotonCompiler {
   get      ( #true      -> _$(_TRUE)
            | #false     -> _$(_FALSE)
            | #undefined -> _$(_UNDEFINED)
-           | #null      -> _$(_NIL)
-           | :x ?(self.context.has_local(x))                  -> _mem(self.context.loc(x), _EBP)):x
-                                                              -> _op("mov", x, _EAX),
-  get      :x                                                 -> self.context.gen_send(
-                                                                    self.context.gen_arg(self.context.gen_mref(photon.global)), 
-                                                                    self.context.gen_symbol("__get__"), [self.context.gen_symbol(x)]),
+           | #null      -> _$(_NIL)):x                        -> _op("mov", x, _EAX),
+  get      :x                                                 -> self.context.gen_get_var(x),
   getp     trans:fd trans:x                                   -> self.context.gen_send(x, self.context.gen_symbol("__get__"), [fd]),
   gets     trans:fd trans:x                                   -> [fd, _op("dec", _EAX), _op("push", _EAX), 
                                                                    x, _op("pop", _ECX), _op("mov", _mem(0, _EAX, _ECX, 2), _EAX)],
-  set      [#get :x] ?(self.context.has_local(x)) trans:rhs   -> [rhs, _op("mov", _EAX, _mem(self.context.loc(x), _EBP))],
-  set      [#get :x] trans:rhs                                -> self.context.gen_send(
-                                                                    self.context.gen_arg(self.context.gen_mref(photon.global)), 
-                                                                    self.context.gen_symbol("__set__"), [self.context.gen_symbol(x), rhs]),
+  set      [#get :x] trans:rhs                                -> self.context.gen_set_var(x, rhs),
   set      [#getp trans:fd trans:rcv] trans:rhs               -> self.context.gen_send(rcv, self.context.gen_symbol("__set__"), [fd, rhs]),
   set      [#gets trans:fd trans:rcv] trans:rhs               -> [rhs, _op("push", _EAX), 
                                                                   fd,  _op("dec", _EAX), _op("push", _EAX), 
@@ -391,8 +385,9 @@ ometa PhotonCompiler {
   forIn    trans:x trans:arr curlyTrans:body                  -> [],
   begin    trans:x end                                        -> [x],
   begin    trans*:xs                                          -> xs,
-  func     (:args  -> {self.context.add_args(args);})
-           (:ctxt  -> {self.context.add_locals(ctxt.scope); self.context.new_ref_ctxt();})
+  func     (:args :ctxt  -> {self.context.add_args(args); 
+                             self.context.add_locals(ctxt.scope); 
+                             self.context.new_ref_ctxt();})
            curlyTrans:body                                    -> {var loc_nb = self.context.loc_nb(); self.context.pop_locals();
                                                                   var ref_labels = self.context.ref_ctxt(); self.context.pop_ref_ctxt();
                                                                   _op("mov", self.context.gen_mref(
@@ -413,7 +408,7 @@ ometa PhotonCompiler {
                                                                         self.context.gen_symbol("__set__"), 
                                                                         [self.context.gen_symbol(name), val]),
   throw    trans:x                                            -> [],
-  try      curlyTrans:x :name curlyTrans:c curlyTrans:f       -> [],
+  try      :ctxt curlyTrans:x :name curlyTrans:c curlyTrans:f -> [],
   // TODO: Make sure fixnums are internalized to their own value as symbols
   json     trans*:props                                       -> self.context.gen_object(props),
   binding  :name trans:val                                    -> [name, val],

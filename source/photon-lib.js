@@ -217,7 +217,306 @@ function _new_context()
     };
 }
 
-// Compiler context to allow easier stateful code generation from AST
+// Variable analysis data structures
+
+function scope(p)
+{
+    var that = Object.create(scope.prototype);
+
+    // Primary fields
+    that.declared = {};
+    that.used     = {};
+    that.parent   = p;
+    that.children = [];
+
+    if (p !== null)
+    {
+        p.children.push(that);
+    }
+    
+    // Derived fields
+    that.escaping  = {}; // Local vars captured by children scopes
+    that.captured  = {}; // Captured from parent scope
+    that.local     = [];
+
+    return that;
+}
+
+scope.prototype.allocate = function (locations, allocator)
+{
+    for (var id in this.escaping)
+    {
+        var v = this.escaping[id];
+
+        if (locations[id] === undefined)
+        {
+            locations[id] = allocator.stack_alloc();
+        }
+    }
+
+    for (var i = 0; i < this.local.length; ++i)
+    {
+        var v = this.local[i];
+
+        if (locations[v.id] === undefined)
+        {
+            locations[v.id] = allocator.stack_alloc();
+        }
+    }
+
+    for (var id in this.captured)
+    {
+        var v = this.captured[id];
+
+        if (locations[id] === undefined)
+        {
+            locations[id] = allocator.clos_alloc();
+        }
+    }
+
+    return locations;
+}
+
+scope.prototype.resolve = function ()
+{
+    var that = this;
+
+    function bind(id, scope)
+    {
+        var v = scope.declared[id];
+
+        if (v !== undefined)
+        {
+            return v;
+        }
+
+        v = bind(id, scope.parent);
+
+        if (!v.is_global())
+        {
+            v.scope.escaping[id] = v;        
+
+            if (!(scope instanceof catch_scope))
+            {
+                scope.captured[id]   = v;
+            }
+        }     
+
+        return v;
+    }
+
+    for (var id in this.used)
+    {
+        this.used[id] = bind(id, that);
+    }
+
+    for (var i = 0; i < this.children.length; ++i)
+    {
+        var c = this.children[i];
+
+        c.resolve();
+    }
+
+    for (var id in this.declared)
+    {
+        var v = this.declared[id];
+        if (v.is_local())
+        {
+            this.local.push(v);
+        }
+    }
+};
+
+scope.prototype.toString = function ()
+{
+    var that = this;
+    var a = [];
+
+    function stringify(set_name)
+    {
+        a.push(set_name + ": {");
+        
+        for (var id in that[set_name])
+        {
+            a.push(that[set_name][id] + ",");
+        }
+        a.push("}\n");
+    }
+
+    stringify("declared");
+    stringify("used");
+
+    a.push("local: [" + this.local + "]\n");
+    stringify("escaping");
+    stringify("captured");
+
+    return a.join('');
+};
+
+scope.prototype.use = function (id)
+{
+    if (this.used[id] === undefined)
+    {
+        this.used[id] = true;
+    }
+};
+
+scope.prototype.variable = function (id, isParam)
+{
+    if (id === undefined)
+    {
+        var v = undefined;
+    } else
+    {
+        var v = this.declared[id];
+    }
+
+    if (v === undefined)
+    {
+        var v = variable(this, id, isParam);    
+        this.declared[v.id] = v;
+    }
+
+    return v;
+};
+
+scope.prototype.lookup = function (id)
+{
+    var v = this.used[id];
+
+    if (v !== undefined)
+    {
+        return v;
+    } else
+    {
+        return this.declared[id];
+    }
+};
+
+function catch_scope(p, id)
+{
+    var that = Object.create(catch_scope.prototype);
+
+    // Primary fields
+    that.declared = {};
+    that.used     = {};
+    that.parent   = p;
+    that.children = [];
+
+    var d = p;
+    while (d instanceof catch_scope)
+    {
+        d = d.parent;
+    }
+    that.delegate = d;
+
+    that.declared[id] = variable(that, id, false);
+
+    if (p !== null)
+    {
+        p.children.push(that);
+    }
+    
+    // Derived fields
+    that.escaping  = {}; // Local vars captured by children scopes
+    that.captured  = {}; // Captured from parent scope
+    that.local     = [];
+
+    return that;
+}
+
+catch_scope.prototype = scope(null);
+
+catch_scope.prototype.use = function (id)
+{
+    if (this.declared[id] === undefined)
+    {
+        this.delegate.use(id);
+    } else
+    {
+        this.used[id] = this.declared[id];
+    }
+}
+
+catch_scope.prototype.variable = function (id, isParam)
+{
+    return this.delegate.variable(id, isParam);
+}
+
+catch_scope.prototype.allocate = function (locations, allocator)
+{
+    for (var id in this.escaping)
+    {
+        var v = this.escaping[id];
+        locations[id] = allocator.stack_alloc();
+    }
+
+    for (var i = 0; i < this.local.length; ++i)
+    {
+        var v = this.local[i];
+        locations[v.id] = allocator.stack_alloc();
+    }
+}
+
+
+
+function variable(scope, id, isParam)
+{
+   var that = Object.create(variable.prototype); 
+
+   if (isParam === undefined)
+   {
+        isParam = false;
+   }
+
+   if (id === undefined)
+   {
+       id = variable.next_id++;
+       that.id = "#" + id;
+   } else 
+   {
+       that.id = id;
+   }
+
+   that.isParam = isParam;
+   that.scope   = scope;
+
+   return that;
+}
+
+// Global state
+variable.next_id = 0;
+
+variable.prototype.is_local = function ()
+{
+    return this.scope.declared[this.id] === this && 
+           this.scope.escaping[this.id] === undefined &&
+           this.isParam === false;
+};
+
+variable.prototype.is_global = function ()
+{
+    return this.scope.parent === null;
+};
+
+variable.prototype.is_escaping = function (scope)
+{
+    return scope.escaping[this.id] === this;
+};
+
+variable.prototype.is_captured = function (scope)
+{
+    return scope.captured[this.id] === this;
+};
+
+variable.prototype.toString = function ()
+{
+    return (this.isParam ? "arg " : "var ") + this.id;
+};
+
+
+// Compiler context for stateful code generation from AST
+
 PhotonCompiler.context = {   
     init:function ()
     {
@@ -228,6 +527,13 @@ PhotonCompiler.context = {
 
         // Maintain local variables and their offset on the stack
         that.locals = [[{}, 0]];
+
+        // Maintain the current scope and associated variables
+        that.scopes = [];
+
+        // Maintain the offset of variables compared to their base pointers
+        // Note: Different variables might be related to different base pointers.
+        that.offsets = [];
 
         // Maintain the list of labels associated to
         // references in the function code
@@ -256,7 +562,63 @@ PhotonCompiler.context = {
         return this.block[this.block.length - 1]["break"];
     },
 
+    // <--- New scope API
+    push_scope:function (scope, args)
+    {
+        this.scopes.push(scope);
 
+        var offsets = {};
+
+        // Arguments offsets on the stack
+        for (var i = 0; i < args.length; ++i)
+        {
+           offsets[args[i]] = (i+photon.protocol.base_arg_nb+2)*4;
+        }
+
+        // Local variable offsets on the stack
+        var offset = -4;
+        var local = this.current_scope().local;
+        for (var i = 0; i < local.length; ++i)
+        {
+            offsets[local[i].id] = offset;
+            offset -= 4;
+        }
+
+        // TODO: Escaping variable offsets on the stack
+
+        // TODO: Captured variable offsets on the closure
+
+        this.offsets.push(offsets);
+    },
+
+    pop_scope:function ()
+    {
+        this.scopes.pop();
+        this.offsets.pop();
+    },
+
+    current_scope:function ()
+    {
+        return this.scopes[that.scopes.length - 1];
+    },
+
+    lookup:function (id)
+    {
+        return this.current_scope().lookup(id);
+    },
+
+    offset:function (id)
+    {
+        return this.offsets[this.offsets.length - 1][id];
+    },
+
+    stack_location_nb:function ()
+    {
+        return this.current_scope().local.length;
+    },
+    // ----->
+
+    // <---- Old scope API
     add_args:function (args)
     {
         var mapping = [{}, 0];
@@ -306,6 +668,7 @@ PhotonCompiler.context = {
     {
         return this.locals[this.locals.length - 1][1];
     },
+    // ----->
 
     new_ref_ctxt:function ()
     {
@@ -688,9 +1051,6 @@ PhotonCompiler.context = {
         return [
             this.gen_push_args(args, 3),
             rcv,
-            //_op("sub", _$(8), _ESP),
-            //_op("push", _EAX),
-            //_op("push", _$(args.length)),
             _op("mov", _$(0), _mem(8, _ESP), 32),
             _op("mov", _EAX, _mem(4, _ESP)),
             _op("mov", _$(args.length), _mem(0, _ESP), 32),
@@ -796,5 +1156,76 @@ PhotonCompiler.context = {
                 _op("mov", _EDX, _EAX),
                 _op("pop", _EBX)          // Extra register restored
                ]; 
+    },
+
+    gen_get_var:function (id)
+    {
+        if (this.has_local(id))
+        {
+            return this.gen_get_local(id);
+        } else
+        {
+            return this.gen_get_global(id);
+        }
+    },
+
+    gen_set_var: function (id, v)
+    {
+        if (this.has_local(id))
+        {
+            return this.gen_set_local(id, v);
+        } else
+        {
+            return this.gen_set_global(id, v);
+        }
+
+    },
+
+    gen_get_local:function (id)
+    {
+        return _op("mov", _mem(this.loc(id), _EBP), _EAX); 
+    },
+
+    gen_set_local:function (id, v)
+    {
+        return [v, _op("mov", _EAX, _mem(this.loc(id), _EBP))];
+    },
+
+    gen_get_escaping:function (id)
+    {
+
+    },
+
+    gen_set_escaping:function (id, v)
+    {
+
+    },
+
+    gen_get_captured:function (id)
+    {
+
+    },
+
+    gen_set_captured:function (id, v)
+    {
+
+    }, 
+
+    gen_get_global:function (id)
+    {
+        return this.gen_send(
+                    this.gen_arg(this.gen_mref(photon.global)), 
+                    this.gen_symbol("__get__"), 
+                    [this.gen_symbol(id)]);
+
+    },
+
+    gen_set_global:function (id, v)
+    {
+
+        return this.gen_send(
+                    this.gen_arg(this.gen_mref(photon.global)), 
+                    this.gen_symbol("__set__"), 
+                    [this.gen_symbol(id), v]);
     }
 };
