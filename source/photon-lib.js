@@ -153,6 +153,9 @@ function _compile(s)
         //print("AST: '" + r + "'");
         //print("VarAnalysis");
         var r = PhotonVarAnalysis.matchAll([r], "trans");
+        //print(r);
+         
+        
         //print("Compilation");
 
         var comp = PhotonCompiler.createInstance();
@@ -242,45 +245,8 @@ function scope(p)
     return that;
 }
 
-scope.prototype.allocate = function (locations, allocator)
-{
-    for (var id in this.escaping)
-    {
-        var v = this.escaping[id];
-
-        if (locations[id] === undefined)
-        {
-            locations[id] = allocator.stack_alloc();
-        }
-    }
-
-    for (var i = 0; i < this.local.length; ++i)
-    {
-        var v = this.local[i];
-
-        if (locations[v.id] === undefined)
-        {
-            locations[v.id] = allocator.stack_alloc();
-        }
-    }
-
-    for (var id in this.captured)
-    {
-        var v = this.captured[id];
-
-        if (locations[id] === undefined)
-        {
-            locations[id] = allocator.clos_alloc();
-        }
-    }
-
-    return locations;
-}
-
 scope.prototype.resolve = function ()
 {
-    var that = this;
-
     function bind(id, scope)
     {
         var v = scope.declared[id];
@@ -288,6 +254,10 @@ scope.prototype.resolve = function ()
         if (v !== undefined)
         {
             return v;
+        } else if (scope.parent === null)
+        {
+            scope.declare(id, false);
+            return bind(id, scope);
         }
 
         v = bind(id, scope.parent);
@@ -307,7 +277,7 @@ scope.prototype.resolve = function ()
 
     for (var id in this.used)
     {
-        this.used[id] = bind(id, that);
+        this.used[id] = bind(id, this);
     }
 
     for (var i = 0; i < this.children.length; ++i)
@@ -320,7 +290,7 @@ scope.prototype.resolve = function ()
     for (var id in this.declared)
     {
         var v = this.declared[id];
-        if (v.is_local())
+        if (v.is_local() && !v.isParam)
         {
             this.local.push(v);
         }
@@ -346,9 +316,14 @@ scope.prototype.toString = function ()
     stringify("declared");
     stringify("used");
 
-    a.push("local: [" + this.local + "]\n");
+    a.push("local: " + this.local + "\n");
     stringify("escaping");
     stringify("captured");
+
+    for (var i = 0; i < this.children.length; ++i)
+    {
+        a.push("\n" + this.children[i].toString());
+    }
 
     return a.join('');
 };
@@ -361,7 +336,7 @@ scope.prototype.use = function (id)
     }
 };
 
-scope.prototype.variable = function (id, isParam)
+scope.prototype.declare = function (id, isParam)
 {
     if (id === undefined)
     {
@@ -438,27 +413,10 @@ catch_scope.prototype.use = function (id)
     }
 }
 
-catch_scope.prototype.variable = function (id, isParam)
+catch_scope.prototype.declare = function (id, isParam)
 {
-    return this.delegate.variable(id, isParam);
+    return this.delegate.declare(id, isParam);
 }
-
-catch_scope.prototype.allocate = function (locations, allocator)
-{
-    for (var id in this.escaping)
-    {
-        var v = this.escaping[id];
-        locations[id] = allocator.stack_alloc();
-    }
-
-    for (var i = 0; i < this.local.length; ++i)
-    {
-        var v = this.local[i];
-        locations[v.id] = allocator.stack_alloc();
-    }
-}
-
-
 
 function variable(scope, id, isParam)
 {
@@ -491,7 +449,7 @@ variable.prototype.is_local = function ()
 {
     return this.scope.declared[this.id] === this && 
            this.scope.escaping[this.id] === undefined &&
-           this.isParam === false;
+           this.scope.parent !== null;
 };
 
 variable.prototype.is_global = function ()
@@ -599,7 +557,7 @@ PhotonCompiler.context = {
 
     current_scope:function ()
     {
-        return this.scopes[that.scopes.length - 1];
+        return this.scopes[this.scopes.length - 1];
     },
 
     lookup:function (id)
@@ -751,6 +709,7 @@ PhotonCompiler.context = {
 
         // Reserve space for locals
         sub(_$(4*local_n), _ESP);
+
         return a.codeBlock.code;
     },
 
@@ -1160,7 +1119,7 @@ PhotonCompiler.context = {
 
     gen_get_var:function (id)
     {
-        if (this.has_local(id))
+        if (this.current_scope().lookup(id).is_local())
         {
             return this.gen_get_local(id);
         } else
@@ -1171,7 +1130,7 @@ PhotonCompiler.context = {
 
     gen_set_var: function (id, v)
     {
-        if (this.has_local(id))
+        if (this.current_scope().lookup(id).is_local())
         {
             return this.gen_set_local(id, v);
         } else
@@ -1183,12 +1142,12 @@ PhotonCompiler.context = {
 
     gen_get_local:function (id)
     {
-        return _op("mov", _mem(this.loc(id), _EBP), _EAX); 
+        return _op("mov", _mem(this.offset(id), _EBP), _EAX); 
     },
 
     gen_set_local:function (id, v)
     {
-        return [v, _op("mov", _EAX, _mem(this.loc(id), _EBP))];
+        return [v, _op("mov", _EAX, _mem(this.offset(id), _EBP))];
     },
 
     gen_get_escaping:function (id)
@@ -1227,5 +1186,13 @@ PhotonCompiler.context = {
                     this.gen_arg(this.gen_mref(photon.global)), 
                     this.gen_symbol("__set__"), 
                     [this.gen_symbol(id), v]);
-    }
+    },
+
+    gen_new_cell:function ()
+    {
+        return this.gen_send(
+                    this.gen_arg(this.gen_mref(photon.cell)),
+                    this.gen_symbol("__new__"),
+                    []);
+    },
 };

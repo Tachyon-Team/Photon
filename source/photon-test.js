@@ -25,6 +25,7 @@ photon.global = photon.send(photon.object, "__new__");
 
 print("Creating bind function");
 photon.bind = photon.send(photon.function, "__new__", 10, 0);
+
 var g = _compile(readFile("_bind.js"));
 var _bind = photon.bind;
 photon.bind = photon.send({g:g}, "g");
@@ -34,6 +35,16 @@ photon.send(_bind, "__intern__",
 
 print("Creating super_bind function");
 photon.super_bind = photon.send({f:_compile(readFile("super_bind.js"))}, "f");
+
+/*
+var g = _compile(readFile("test2.js"));
+print(photon.send({g:g}, "g"));
+
+throw "FINISHED";
+*/
+
+
+
 
 print("Installing standard library");
 var f = _compile(readFile("photon-stdlib.js"));
