@@ -551,6 +551,25 @@ struct object *function_allocate(
     return po;
 }
 
+struct object *function_clone(size_t n, struct function *self, struct function *closure)
+{
+    struct function *clone = (struct function *)send(
+        self, 
+        s_init, 
+        ref(object_values_size((struct object *)self)), 
+        self->_hd[-1].payload_size
+    );
+    clone->_hd[-1].map          = self->_hd[-1].map;
+    clone->_hd[-1].prototype    = self->_hd[-1].prototype;
+
+    for (ssize_t i = 0; i < fx(clone->_hd[-1].payload_size); ++i)
+    {
+        clone->code[i] = self->code[i]; 
+    }
+
+    return (struct object *)clone;
+}
+
 struct object *function_intern(size_t n, struct function *self, struct function *closure, struct array *code)
 {
     assert(fx(self->_hd[-1].payload_size) >= array_indexed_values_size(code));
@@ -854,6 +873,7 @@ struct object *object_init(
         payload_size
     );
 
+    po->_hd[-1].flags         = ref(0);
     po->_hd[-1].payload_size  = payload_size;
 
     assert(fx(values_size) < 256); 
@@ -1148,6 +1168,7 @@ extern void bootstrap()
 
     log("Add primitive methods on Root Function object\n");
     send(root_function, s_set, s_allocate, function_allocate);
+    send(root_function, s_set, s_clone,    function_clone);
     send(root_function, s_set, s_intern,   function_intern);
     send(root_function, s_set, s_new,      function_new);
 

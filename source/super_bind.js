@@ -11,7 +11,7 @@ macro ref_is_fixnum(r)
     ]}@;
 }
 
-global_return function (msg, n, rcv, closure)
+function super_bind(msg, n, rcv, closure)
 {
     var l_offset = undefined;
     var l_rcv  = rcv;

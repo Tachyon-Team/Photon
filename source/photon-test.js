@@ -25,23 +25,19 @@ photon.global = photon.send(photon.object, "__new__");
 
 print("Creating bind function");
 photon.bind = photon.send(photon.function, "__new__", 10, 0);
-
-var g = _compile(readFile("_bind.js"));
 var _bind = photon.bind;
-photon.bind = photon.send({g:g}, "g");
+photon.bind = _compile(readFile("_bind.js")).functions["bind"];
 
 photon.send(_bind, "__intern__", 
             clean(_op("mov", _mref(photon.bind), _EAX).concat(_op("jmp", _EAX))));
 
 print("Creating super_bind function");
-photon.super_bind = photon.send({f:_compile(readFile("super_bind.js"))}, "f");
+photon.super_bind = _compile(readFile("super_bind.js")).functions["super_bind"];
 
-/*
 var g = _compile(readFile("test2.js"));
 print(photon.send({g:g}, "g"));
 
 throw "FINISHED";
-*/
 
 
 

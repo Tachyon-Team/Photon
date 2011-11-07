@@ -163,7 +163,7 @@ ometa PhotonParser <: Parser {
                | "with" "(" expr:x ")" stmt:s                                        -> [#with, x, s]
                | expr:e sc                                                           -> e
                | ";"                                                                 -> [#get, "undefined"],
-  srcElem      = "function" "name":n funcRest:f                                      -> [#var, n, f]
+  srcElem      = "function" "name":n funcRest:f                                      -> {f[2].name = n; [#var, n, f]}
                | "macro" "name":n funcRest:f                                         -> [#macro, n].concat(f.slice(1))
                | stmt,
   srcElems     = srcElem*:ss                                                         -> [#begin].concat(ss),
@@ -270,12 +270,15 @@ PhotonVarAnalysis.initialize = function () {
 
 ometa PhotonCompiler {
   trans      = [:t apply(t):ans]     -> ans,
-  curlyTrans = [#begin curlyTrans:r] -> [r]
-             | [#begin trans*:rs]    -> rs
+  // Note: the definitions of curlyTrans in the previous grammars introduce backtracking because there
+  //       is ambiguity with the #begin trans node. They are kept as is until I can make sure the following
+  //       definition is complete
+  curlyTrans = [#begin trans*:rs]    -> rs
              | trans:r               -> [r],
 
-  global   (:ctxt -> {self.context.push_scope(ctxt.scope, []);})  
-           trans:r                                            -> {self.context.pop_scope(); [r, _op("ret")]},
+  // The global scope is not popped from context after matching
+  global   (:ctxt -> {self.context.push_scope(ctxt.scope, []); self.context.new_ref_ctxt();})  
+           trans:r                                            -> [r, _op("ret")],
   this                                                        -> _op("mov", _mem(12, _EBP), _EAX),
   break                                                       -> _op("jmp", self.context.break_lbl()),
   continue                                                    -> _op("jmp", self.context.cont_lbl()),
@@ -391,14 +394,11 @@ ometa PhotonCompiler {
   begin    trans:x end                                        -> [x],
   begin    trans*:xs                                          -> xs,
   func     (:args :ctxt  -> {self.context.push_scope(ctxt.scope, args);  self.context.new_ref_ctxt();})
-           curlyTrans:body                                    -> {var loc_nb = self.context.stack_location_nb(); self.context.pop_scope();
-                                                                  var ref_labels = self.context.ref_ctxt(); self.context.pop_ref_ctxt();
-                                                                  _op("mov", self.context.gen_mref(
-                                                                        self.context.gen_fct([
-                                                                            self.context.gen_prologue(loc_nb, args.length), 
-                                                                            body, 
-                                                                            _op("mov", _$(_UNDEFINED), _EAX), 
-                                                                            self.context.gen_epilogue()], ref_labels)), _EAX);},
+           curlyTrans:body                                    -> {var f = self.context.new_js_function_object(ctxt.name, args, body); 
+                                                                  var offsets = self.context.current_offset();
+                                                                  self.context.pop_scope();
+                                                                  self.context.pop_ref_ctxt();
+                                                                  self.context.gen_closure(f, ctxt.scope, offsets);},
   send     trans:msg trans:rcv trans*:args                    -> self.context.gen_send(rcv, msg, args, photon.bind),
   call     [#getp trans:msg [#super trans:rcv]] trans*:args   -> self.context.gen_send(rcv, msg, args, photon.super_bind),
   call     [#getp trans:msg trans:rcv]  trans*:args           -> self.context.gen_send(rcv, msg, args, photon.bind),

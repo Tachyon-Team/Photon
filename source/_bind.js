@@ -11,7 +11,7 @@ macro ref_is_fixnum(r)
     ]}@;
 }
 
-global_return function (msg, n, rcv, closure)
+function bind(msg, n, rcv, closure)
 {
     if (msg === "__lookup__" && rcv === rcv[@-1])
     {
