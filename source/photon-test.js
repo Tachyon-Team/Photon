@@ -43,7 +43,7 @@ print("Compiling test2");
 var g = _compile(readFile("test2.js"));
 photon.send({g:g}, "g");
 
-//throw "FINISHED";
+throw "FINISHED";
 
 print("Bootstrapping JS object model");
 var start = new Date().getTime();

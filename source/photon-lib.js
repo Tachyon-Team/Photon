@@ -1322,6 +1322,39 @@ PhotonCompiler.context = {
         ];
     },
 
+    gen_new:function (fn, args)
+    {
+        var ext_args = args.concat(
+            [this.gen_send(
+                this.gen_arg(this.gen_mref(photon.object)), 
+                this.gen_symbol("__new__"), 
+                [])]);
+
+        var END = _label();
+
+        return [
+            this.gen_push_args(ext_args, 3),
+            _op("mov", _mem((args.length + 3)*this.sizeof_ref, _ESP), _EAX),
+            _op("mov", _EAX, _mem(4, _ESP)),
+            _op("mov", _$(args.length), _mem(0, _ESP), 32),
+            fn, 
+            _op("mov", _EAX, _mem(8, _ESP)), 
+            _op("call", _EAX), 
+
+            // Check if returned value is an object
+            // FIXME: string litterals are considered as objects
+            _op("mov", _EAX, _ECX),
+            _op("and", _$(1), _ECX), 
+            _op("je", END),
+            _op("mov", _mem((args.length + 3)*this.sizeof_ref, _ESP), _EAX),
+            END,
+
+            this.gen_pop_args(args.length + 4),
+
+
+        ];
+    },
+
     gen_array:function (xs)
     {
         var that = this;

@@ -403,7 +403,7 @@ ometa PhotonCompiler {
   call     [#getp trans:msg [#super trans:rcv]] trans*:args   -> self.context.gen_send(rcv, msg, args, photon.super_bind),
   call     [#getp trans:msg trans:rcv]  trans*:args           -> self.context.gen_send(rcv, msg, args, photon.bind),
   call     trans:fn trans*:args                               -> self.context.gen_call(fn, args),
-  new      trans:cls trans*:args                              -> [],
+  new      trans:cls trans*:args                              -> self.context.gen_new(cls, args),
   var      :name trans:val                                    -> self.context.gen_set_var(name, val),
   throw    trans:x                                            -> self.context.gen_throw(x),
   try      :ctxt (empty -> self.context.enter_try_block()) curlyTrans:x 
