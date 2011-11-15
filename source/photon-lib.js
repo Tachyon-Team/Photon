@@ -151,12 +151,12 @@ function _compile(s)
         r = PhotonMacroExp.matchAll([r], "trans");
         //print(r);
         //print("AST: '" + r + "'");
-        print("VarAnalysis");
+        //print("VarAnalysis");
         var r = PhotonVarAnalysis.matchAll([r], "trans");
-        print(r);
+        //print(r);
          
         
-        print("Compilation");
+        //print("Compilation");
 
         var comp = PhotonCompiler.createInstance();
         code = comp.matchAll([r], "trans");
@@ -295,7 +295,6 @@ scope.prototype.resolve = function ()
         var v = this.declared[id];
         if (v.is_local() && !v.isParam)
         {
-            print("adding " + id + " to local");
             this._local.push(v);
         }
     }
@@ -972,7 +971,7 @@ PhotonCompiler.context = {
         // Initialize escaping variables
         for (var id in this.current_scope().escaping())
         {
-            print("Creating cell for '" + id + "'");
+            //print("Creating cell for '" + id + "'");
             //code.push(this.gen_set_local(id, [_op("mov", _$(_UNDEFINED), _EAX)]));
             code.push(this.gen_set_local(id, this.gen_new_cell()));
             code.push(this.gen_set_escaping(id, [_op("mov", _$(_UNDEFINED), _EAX)]));
@@ -1541,7 +1540,7 @@ PhotonCompiler.context = {
 
     gen_try_catch:function (t, c, catch_scope)
     {
-        print("try_catch");
+        //print("try_catch");
         var TRY = _label("TRY");
         var END = _label("END");    
 
@@ -1554,7 +1553,7 @@ PhotonCompiler.context = {
 
         if (has_escaping)
         {
-            print("exception escaping");
+            //print("exception escaping");
             var cell_code = [
                 this.gen_new_cell(),
                 _op("pop", _ECX),
@@ -1563,7 +1562,7 @@ PhotonCompiler.context = {
             ];
         } else
         {
-            print("no exception escaping");
+            //print("no exception escaping");
             var cell_code = [];
         }
 
