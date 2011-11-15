@@ -1001,8 +1001,8 @@ extern void bootstrap()
         2,
         NIL, 
         NULL_CLOSURE,
-        ref(20), 
-        ref(20*sizeof(struct property) + sizeof(struct object *))
+        ref(30), 
+        ref(30*sizeof(struct property) + sizeof(struct object *))
     ); 
     root_map->_hd[-1].map       = (struct map *)root_map;
     root_map->_hd[-1].prototype = NIL;
@@ -1038,7 +1038,7 @@ extern void bootstrap()
     send(root_map, s_set, s_remove,   (struct object *)map_remove);
 
     log("Create Root Object\n");
-    root_object = object_init_static(2, NIL, NULL_CLOSURE, ref(20), ref(0)); 
+    root_object = object_init_static(2, NIL, NULL_CLOSURE, ref(30), ref(0)); 
     root_object->_hd[-1].prototype = NIL;
     root_map->_hd[-1].prototype = root_object;
 

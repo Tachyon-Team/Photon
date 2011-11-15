@@ -153,9 +153,12 @@ ometa PhotonParser <: Parser {
                | "break" sc                                                          -> [#break]
                | "continue" sc                                                       -> [#continue]
                | "throw" spacesNoNl expr:e sc                                        -> [#throw, e]
-               | "try" block:t "catch" "(" "name":e ")" block:c
+               | "try" block:t 
+                    ("catch" "(" ("name":e | (empty -> undefined):e) ")" block:c
                              ( "finally" block
-                             | empty -> [#get, 'undefined'] ):f                      -> [#try, _new_context, t, e, c, f]
+                             | empty -> [#get, 'undefined'] ):f
+                    | "finally" block:f (empty -> [#get, 'undefined']):c (empty -> undefined):e)
+                                                                                     -> [#try, _new_context, t, e, c, f]
                | "return" ( expr
                           | empty -> [#get, 'undefined'] ):e sc                      -> [#return, e]
                | "global_return" ( expr
@@ -180,9 +183,9 @@ PhotonParser._isKeyword = function(k) { return this.keywords.hasOwnProperty(k) }
 
 ometa PhotonASTTraversal {
   trans      = [:t apply(t):ans],
-  curlyTrans = [#begin curlyTrans:r]
-             | [#begin trans*:rs]
+  curlyTrans = [#begin trans*:rs]
              | trans:r,
+
 
   global   :ctxt trans:r,
   this end,                                                  
@@ -234,7 +237,7 @@ ometa PhotonASTTraversal {
 }
 
 ometa PhotonVarAnalysis <: PhotonASTTraversal {
-  global   (:ctxt -> {ctxt.scope = scope(null); self._ctxt.push(ctxt);}) (trans:r -> {ctxt.scope.resolve(); print(ctxt.scope);}),
+  global   (:ctxt -> {ctxt.scope = scope(null); self._ctxt.push(ctxt);}) (trans:r -> {ctxt.scope.resolve(); /*print(ctxt.scope);*/}),
   get      (#true | #false | #undefined | #null),
   get      (:x -> {self.scope().use(x);}),
   func     :args 
@@ -270,16 +273,13 @@ PhotonVarAnalysis.initialize = function () {
 
 ometa PhotonCompiler {
   trans      = [:t apply(t):ans]     -> ans,
-  // Note: the definitions of curlyTrans in the previous grammars introduce backtracking because there
-  //       is ambiguity with the #begin trans node. They are kept as is until I can make sure the following
-  //       definition is complete
   curlyTrans = [#begin trans*:rs]    -> rs
              | trans:r               -> [r],
 
   // The global scope is not popped from context after matching
-  global   (:ctxt -> {self.context.push_scope(ctxt.scope, []); self.context.new_ref_ctxt();})  
+  global   (:ctxt -> {self.context.enter_function_scope(ctxt.scope, []); self.context.new_ref_ctxt();})  
            trans:r                                            -> [r, _op("ret")],
-  this                                                        -> _op("mov", _mem(12, _EBP), _EAX),
+  this                                                        -> self.context.gen_get_this(),
   break                                                       -> _op("jmp", self.context.break_lbl()),
   continue                                                    -> _op("jmp", self.context.cont_lbl()),
   number   :n                                                 -> _op("mov", _$(_ref(n)), _EAX),  
@@ -393,10 +393,10 @@ ometa PhotonCompiler {
   forIn    trans:x trans:arr curlyTrans:body                  -> [],
   begin    trans:x end                                        -> [x],
   begin    trans*:xs                                          -> xs,
-  func     (:args :ctxt  -> {self.context.push_scope(ctxt.scope, args);  self.context.new_ref_ctxt();})
+  func     (:args :ctxt  -> {self.context.enter_function_scope(ctxt.scope, args);  self.context.new_ref_ctxt();})
            curlyTrans:body                                    -> {var f = self.context.new_js_function_object(ctxt.name, args, body); 
-                                                                  var offsets = self.context.current_offset();
-                                                                  self.context.pop_scope();
+                                                                  var offsets = self.context.closure_offsets;
+                                                                  self.context.leave_function_scope();
                                                                   self.context.pop_ref_ctxt();
                                                                   self.context.gen_closure(f, ctxt.scope, offsets);},
   send     trans:msg trans:rcv trans*:args                    -> self.context.gen_send(rcv, msg, args, photon.bind),
@@ -405,9 +405,12 @@ ometa PhotonCompiler {
   call     trans:fn trans*:args                               -> self.context.gen_call(fn, args),
   new      trans:cls trans*:args                              -> [],
   var      :name trans:val                                    -> self.context.gen_set_var(name, val),
-  throw    trans:x                                            -> [],
-  try      :ctxt curlyTrans:x :name curlyTrans:c curlyTrans:f -> [],
-  // TODO: Make sure fixnums are internalized to their own value as symbols
+  throw    trans:x                                            -> self.context.gen_throw(x),
+  try      :ctxt (empty -> self.context.enter_try_block()) curlyTrans:x 
+           (:name -> { self.context.leave_try_block(); self.context.enter_catch_scope(ctxt.scope);})
+           curlyTrans:c (empty -> self.context.leave_catch_scope())
+           ([#get #undefined] | curlyTrans -> {throw "Unsupported finally block";})                                       
+                                                              -> self.context.gen_try_catch(x, c, ctxt.scope),
   json     trans*:props                                       -> self.context.gen_object(props),
   binding  :name trans:val                                    -> [name, val],
   switch   (empty -> self.context.push_block()) 

@@ -151,12 +151,12 @@ function _compile(s)
         r = PhotonMacroExp.matchAll([r], "trans");
         //print(r);
         //print("AST: '" + r + "'");
-        //print("VarAnalysis");
+        print("VarAnalysis");
         var r = PhotonVarAnalysis.matchAll([r], "trans");
         print(r);
          
         
-        //print("Compilation");
+        print("Compilation");
 
         var comp = PhotonCompiler.createInstance();
         code = comp.matchAll([r], "trans");
@@ -241,9 +241,9 @@ function scope(p)
     }
     
     // Derived fields
-    that.escaping  = {}; // Local vars captured by children scopes
-    that.captured  = {}; // Captured from parent scope
-    that.local     = [];
+    that._escaping  = {}; // Local vars captured by children scopes
+    that._captured  = {}; // Captured from parent scope
+    that._local     = [];
 
     return that;
 }
@@ -267,11 +267,11 @@ scope.prototype.resolve = function ()
 
         if (!v.is_global())
         {
-            v.scope.escaping[id] = v;        
+            v.scope._escaping[id] = v;        
 
             if (!(scope instanceof catch_scope))
             {
-                scope.captured[id]   = v;
+                scope._captured[id]   = v;
             }
         }     
 
@@ -295,7 +295,8 @@ scope.prototype.resolve = function ()
         var v = this.declared[id];
         if (v.is_local() && !v.isParam)
         {
-            this.local.push(v);
+            print("adding " + id + " to local");
+            this._local.push(v);
         }
     }
 };
@@ -305,28 +306,39 @@ scope.prototype.toString = function ()
     var that = this;
     var a = [];
 
-    function stringify(set_name)
+    function stringify_set(scope, set_name)
     {
         a.push(set_name + ": {");
         
-        for (var id in that[set_name])
+        for (var id in scope[set_name])
         {
-            a.push(that[set_name][id] + ",");
+            a.push(scope[set_name][id] + ",");
         }
         a.push("}\n");
     }
 
-    stringify("declared");
-    stringify("used");
-
-    a.push("local: " + this.local + "\n");
-    stringify("escaping");
-    stringify("captured");
-
-    for (var i = 0; i < this.children.length; ++i)
+    function stringify_scope(scope)
     {
-        a.push("\n" + this.children[i].toString());
+        stringify_set(scope, "declared");
+        stringify_set(scope, "used");
+
+        a.push("local: " + scope._local + "\n");
+        stringify_set(scope, "_escaping");
+        stringify_set(scope, "_captured");
     }
+
+    function traverse(scope, perform)
+    {
+        a.push("\n");
+        perform(scope);
+
+        for (var i = 0; i < scope.children.length; ++i)
+        {
+            traverse(scope.children[i], perform);
+        }
+    }
+
+    traverse(this, stringify_scope);
 
     return a.join('');
 };
@@ -371,6 +383,31 @@ scope.prototype.lookup = function (id)
     }
 };
 
+scope.prototype.escaping = function (id)
+{
+    if (id === undefined)
+    {
+        return this._escaping;
+    }
+
+    return this._escaping[id];
+};
+
+scope.prototype.local = function ()
+{
+    return this._local;    
+};
+
+scope.prototype.captured = function (id)
+{
+    if (id === undefined)
+    {
+        return this._captured;
+    }
+
+    return this._captured[id];
+};
+
 function catch_scope(p, id)
 {
     var that = Object.create(catch_scope.prototype);
@@ -396,9 +433,9 @@ function catch_scope(p, id)
     }
     
     // Derived fields
-    that.escaping  = {}; // Local vars captured by children scopes
-    that.captured  = {}; // Captured from parent scope
-    that.local     = [];
+    that._escaping  = {}; // Local vars captured by children scopes
+    that._captured  = {}; // Captured from parent scope
+    that._local     = [];
 
     return that;
 }
@@ -414,12 +451,96 @@ catch_scope.prototype.use = function (id)
     {
         this.used[id] = this.declared[id];
     }
-}
+};
+
+catch_scope.prototype.escaping = function (id)
+{
+    if (id === undefined)
+    {
+        var e = Object.create(this.delegate.escaping());
+        
+        for (var id in this._escaping)
+        {
+            e[id] = this._escaping[id];
+        }
+        return e; 
+    }
+
+    var v = this._escaping[id];
+
+    if (v === undefined)
+    {
+        return this.delegate.escaping(id);
+    } else
+    {
+        return v;
+    }
+};
+
+catch_scope.prototype.captured = function (id)
+{
+    if (id === undefined)
+    {
+        var c = Object.create(this.delegate.captured());
+        
+        for (var id in this._captured)
+        {
+            c[id] = this._captured[id];
+        }
+        return c; 
+    }
+
+    var v = this._captured[id];
+
+    if (v === undefined)
+    {
+        return this.delegate.captured(id);
+    } else
+    {
+        return v;
+    }
+};
+
+catch_scope.prototype.local = function ()
+{
+    var l = [];
+
+    var local = this.delegate.local();
+
+    for (var i = 0; i < local.length; ++i)
+    {
+        l.push(local[i]);
+    }
+
+    for (var i = 0; i < this._local.length; ++i)
+    {
+        l.push(this._local[i]);
+    }
+
+    return l;
+};
 
 catch_scope.prototype.declare = function (id, isParam)
 {
     return this.delegate.declare(id, isParam);
-}
+};
+
+catch_scope.prototype.lookup = function (id)
+{
+    var v = this.used[id];    
+
+    if (v === undefined)
+    {
+        v = this.declared[id];
+
+        if (v === undefined)
+        {
+            return this.delegate.lookup(id);
+        }
+    }
+
+    return v;
+};
 
 function variable(scope, id, isParam)
 {
@@ -451,23 +572,13 @@ variable.next_id = 0;
 variable.prototype.is_local = function ()
 {
     return this.scope.declared[this.id] === this && 
-           this.scope.escaping[this.id] === undefined &&
+           this.scope.escaping(this.id) === undefined &&
            this.scope.parent !== null;
 };
 
 variable.prototype.is_global = function ()
 {
     return this.scope.parent === null;
-};
-
-variable.prototype.is_escaping = function (scope)
-{
-    return this.scope.escaping[this.id] === this;
-};
-
-variable.prototype.is_captured = function (scope)
-{
-    return this.scope.captured[this.id] === this;
 };
 
 variable.prototype.toString = function ()
@@ -483,100 +594,216 @@ PhotonCompiler.context = {
     {
         var that = Object.create(this);
 
-        // Maintain the current block labels for changes of control flow
-        that.block  = [{}];
-
-        // Maintain local variables and their offset on the stack
-        //that.locals = [[{}, 0]];
-
         // Maintain a set of functions created during compilation
         that.functions = {};
 
+        // Compiler constants
+        that.sizeof_ref    = 4;
+        that.sizeof_header = 20;
+
+        // Offsets of this and closure parameters from frame pointer
+        that.arg_nb_stack_offset = 8;
+        that.this_offset         = 12;
+        that.clos_offset         = 16;
+
+        // Maintain the current block labels for changes of control flow
+        that.block  = {};
+        that.previous_blocks = [];
+
         // Maintain the current scope and associated variables
-        that.scopes = [];
+        that.scope = null;
+        that.previous_scopes = [];
 
         // Maintain the offset of variables compared to their base pointers
-        // Note: Different variables might be related to different base pointers.
-        that.offsets = [];
+        that.stack_offsets    = null;
+        that.closure_offsets  = null;
+        that.previous_offsets = [];
 
         // Maintain the list of labels associated to
         // references in the function code
-        that.refs   = [[]];
+        that.refs   = null;
+        that.previous_refs = [[]];
+
+        // Displacement of the frame pointer from its base position
+        // in the function scope
+        that.bias = 0;
+        that.previous_biases = [];
+
+        // Number of locations on the stack used by a scope
+        that.stack_location_nb = 0;
+        that.previous_stack_location_nb = [];
+
+        // Nesting level of try
+        that.try_lvl = 0;
+        that.previous_try_lvls = [];
 
         return that;
+    },
+    
+    nop:function (nb)
+    {
+        switch(nb)
+        {
+            case 1: return [0x90];
+            case 2: return [0x66, 0x90];
+            case 3: return [0x0f, 0x1f, 0x00];
+            case 4: return [0x0f, 0x1f, 0x40, 0x00];
+            case 5: return [0x0f, 0x1f, 0x44, 0x00, 0x00];
+            case 6: return [0x66, 0x0f, 0x1f, 0x44, 0x00, 0x00];
+            case 7: return [0x0f, 0x1f, 0x80, 0x00, 0x00, 0x00, 0x00];
+            case 8: return [0x0f, 0x1f, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00];
+            case 9: return [0x66, 0x0f, 0x1f, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00];
+        }
+    },
+
+    nop_cste:function (nb)
+    {
+        assert(nb <= 5);
+
+        var nop = this.nop(nb);
+        var n = nop[0];
+
+        for (var i = nop.length - 1; i >= 0; --i)
+        {
+            n = n << 8;
+            n += nop[i];
+        }
+
+        return n;
     },
 
     push_block:function ()
     {
-        this.block.push({"continue":_label(), "break":_label()});   
+        this.previous_blocks.push(this.block);
+        this.block = {"continue":_label(), "break":_label()};
     },
 
     pop_block:function ()
     {
-        this.block.pop();   
+        this.block = this.previous_blocks.pop();
     },
 
     cont_lbl:function ()
     {
-        return this.block[this.block.length - 1]["continue"];
+        return this.block["continue"];
     },
 
     break_lbl:function ()
     {
-        return this.block[this.block.length - 1]["break"];
+        return this.block["break"];
     },
 
-    // <--- New scope API
-    push_scope:function (scope, args)
+    enter_function_scope:function (scope, args)
     {
-        this.scopes.push(scope);
+        //print("enter function scope");
+        this.previous_scopes.push(this.scope);
+        this.scope = scope;
+        this.previous_biases.push(this.bias);
+        this.bias  = 0;
+        this.previous_try_lvls.push(this.try_lvl);
+        this.try_lvl = 0;
 
-        var offsets = {};
+        var stack_offsets = {};
+        var stack_location_nb = 0;
 
-        // Arguments offsets on the stack
+        // Arguments offsets
         for (var i = 0; i < args.length; ++i)
         {
-           offsets[args[i]] = (i+photon.protocol.base_arg_nb+2)*4;
+           stack_offsets[args[i]] = (i+photon.protocol.base_arg_nb+2)*this.sizeof_ref;
         }
 
-        // Local variable offsets on the stack
-        var offset = -4;
-        var local = this.current_scope().local;
+        // Local variable offsets
+        var offset = -this.sizeof_ref;
+        var local = scope.local();
         for (var i = 0; i < local.length; ++i)
         {
-            offsets[local[i].id] = offset;
-            offset -= 4;
+            stack_offsets[local[i].id] = offset;
+            offset -= this.sizeof_ref;
         }
+        stack_location_nb += local.length;
 
-        // Escaping variable offsets on the stack
-        var escaping = scope.escaping;
+        // Escaping variable offsets
+        var escaping = scope.escaping();
         for (var id in escaping)
         {
-            offsets[id] = offset;
-            offset -= 4;
+            stack_offsets[id] = offset;
+            offset -= this.sizeof_ref;
+            stack_location_nb++;
         }
 
-        // Captured variables offets on the closure
-        var offset = -20;
-        var captured = scope.captured;
+        // Captured variables offsets on the closure
+        var closure_offsets = {};
+        var offset = -this.sizeof_header;
+        var captured = scope.captured();
         for (var id in captured)
         {
-            offsets[id] = offset;
-            offset -= 4; 
+            closure_offsets[id] = offset;
+            offset -= this.sizeof_ref; 
         }
 
-        this.offsets.push(offsets);
+        this.previous_offsets.push(this.stack_offsets);
+        this.previous_offsets.push(this.closure_offsets);
+        this.stack_offsets   = stack_offsets;
+        this.closure_offsets = closure_offsets;
+        this.previous_stack_location_nb.push(this.stack_location_nb);
+        this.stack_location_nb = stack_location_nb;
     },
 
-    pop_scope:function ()
+    leave_function_scope:function ()
     {
-        this.scopes.pop();
-        this.offsets.pop();
+        //print("leave function scope");
+        this.scope = this.previous_scopes.pop();
+        this.bias = this.previous_biases.pop();
+        this.stack_location_nb = this.previous_stack_location_nb.pop();
+        this.closure_offsets = this.previous_offsets.pop();
+        this.stack_offsets   = this.previous_offsets.pop();
+        this.try_lvl = this.previous_try_lvls.pop();
+    },
+
+    enter_try_block:function ()
+    {
+        //print("enter try block");
+        this.stack_location_nb += 2;
+        this.previous_biases.push(this.bias);
+        this.bias = this.stack_location_nb * this.sizeof_ref;
+        this.try_lvl++;
+    },
+
+    leave_try_block:function ()
+    {
+        //print("leave try block");
+        this.bias = this.previous_biases.pop();
+        this.stack_location_nb -= 2;
+        this.try_lvl--;
+    },
+
+    enter_catch_scope:function (scope)
+    {
+        //print("enter catch scope");
+        this.previous_offsets.push(this.stack_offsets);
+        var stack_offsets = Object.create(this.stack_offsets);
+
+        for (var id in scope.declared)
+        {
+            stack_offsets[id] = (++this.stack_location_nb) * -this.sizeof_ref;
+        }
+        this.stack_offsets = stack_offsets;
+
+        this.previous_scopes.push(this.scope);
+        this.scope = scope;
+    },
+
+    leave_catch_scope:function ()
+    {
+        //print("leave catch scope");
+        this.scope   = this.previous_scopes.pop();
+        this.stack_offsets = this.previous_offsets.pop();
+        this.stack_location_nb--;
     },
 
     current_scope:function ()
     {
-        return this.scopes[this.scopes.length - 1];
+        return this.scope;
     },
 
     lookup:function (id)
@@ -584,97 +811,40 @@ PhotonCompiler.context = {
         return this.current_scope().lookup(id);
     },
 
-    offset:function (id)
+    stack_offset:function (id)
     {
-        return this.offsets[this.offsets.length - 1][id];
+        return this.stack_offsets[id] + this.bias;
     },
 
-    current_offset:function ()
+    this_stack_offset:function ()
     {
-        return this.offsets[this.offsets.length - 1];
+        return this.this_offset + this.bias;
     },
 
-    stack_location_nb:function ()
+    clos_stack_offset:function ()
     {
-        var scope = this.current_scope();
-        var nb = scope.local.length;
-
-        for (var id in scope.escaping)
-        {
-            nb++;
-        }
-
-        return nb;
-    },
-    // ----->
-
-    /*
-    // <---- Old scope API
-    add_args:function (args)
-    {
-        var mapping = [{}, 0];
-
-        for (var i = 0; i < args.length; ++i)
-        {
-            mapping[0][args[i]] = (i+photon.protocol.base_arg_nb+2)*4;
-        }
-
-        this.locals.push(mapping);
+        return this.clos_offset + this.bias;
     },
 
-    add_locals:function (scope)
+    arg_nb_stack_offset:function ()
     {
-        var mapping = this.locals[this.locals.length - 1];
-        var i = -4;
-
-        for (var n in scope)
-        {
-            //print(n + " = " + scope[n]);
-            if (scope[n] === "local")
-            {
-                //print(n + " = " + i);
-                mapping[0][n] = i; 
-                mapping[1] = mapping[1] + 1;
-                i -= 4;
-            }
-        }
+        return this.arg_nb_stack_offset + this.bias;
     },
-
-    has_local:function (name)
-    {
-        return this.locals[this.locals.length - 1][0][name] !== undefined;
-    },
-
-    pop_locals:function ()
-    {
-        this.locals.length -= 1;
-    },
-
-    loc:function (name)
-    {
-        return this.locals[this.locals.length - 1][0][name];
-    },
-
-    loc_nb:function ()
-    {
-        return this.locals[this.locals.length - 1][1];
-    },
-    // ----->
-    */
 
     new_ref_ctxt:function ()
     {
-        this.refs.push([]);
+        this.previous_refs.push(this.refs);
+        this.refs = [];
     },
 
     pop_ref_ctxt:function ()
     {
-        this.refs.length -= 1;
+        this.refs = this.previous_refs.pop();
     },
 
     ref_ctxt:function ()
     {
-        return this.refs[this.refs.length - 1];
+        return this.refs;
     },
 
     new_function_object:function (code, ref_labels, cell_nb)
@@ -694,7 +864,7 @@ PhotonCompiler.context = {
         codeBlock.assemble();
         //print(codeBlock.code);
         //print("listing");
-        print(codeBlock.listingString());
+        //print(codeBlock.listingString());
 
         // Add positions of refs as tagged integers
         ref_labels.forEach(function (l)
@@ -716,9 +886,8 @@ PhotonCompiler.context = {
 
     new_js_function_object:function (name, args, body)
     {
-        var loc_nb = this.stack_location_nb(); 
         var code = [
-            this.gen_prologue(loc_nb, args.length),
+            this.gen_prologue(this.stack_location_nb, args.length),
             body,
             _op("mov", _$(_UNDEFINED), _EAX),
             this.gen_epilogue()
@@ -737,7 +906,7 @@ PhotonCompiler.context = {
     gen_closure:function (f, scope, offsets)
     {
         var cell_init_code = [];
-        var captured       = scope.captured;
+        var captured       = scope.captured();
         var cell_nb        = 0;
 
         for (id in captured)
@@ -756,13 +925,6 @@ PhotonCompiler.context = {
             _op("mov", _$(addr_to_num(f.__addr__), label), _EAX),
             _op("jmp", _EAX),
         ], ref_labels, cell_nb);
-
-        /*
-        c = photon.send(c, "__clone__");
-        print(c.__addr__);
-        c = photon.send(c, "__clone__");
-        print(c.__addr__);
-        */
 
         return [
             //_op("mov", this.gen_mref(c), _EAX)
@@ -804,13 +966,13 @@ PhotonCompiler.context = {
         mov(_ESP, _EBP).
 
         // Reserve space for locals
-        sub(_$(4*local_n), _ESP);
+        sub(_$(this.sizeof_ref*local_n), _ESP);
 
         var code = [];
         // Initialize escaping variables
-        for (var id in this.current_scope().escaping)
+        for (var id in this.current_scope().escaping())
         {
-            //print("Creating cell for '" + id + "'");
+            print("Creating cell for '" + id + "'");
             //code.push(this.gen_set_local(id, [_op("mov", _$(_UNDEFINED), _EAX)]));
             code.push(this.gen_set_local(id, this.gen_new_cell()));
             code.push(this.gen_set_escaping(id, [_op("mov", _$(_UNDEFINED), _EAX)]));
@@ -822,6 +984,12 @@ PhotonCompiler.context = {
     gen_epilogue:function ()
     {
         var a = new x86.Assembler(x86.target.x86);
+
+        for (var i = 0; i < this.try_lvl; ++i)
+        {
+            a.mov(_mem(0, _EBP), _EBP);
+        }
+
         a.
         mov(_EBP, _ESP).   
         pop(_EBP).
@@ -1056,11 +1224,11 @@ PhotonCompiler.context = {
 
             //_op("sub", _$((args.length + extra_nb)*4), _ESP)
             // Align stack for OS X ABI 
-            _op("sub", _$((args.length + extra_nb + 1)* 4), _ESP),
+            _op("sub", _$((args.length + extra_nb + 1)*this.sizeof_ref), _ESP),
             _op("and", _$(-16), _ESP),
 
             // Preserve old stack pointer
-            _op("mov", _ECX, _mem((args.length + extra_nb)*4, _ESP))
+            _op("mov", _ECX, _mem((args.length + extra_nb)*this.sizeof_ref, _ESP))
 
         ];
 
@@ -1068,7 +1236,7 @@ PhotonCompiler.context = {
         for (var i = 0; i < args.length; ++i)
         {
             code.push(args[i]);
-            code.push(_op("mov", _EAX, _mem((i + extra_nb)*4, _ESP)));
+            code.push(_op("mov", _EAX, _mem((i + extra_nb)*this.sizeof_ref, _ESP)));
         }
 
         return code;
@@ -1077,7 +1245,7 @@ PhotonCompiler.context = {
     gen_pop_args:function (n)
     {
         return [
-            _op("add", _$(n * 4), _ESP),
+            _op("add", _$(n * this.sizeof_ref), _ESP),
 
             // Restore old stack pointer
             _op("pop", _ESP)
@@ -1233,10 +1401,10 @@ PhotonCompiler.context = {
         } else if (v.is_global())
         {
             return this.gen_get_global(id);
-        } else if (scope.escaping[id] === v)
+        } else if (scope.escaping(id) === v)
         {
             return this.gen_get_escaping(id);
-        } else if (scope.captured[id] === v)
+        } else if (scope.captured(id) === v)
         {
             return this.gen_get_captured(id);
         } else
@@ -1249,16 +1417,17 @@ PhotonCompiler.context = {
     {
         var scope = this.current_scope();
         var v     = scope.lookup(id);
+
         if (v.is_local())
         {
             return this.gen_set_local(id, val);
         } else if (v.is_global())
         {
             return this.gen_set_global(id, val);
-        } else if (scope.escaping[id] === v)
+        } else if (scope.escaping(id) === v)
         {
             return this.gen_set_escaping(id, val);
-        } else if (scope.captured[id] === v)
+        } else if (scope.captured(id) === v)
         {
             return this.gen_set_captured(id, val);
         } else
@@ -1269,30 +1438,30 @@ PhotonCompiler.context = {
 
     gen_get_local:function (id)
     {
-        print("get local '" + id + "'");
-        return _op("mov", _mem(this.offset(id), _EBP), _EAX); 
+        //print("get local '" + id + "' at " + this.stack_offset(id));
+        return _op("mov", _mem(this.stack_offset(id), _EBP), _EAX); 
     },
 
     gen_set_local:function (id, val)
     {
-        print("set local '" + id + "'");
-        return [val, _op("mov", _EAX, _mem(this.offset(id), _EBP))];
+        //print("set local '" + id + "' at " + this.stack_offset(id));
+        return [val, _op("mov", _EAX, _mem(this.stack_offset(id), _EBP))];
     },
 
     gen_get_escaping:function (id)
     {
-        print("get escaping '" + id + "' at offset " + this.offset(id));
+        //print("get escaping '" + id + "' at offset " + this.stack_offset(id));
         return [
-            _op("mov", _mem(this.offset(id), _EBP), _EAX),
+            _op("mov", _mem(this.stack_offset(id), _EBP), _EAX),
             _op("mov", _mem(0, _EAX), _EAX)
         ];
     },
 
     gen_set_escaping:function (id, val)
     {
-        print("set escaping '" + id + "' at offset " + this.offset(id));
+        //print("set escaping '" + id + "' at offset " + this.stack_offset(id));
         return [
-            _op("mov", _mem(this.offset(id), _EBP), _EAX),
+            _op("mov", _mem(this.stack_offset(id), _EBP), _EAX),
             _op("push", _EAX),
             val,
             _op("pop", _ECX),
@@ -1302,10 +1471,10 @@ PhotonCompiler.context = {
 
     gen_get_captured:function (id)
     {
-        print("get captured '" + id + "' at offset " + this.offset(id));
+        //print("get captured '" + id + "' at offset " + this.closure_offsets[id]);
         return [
             _op("mov", _mem(16, _EBP), _EAX),
-            _op("mov", _mem(this.offset(id), _EAX), _EAX),
+            _op("mov", _mem(this.closure_offsets[id], _EAX), _EAX),
             _op("mov", _mem(0, _EAX), _EAX)
         ];
 
@@ -1313,10 +1482,10 @@ PhotonCompiler.context = {
 
     gen_set_captured:function (id, val)
     {
-        print("set captured '" + id + "' at offset " + this.offset(id));
+        //print("set captured '" + id + "' at offset " + this.closure_offsets[id]);
         return [
             _op("mov", _mem(16, _EBP), _EAX),
-            _op("mov", _mem(this.offset(id), _EAX), _EAX),
+            _op("mov", _mem(this.closure_offsets[id], _EAX), _EAX),
             _op("push", _EAX),
             val,
             _op("pop", _ECX),
@@ -1355,18 +1524,103 @@ PhotonCompiler.context = {
     {
         var scope = this.current_scope();
 
-        if (scope.escaping[id] !== undefined)
+        if (scope.escaping(id) !== undefined)
         {
-            return _op("mov", _mem(this.offset(id), _EBP), _EAX);
-        } else if (scope.captured[id] !== undefined)
+            return _op("mov", _mem(this.stack_offset(id), _EBP), _EAX);
+        } else if (scope.captured(id) !== undefined)
         {
             return [
-                _op("mov", _mem(16, _EBP), _EAX),
-                _op("mov", _mem(this.offset(id), _EAX), _EAX)
+                this.gen_get_clos(),
+                _op("mov", _mem(this.closure_offsets[id], _EAX), _EAX)
             ];
         } else
         {
             error("No cell defined in current scope for variable '" + id + "'");
         }
+    },
+
+    gen_try_catch:function (t, c, catch_scope)
+    {
+        print("try_catch");
+        var TRY = _label("TRY");
+        var END = _label("END");    
+
+        var has_escaping = false;
+        for (var id in catch_scope.escaping())
+        {
+            has_escaping = true;
+            break;
+        }
+
+        if (has_escaping)
+        {
+            print("exception escaping");
+            var cell_code = [
+                this.gen_new_cell(),
+                _op("pop", _ECX),
+                _op("mov", _ECX, _mem(0, _EAX)),
+                _op("push", _EAX)
+            ];
+        } else
+        {
+            print("no exception escaping");
+            var cell_code = [];
+        }
+
+        return [
+            _op("call", TRY),
+
+            // CATCH
+            this.nop(this.sizeof_ref),
+            _op("push", _EAX),
+            cell_code,
+            c,
+            _op("pop", _EAX),
+            _op("jmp", END),
+
+            // TRY
+            TRY,
+            _op("push", _EBP),
+            _op("mov", _ESP, _EBP),
+            t,
+            _op("mov", _EBP, _ESP),
+            _op("pop", _EBP),
+            _op("add", _$(this.sizeof_ref), _ESP),
+
+            END
+        ];
+    },
+
+    gen_throw:function (e)
+    {
+        var LOOP = _label();
+        var END  = _label();
+
+        return [
+            e,
+            _op("push", _EAX),      // Save exception object
+            _op("mov", _EBP, _ECX), // Start searching for handler
+            LOOP,
+            _op("mov", _mem(4, _ECX), _EAX), // Retrieve return address pointer
+            _op("cmp", _$(this.nop_cste(4)), _mem(0, _EAX), 32), // Check if it is a handler
+            _op("je", END),                  // Yes! jump to handler
+            _op("mov", _mem(0, _ECX), _ECX), // No, check next stack frame
+            _op("jmp", LOOP),
+            END,
+            _op("pop", _EAX),       // Restore exception object
+            _op("mov", _ECX, _ESP), // Restore stack pointer
+            _op("pop", _EBP),       // Restore stack frame
+            _op("ret")              // Jump to handler
+        ];
+    },
+
+    gen_get_this:function ()
+    {
+        return _op("mov", _mem(this.this_stack_offset(), _EBP), _EAX);
+    },
+
+    gen_get_clos:function ()
+    {
+        return _op("mov", _mem(this.clos_stack_offset(), _EBP), _EAX);
     }
 };

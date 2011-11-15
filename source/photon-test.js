@@ -34,18 +34,16 @@ photon.send(_bind, "__intern__",
 print("Creating super_bind function");
 photon.super_bind = _compile(readFile("super_bind.js")).functions["super_bind"];
 
-var g = _compile(readFile("test2.js"));
-print(photon.send({g:g}, "g"));
-
-throw "FINISHED";
-
-
-
-
 print("Installing standard library");
 var f = _compile(readFile("photon-stdlib.js"));
 print("Initializing standard library");
 photon.send({f:f}, "f");
+
+print("Compiling test2");
+var g = _compile(readFile("test2.js"));
+photon.send({g:g}, "g");
+
+throw "FINISHED";
 
 print("Bootstrapping JS object model");
 var start = new Date().getTime();
@@ -69,6 +67,7 @@ var end   = new Date().getTime();
 print("compile time: " + ((end - start)) + " ms");
 var r = photon.send({f:f}, "f");
  
+/*
 print("Removing dependencies to old object model");
 print("Recreating bind function");
 photon.bind = photon.send(photon.function, "__new__", 10, 0);
@@ -85,6 +84,7 @@ photon.send(_bind, "__intern__",
 
 print("Recreating super_bind function");
 photon.super_bind = photon.send({f:_compile(readFile("super_bind.js"))}, "f");
+*/
 
 print("Bootstrap done");
 

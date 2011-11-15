@@ -1,7 +1,6 @@
 ometa PhotonASTCopy {
   trans      = [:t apply(t):ans]      -> ans,
-  curlyTrans = [#begin curlyTrans:r]  -> [#begin, r]
-             | [#begin trans*:rs]     -> [#begin].concat(rs)
+  curlyTrans = [#begin trans*:rs]     -> [#begin].concat(rs)
              | trans:r,
 
   global   :ctxt trans:r                                      -> [#global, _deep_copy(ctxt), r],
