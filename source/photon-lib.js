@@ -145,6 +145,7 @@ function _mref(m)
 function _compile(s)
 {
     try {
+        //print("Parsing");
         var r = PhotonParser.matchAll(s, "topLevel");
         //print("Macro Exp");
         //print(r);
@@ -926,7 +927,6 @@ PhotonCompiler.context = {
         ], ref_labels, cell_nb);
 
         return [
-            //_op("mov", this.gen_mref(c), _EAX)
             this.gen_send(
                 this.gen_arg(this.gen_mref(c)),
                 this.gen_symbol("__clone__"),
@@ -1326,7 +1326,10 @@ PhotonCompiler.context = {
     {
         var ext_args = args.concat(
             [this.gen_send(
-                this.gen_arg(this.gen_mref(photon.object)), 
+                this.gen_send(
+                    fn,
+                    this.gen_symbol("__get__"),
+                    [this.gen_symbol("prototype")]),
                 this.gen_symbol("__new__"), 
                 [])]);
 
@@ -1482,7 +1485,7 @@ PhotonCompiler.context = {
 
     gen_get_escaping:function (id)
     {
-        //print("get escaping '" + id + "' at offset " + this.stack_offset(id));
+        print("get escaping '" + id + "' at offset " + this.stack_offset(id));
         return [
             _op("mov", _mem(this.stack_offset(id), _EBP), _EAX),
             _op("mov", _mem(0, _EAX), _EAX)
@@ -1491,7 +1494,7 @@ PhotonCompiler.context = {
 
     gen_set_escaping:function (id, val)
     {
-        //print("set escaping '" + id + "' at offset " + this.stack_offset(id));
+        print("set escaping '" + id + "' at offset " + this.stack_offset(id));
         return [
             _op("mov", _mem(this.stack_offset(id), _EBP), _EAX),
             _op("push", _EAX),
@@ -1503,7 +1506,7 @@ PhotonCompiler.context = {
 
     gen_get_captured:function (id)
     {
-        //print("get captured '" + id + "' at offset " + this.closure_offsets[id]);
+        print("get captured '" + id + "' at offset " + this.closure_offsets[id]);
         return [
             _op("mov", _mem(16, _EBP), _EAX),
             _op("mov", _mem(this.closure_offsets[id], _EAX), _EAX),
@@ -1514,7 +1517,7 @@ PhotonCompiler.context = {
 
     gen_set_captured:function (id, val)
     {
-        //print("set captured '" + id + "' at offset " + this.closure_offsets[id]);
+        print("set captured '" + id + "' at offset " + this.closure_offsets[id]);
         return [
             _op("mov", _mem(16, _EBP), _EAX),
             _op("mov", _mem(this.closure_offsets[id], _EAX), _EAX),

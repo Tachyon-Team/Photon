@@ -41,6 +41,7 @@ photon.send({f:f}, "f");
 
 print("Compiling test2");
 var g = _compile(readFile("test2.js"));
+print("Executing test2");
 photon.send({g:g}, "g");
 
 throw "FINISHED";
