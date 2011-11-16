@@ -48,7 +48,7 @@ all: compiler run
 
 .PHONY: deps
 deps:
-	git clone git@github.com:elavoie/ometa-js.git deps/ometa-js
+	git clone git://github.com/elavoie/ometa-js.git deps/ometa-js
 
 compiler: ometa/photon-compiler.txt ometa/ast-copy.txt ometa/ast-freqs.txt
 	./ometa-compile.sh ometa/photon-compiler
