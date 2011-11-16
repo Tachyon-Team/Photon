@@ -675,7 +675,7 @@ PhotonCompiler.context = {
     push_block:function ()
     {
         this.previous_blocks.push(this.block);
-        this.block = {"continue":_label(), "break":_label()};
+        this.block = {"continue":_label(), "break":_label(), "try_lvl":this.try_lvl};
     },
 
     pop_block:function ()
@@ -813,7 +813,9 @@ PhotonCompiler.context = {
 
     stack_offset:function (id)
     {
-        return this.stack_offsets[id] + this.bias;
+        var offset = this.stack_offsets[id] + this.bias;
+        //print("stack offset '" + id + "' " + offset);
+        return offset;
     },
 
     this_stack_offset:function ()
@@ -1485,7 +1487,7 @@ PhotonCompiler.context = {
 
     gen_get_escaping:function (id)
     {
-        print("get escaping '" + id + "' at offset " + this.stack_offset(id));
+        //print("get escaping '" + id + "' at offset " + this.stack_offset(id));
         return [
             _op("mov", _mem(this.stack_offset(id), _EBP), _EAX),
             _op("mov", _mem(0, _EAX), _EAX)
@@ -1494,7 +1496,7 @@ PhotonCompiler.context = {
 
     gen_set_escaping:function (id, val)
     {
-        print("set escaping '" + id + "' at offset " + this.stack_offset(id));
+        //print("set escaping '" + id + "' at offset " + this.stack_offset(id));
         return [
             _op("mov", _mem(this.stack_offset(id), _EBP), _EAX),
             _op("push", _EAX),
@@ -1506,9 +1508,9 @@ PhotonCompiler.context = {
 
     gen_get_captured:function (id)
     {
-        print("get captured '" + id + "' at offset " + this.closure_offsets[id]);
+        //print("get captured '" + id + "' at offset " + this.closure_offsets[id]);
         return [
-            _op("mov", _mem(16, _EBP), _EAX),
+            this.gen_get_clos(),
             _op("mov", _mem(this.closure_offsets[id], _EAX), _EAX),
             _op("mov", _mem(0, _EAX), _EAX)
         ];
@@ -1517,9 +1519,9 @@ PhotonCompiler.context = {
 
     gen_set_captured:function (id, val)
     {
-        print("set captured '" + id + "' at offset " + this.closure_offsets[id]);
+        //print("set captured '" + id + "' at offset " + this.closure_offsets[id]);
         return [
-            _op("mov", _mem(16, _EBP), _EAX),
+            this.gen_get_clos(),
             _op("mov", _mem(this.closure_offsets[id], _EAX), _EAX),
             _op("push", _EAX),
             val,
@@ -1657,5 +1659,37 @@ PhotonCompiler.context = {
     gen_get_clos:function ()
     {
         return _op("mov", _mem(this.clos_stack_offset(), _EBP), _EAX);
+    },
+
+    gen_pop_try_frames:function ()
+    {
+        //print(this.try_lvl);
+        //print(this.block["try_lvl"]);
+        var code = [];
+        if (this.try_lvl > this.block["try_lvl"])
+        {
+            print("We need to pop " + (this.try_lvl - this.block["try_lvl"]) + " frame(s)");
+            for (var i = this.block["try_lvl"] + 1; i < this.try_lvl; ++i)
+            {
+                code.push(_op("mov", _mem(0, _EBP), _EBP));    
+            }
+
+            code.push([_op("mov", _EBP, _ESP), 
+                       _op("pop", _EBP),
+                       _op("add", _$(this.sizeof_ref), _ESP)]);
+        }
+        return code;
+    },
+
+    gen_break:function ()
+    {
+        print("gen_break");
+        return [this.gen_pop_try_frames(), _op("jmp", this.break_lbl())];
+    },
+    
+    gen_continue:function ()
+    {
+        print("gen_continue");
+        return [this.gen_pop_try_frames(), _op("jmp", this.cont_lbl())];
     }
 };

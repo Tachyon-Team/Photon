@@ -280,8 +280,8 @@ ometa PhotonCompiler {
   global   (:ctxt -> {self.context.enter_function_scope(ctxt.scope, []); self.context.new_ref_ctxt();})  
            trans:r                                            -> [r, _op("ret")],
   this                                                        -> self.context.gen_get_this(),
-  break                                                       -> _op("jmp", self.context.break_lbl()),
-  continue                                                    -> _op("jmp", self.context.cont_lbl()),
+  break                                                       -> self.context.gen_break(),   
+  continue                                                    -> self.context.gen_continue(),
   number   :n                                                 -> _op("mov", _$(_ref(n)), _EAX),  
   string   :s                                                 -> self.context.gen_symbol(s), 
   ref      :s (?(typeof s === "object" && 
