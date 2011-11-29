@@ -178,6 +178,7 @@ struct object *s_intern      = (struct object *)0;
 struct object *s_length      = (struct object *)0;
 struct object *s_lookup      = (struct object *)0;
 struct object *s_new         = (struct object *)0;
+struct object *s_prototype   = (struct object *)0;
 struct object *s_push        = (struct object *)0;
 struct object *s_remove      = (struct object *)0;
 struct object *s_set         = (struct object *)0;
@@ -515,11 +516,11 @@ struct object *array_set(
     return value;
 }
 
-struct object *cell_new(size_t n, struct cell *self, struct function *closure)
+struct object *cell_new(size_t n, struct cell *self, struct function *closure, struct object *val)
 {
     struct cell *new_cell = (struct cell *)send(self, s_init, ref(0), ref(sizeof(struct object *)));
 
-    new_cell->value = UNDEFINED;
+    new_cell->value = val;
 
     new_cell->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
     new_cell->_hd[-1].prototype = (struct object *)self;
@@ -566,6 +567,9 @@ struct object *function_clone(size_t n, struct function *self, struct function *
     {
         clone->code[i] = self->code[i]; 
     }
+    
+    struct object *prototype = send0(root_object, s_new);
+    send(clone, s_set, s_prototype, prototype);
 
     return (struct object *)clone;
 }
@@ -985,7 +989,7 @@ struct object *symbol_print(size_t n, struct object *self, struct function *clos
 
 void log(const char* s)
 {
-    printf("%s", s); 
+    //printf("%s", s); 
 }
 
 //--------------------------------- Bootstrap ----------------------------------
@@ -1026,6 +1030,7 @@ extern void bootstrap()
     s_intern      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
     s_length      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(7));
     s_new         = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(8));
+    s_prototype   = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(10));
     s_push        = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(9));
     s_remove      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
     s_symbols     = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(12));
@@ -1112,7 +1117,7 @@ extern void bootstrap()
     root_symbol = send0(root_object, s_new);
 
     log("Add string values to symbols\n");
-    struct object *symbols = send(root_array, s_new, ref(100));
+    struct object *symbols = send(root_array, s_new, ref(1000));
     send(root_symbol,  s_set, s_symbols, symbols); 
 
     send(symbols, s_push, s_add);
@@ -1126,26 +1131,28 @@ extern void bootstrap()
     send(symbols, s_push, s_length);
     send(symbols, s_push, s_lookup);
     send(symbols, s_push, s_new);
+    send(symbols, s_push, s_prototype);
     send(symbols, s_push, s_push);
     send(symbols, s_push, s_remove);
     send(symbols, s_push, s_set);
     send(symbols, s_push, s_symbols);
 
-    strcpy((char*)s_add,      "__add__");
-    strcpy((char*)s_allocate, "__allocate__");
-    strcpy((char*)s_clone,    "__clone__");
-    strcpy((char*)s_create,   "__create__");
-    strcpy((char*)s_delete,   "__delete__");
-    strcpy((char*)s_get,      "__get__");
-    strcpy((char*)s_init,     "__init__");
-    strcpy((char*)s_intern,   "__intern__");
-    strcpy((char*)s_length,   "length");
-    strcpy((char*)s_lookup,   "__lookup__");
-    strcpy((char*)s_new,      "__new__");
-    strcpy((char*)s_push,     "__push__");
-    strcpy((char*)s_remove,   "__remove__");
-    strcpy((char*)s_set,      "__set__");
-    strcpy((char*)s_symbols,  "__symbols__");
+    strcpy((char*)s_add,       "__add__");
+    strcpy((char*)s_allocate,  "__allocate__");
+    strcpy((char*)s_clone,     "__clone__");
+    strcpy((char*)s_create,    "__create__");
+    strcpy((char*)s_delete,    "__delete__");
+    strcpy((char*)s_get,       "__get__");
+    strcpy((char*)s_init,      "__init__");
+    strcpy((char*)s_intern,    "__intern__");
+    strcpy((char*)s_length,    "length");
+    strcpy((char*)s_lookup,    "__lookup__");
+    strcpy((char*)s_new,       "__new__");
+    strcpy((char*)s_prototype, "prototype");
+    strcpy((char*)s_push,      "__push__");
+    strcpy((char*)s_remove,    "__remove__");
+    strcpy((char*)s_set,       "__set__");
+    strcpy((char*)s_symbols,   "__symbols__");
 
     struct map *empty_map = (struct map *)send0(
         root_symbol->_hd[-1].map,

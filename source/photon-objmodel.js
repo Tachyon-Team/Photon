@@ -221,23 +221,22 @@ macro sizeof_property_m()
 }
 
 //--------------------------------- Root Objects Adjustments ------------------
-/*
+//
 // Add an indirection level to existing arrays to allow reallocation
 // while preserving the identity of the object
-root.array.__array__              = root.array;
-root.symbol.__symbols__.__array__ = root.symbol.__symbols__;
+//root.array.__array__              = root.array;
+//root.symbol.__symbols__.__array__ = root.symbol.__symbols__;
 
 // Do the same for objects
-root.array.__object__              = root.array;
-root.function.__object__           = root.function;
-root.global.__object__             = root.global;
-root.object.__object__             = root.object;
-root.symbol.__object__             = root.symbol;
-root.symbol.__symbols__.__object__ = root.symbol.__symbols__;
+//root.array.__object__              = root.array;
+//root.function.__object__           = root.function;
+//root.global.__object__             = root.global;
+//root.object.__object__             = root.object;
+//root.symbol.__object__             = root.symbol;
+//root.symbol.__symbols__.__object__ = root.symbol.__symbols__;
 //root.map.__object__                = root.map;
 
 // TODO: Add __object__ property to existing non-root maps
-*/
 
 
 //--------------------------------- Bootstrap ---------------------------------
@@ -818,23 +817,6 @@ function bootstrap() {
 
     symbol.__symbols__ = array.__new__(100);
 
-    /*
-    var s = root.symbol.__symbols__[0];
-    symbol.__intern__(s);
-
-    var s = root.symbol.__symbols__[1];
-    symbol.__intern__(s);
-
-
-    // Converting old symbols to new representation
-    for (var i = 0; i < root.symbol.__symbols__[@0]; ++i)
-    {
-        var s = root.symbol.__symbols__[i];
-
-        symbol.__intern__(s);
-    }
-    */
-
     var fn = object.__new__(0);
     fn.__map__.__add_property__("__intern__", function (code)
     {
@@ -864,19 +846,6 @@ function bootstrap() {
 
     var f = root.function.__new__(10, 2);
 
-    /*
-    var code = array.__new__(7);
-    code.__push__(0xb8);
-    code.__push__(9);
-    code.__push__(0);
-    code.__push__(0);
-    code.__push__(0);
-    code.__push__(0xc3);
-
-    var new_fn = fn.__new__(7);
-    new_fn.__intern__(code);
-    */
-
     return {
         array:array,
         "function":fn,
@@ -888,5 +857,5 @@ function bootstrap() {
     
 };
 
-global_return bootstrap();
+bootstrap();
 

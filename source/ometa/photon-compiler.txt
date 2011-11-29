@@ -1,3 +1,214 @@
+// ----------------------------------------------------------------------------
+//
+//
+//                              Generic AST Algorithms and Tools
+//
+//
+// ----------------------------------------------------------------------------
+ometa PhotonASTTraversal {
+  trans      = [:t apply(t):ans],
+
+  global   :ctxt trans:r,
+  this end,                                                  
+  break end,                                                 
+  continue end,
+  number   :n,
+  string   :s,
+  arr      trans*:xs,
+  unop     :op trans:x,
+  getp     trans:x trans:fd,
+  get      :x,
+  set      trans:lhs trans:rhs,
+  mset     trans:lhs :op trans:rhs,
+  binop    :op trans:x trans:y,
+  preop    :op trans:x,
+  postop   :op trans:x,
+  return   trans:x,
+  with     trans:x trans:s,
+  if       trans:cond trans:t trans:e,
+  condExpr trans:cond trans:t trans:e,
+  while    trans:cond trans:body,
+  doWhile  trans:body trans:cond,
+  for      trans:init trans:cond trans:upd
+           trans:body,
+  forIn    trans:x trans:arr trans:body,
+  begin    trans:x end,
+  begin    trans*:xs,
+  func     :args :ctxt trans:body,  
+  call     trans:fn trans*:args,
+  ccall    trans:fn trans*:args,
+  send     :msg trans:recv trans*:args,
+  new      trans:fn trans*:args,
+  var      :name trans:val,
+  throw    trans:x,
+  try      :ctxt trans:x :name trans:c trans:f,
+  json     trans*:props,
+  binding  :name trans:val,
+  switch   trans:x trans*:cases,
+  case     trans:x trans:y,
+  default          trans:y,
+
+  ref      :s,
+  gets     trans:x trans:fd,
+  mreturn  trans:x trans:y,
+  code     :c,
+  super    trans:e,
+  macro    :n :args :ctxt trans:body,
+  letvar   [#var :name trans],
+  let      :ctxt [#begin letvar*] trans,
+  super_send :msg trans:rcv trans*:args,
+  closure end
+}
+
+ometa PhotonASTCopy {
+  trans      = [:t apply(t):ans]      -> ans,
+
+  global   :ctxt trans:r                        -> [#global, _deep_copy(ctxt), r],
+  this end                                      -> [#this],    
+  break end                                     -> [#break],
+  continue end                                  -> [#continue],
+  number   :n                                   -> [#number, _deep_copy(n)],
+  string   :s                                   -> [#string, _deep_copy(s)],
+  arr      trans*:xs                            -> [#arr].concat(xs),
+  unop     :op trans:x                          -> [#unop, _deep_copy(op), x],
+  getp     trans:x trans:fd                     -> [#getp, x, fd],
+  get      :x                                   -> [#get, _deep_copy(x)],
+  set      trans:lhs trans:rhs                  -> [#set, lhs, rhs],
+  mset     trans:lhs :op trans:rhs              -> [#mset, lhs, _deep_copy(op), rhs],
+  binop    :op trans:x trans:y                  -> [#binop, _deep_copy(op), x, y],
+  preop    :op trans:x                          -> [#preop, _deep_copy(op), x],
+  postop   :op trans:x                          -> [#postop, _deep_copy(op), x],
+  return   trans:x                              -> [#return, x],
+  with     trans:x trans:s                      -> [#with, x, s],
+  if       trans:cond trans:t trans:e           -> [#if, cond, t, e],
+  condExpr trans:cond trans:t trans:e           -> [#condExpr, cond, t, e],
+  while    trans:cond trans:body                -> [#while, cond, body],
+  doWhile  trans:body trans:cond                -> [#doWhile, body, cond],
+  for      trans:init trans:cond trans:upd 
+           trans:body                           -> [#for, init, cond, upd, body],
+  forIn    trans:x trans:arr trans:body         -> [#forIn, x, arr, body],
+  begin    trans:x end                          -> [#begin, x],
+  begin    trans*:xs                            -> [#begin].concat(xs),
+  func     :args :ctxt trans:body               -> [#func, _deep_copy(args), _deep_copy(ctxt), body],  
+  call     trans:fn trans*:args                 -> [#call, fn].concat(args),
+  ccall    trans:fn trans*:args                 -> [#ccall, fn].concat(args),
+  send     :msg trans:recv trans*:args          -> [#send, _deep_copy(msg), recv].concat(args),
+  new      trans:fn trans*:args                 -> [#new, fn].concat(args),
+  var      :name trans:val                      -> [#var, _deep_copy(name), val],
+  throw    trans:x                              -> [#throw, x],
+  try      :ctxt trans:x :name trans:c trans:f  -> [#try, _deep_copy(ctxt), x, _deep_copy(name), c, f],
+  json     trans*:props                         -> [#json].concat(props),
+  binding  :name trans:val                      -> [#binding, _deep_copy(name), val],
+  switch   trans:x trans*:cases                 -> [#switch, x].concat(cases),
+  case     trans:x trans:y                      -> [#case, x, y],
+  default          trans:y                      -> [#default, y],
+
+  ref      :s                                   -> [#ref, _deep_copy(s)],
+  gets     trans:x trans:fd                     -> [#gets, x, fd],
+  mreturn  trans:x trans:y                      -> [#mreturn, x, y],
+  code     :c                                   -> [#code, _deep_copy(c)],
+  super    trans:e                              -> [#super, e],
+  macro    :n :args :ctxt trans:body            -> [#macro, _deep_copy(n), _deep_copy(args), _deep_copy(ctxt), body],
+  letvar   [#var :name trans:val]               -> [#var, name, val],
+  let      :ctxt [#begin letvar*:vs] trans:body -> [#let, _deep_copy(ctxt), [#begin].concat(vs), body],
+  super_send :msg trans:rcv trans*:args         -> [#super_send, _deep_copy(msg), rcv].concat(args),
+  closure end                                   -> [#closure]
+}
+
+ometa PhotonPrettyPrinter 
+{
+  trans      = [:t apply(t):ans]    -> ans,
+  flatten :a = [#begin flatten(a)*]
+               | stmt:x                     -> a.push((self.ilvl() + x + "\n"))
+               | trans:x                    -> a.push((self.ilvl() + x + ";\n")),
+  flat       = {[]}:stmts flatten(stmts)*     -> stmts.join(""),
+  stmt       = [:t isStmt(t) apply(t):ans]    -> ans,
+  isStmt :t  = ?(self.stmts[t] !== undefined),
+  block      = inc blockBody:body dec -> (self.ilvl() + "{\n" + body + self.ilvl() + "}"),
+  blockBody  = [:t ?(t === "begin") apply("begin"):ans] -> ans
+               | stmt:x                                 -> (self.ilvl() + x + "\n")
+               | trans:x                                -> (self.ilvl() + x + ";\n"),
+  exprList   = [#begin ([#var :name trans:val] -> (name + " = " + val))*:es] -> ("var " + es.join(", "))
+             | [#begin trans*:es]                                            -> es.join(", "),
+  inc        = { self.i++; },
+  dec        = { self.i--; },
+  
+  global   :ctxt trans:r                                           -> r,
+  this end                                                         -> "this", 
+  break end                                                        -> "break", 
+  continue end                                                     -> "continue",
+  number   :n                                                      -> String(n),
+  string   :s                                                      -> s.toProgramString(),
+  arr      trans*:xs                                               -> ("[" +  xs.join(",") +  "]"),
+  unop     :op trans:x                                             -> (op +  x),
+  getp     trans:x trans:fd                                        -> (x +  "[" +  fd +  "]"),
+  get      :x                                                      -> x,
+  set      trans:lhs trans:rhs                                     -> (lhs +  " = " +  rhs),
+  mset     trans:lhs :op trans:rhs                                 -> (lhs +  " " +  op +  "=" +  rhs),
+  binop    :op trans:x trans:y                                     -> (x +  " " +  op +  " " +  y),
+  preop    :op trans:x                                             -> (op + x),
+  postop   :op trans:x                                             -> (x + op),
+  return   trans:x                                                 -> ("return " +  x),
+  with     trans:x block:s                                         -> ("with (" +  x +  ")\n" +  s),
+  if       trans:cond block:t block:e                              -> ("if (" +  cond +  ")\n" + t + " else\n" + e),
+  condExpr trans:cond trans:t trans:e                              -> ("(" +  cond +  ") ? " +  t +  " : " +  e),
+  while    trans:cond block:body                                   -> ("while (" +  cond +  ")\n" +  body),
+  doWhile  block:body trans:cond                                   -> ("do \n" +  body +  "while (" +  cond +  ")"),
+  for      exprList:init trans:cond exprList:upd block:body        -> ("for (" +  init +  "; " +  cond +  "; " +  upd +  ")\n" +  body),
+  forIn    trans:x trans:arr block:body                            -> ("for (" +  x +  " in " +  arr +  ")\n" +  body),
+  begin    flat:stmts                                              -> stmts,
+  func     :args :ctxt block:body                                  -> ("(function (" +  args.join(",") +  ")\n" + body + ")"),
+  call     trans:fn trans*:args                                    -> (fn +  "(" +  args.join(",") +  ")"),
+  send     :msg trans:recv trans*:args                             -> (recv +  "." +  msg +  "(" +  args.join(", ") +  ")"),
+  new      trans:fn trans*:args                                    -> ("new " +  fn +  "(" +  args.join(", ") +  ")"),
+  var      :name ( [#get #undefined] -> ""
+                 | trans:val         -> (" = " + val)):v           -> ("var " + name + v),
+  throw    trans:x                                                 -> ("throw " +  x),
+  try      :ctxt block:x :name block:c block:f                     -> ("try\n" + x + " catch (" + name + ")\n" + c + " finally \n" +  f),
+  json     inc trans*:props dec                                    -> ("{\n" +  props.join(",\n") +  "\n" + self.ilvl() + "}"),
+  binding  :name trans:val                                         -> (self.ilvl() + name.toProgramString() +  ":" +  val),
+  switch   trans:x inc trans*:cases dec                            -> ("switch (" +  x +  ")\n" +  self.ilvl() +  "{\n" +  cases.join("\n") +  self.ilvl() +  "}"),
+  case     trans:x inc block:y dec                                 -> (self.ilvl() + "case " +  x +  ":\n" + y),
+  default          inc block:y dec                                 -> (self.ilvl() + "default:\n" +  y),
+
+  ccall    :fn (:x)*:args                                          -> ("@{[#ccall, " + fn + ", " +  args.join(", ") + "]}@"),
+  global_return    trans:x                                         -> ("global_return " +  x),
+  ref      :s                                                      -> ("@{[#ref, " +  (s.hasOwnProperty("pp") && (typeof s.pp) === "function" ? s.pp() : "[object]") +  "]}@"),
+  gets     trans:x trans:fd                                        -> (x +  "[@" +  fd +  "]"),
+  mreturn  :x :y                                                   -> ("@{[#mreturn, " +  x +  ", " +  y + "]}@"),
+  code     :c                                                      -> ("@{[#code, " +  c +  "]}@"),
+  super    trans:e                                                 -> ("super(" +  e + ")"),
+  macro    :n :args :ctxt block:body                               -> ("macro " + n + "(" + args.join(",") + ")\n" + body),
+  letvars  [#begin 
+             ( [#var :name trans:val] -> (name + " = " + val)
+             | trans)*:es] -> (es.join(", ")),
+  let      :ctxt letvars:es block:body                             -> ("(let (" + es + ")\n" + body + ")"),
+  closure                                                          -> ("$closure"),
+  super_send :msg trans:recv trans*:args                           -> ("super(" + recv + ")." + msg + "(" + args.join(" ,") + ")")
+}
+
+PhotonPrettyPrinter.initialize = function ()
+{
+    this.i     = 0;
+    this.sp    = [""];
+    this.stmts = {"if":true, "while":true, "for":true, "forIn":true, "try":true, "switch":true, "with":true};
+    this.ilvl  = function () 
+    {
+        while (this.i >= this.sp.length) 
+        { 
+            this.sp.push(this.sp[this.sp.length - 1] + "    "); 
+        } 
+        return this.sp[this.i];
+    };
+};
+
+// ----------------------------------------------------------------------------
+//
+//
+//                              Lexer and Parser
+//
+//
+// ----------------------------------------------------------------------------
 ometa PhotonParser <: Parser {
   fromTo :x :y = seq(x) (~seq(y) char)* seq(y), 
   fromTo2 :x :y = seq(x) (~seq(y) char)*:s seq(y) -> s.join(''), 
@@ -6,7 +217,7 @@ ometa PhotonParser <: Parser {
   nameFirst    = letter | '$' | '_',
   nameRest     = nameFirst | digit,
   iName        = firstAndRest(#nameFirst, #nameRest):r                               -> r.join(''),
-  isKeyword :x = ?PhotonParser._isKeyword(x),
+  isKeyword :x = ?self._isKeyword(x),
   name         = iName:n ~isKeyword(n)                                               -> [#name, n=='self' ? '$elf' : n],
   keyword      = iName:k isKeyword(k)                                                -> [k, k],
   hexDigit     = char:x {this.hexDigits.indexOf(x.toLowerCase())}:v ?(v >= 0)        -> v,
@@ -32,22 +243,21 @@ ometa PhotonParser <: Parser {
   toks         = token*:ts spaces end                                                -> ts,
   token :tt    = tok:t ?(t[0] == tt)                                                 -> t[1],
   spacesNoNl   = (~'\n' space)*,
-
   expr         = orExpr:e ( "?"   expr:t   ":" expr:f                                -> [#condExpr, e, t, f]
                           | "="   expr:rhs                                           -> [#set, e, rhs]
-                          | "+="  expr:rhs                                           -> [#set, e, [#binop, "+", e, rhs]]
-                          | "-="  expr:rhs                                           -> [#set, e, [#binop, "-", e, rhs]]
-                          | "*="  expr:rhs                                           -> [#set, e, [#binop, "*", e, rhs]]
-                          | "/="  expr:rhs                                           -> [#set, e, [#binop, "/", e, rhs]]
-                          | "%="  expr:rhs                                           -> [#set, e, [#binop, "%", e, rhs]]
-                          | "&&=" expr:rhs                                           -> [#set, e, [#binop, "&&", e, rhs]]
-                          | "||=" expr:rhs                                           -> [#set, e, [#binop, "||", e, rhs]]
-                          | "|="  expr:rhs                                           -> [#set, e, [#binop, "|", e, rhs]]
-                          | "&="  expr:rhs                                           -> [#set, e, [#binop, "&", e, rhs]]
-                          | "^="  expr:rhs                                           -> [#set, e, [#binop, "^", e, rhs]]
-                          | ">>>="  expr:rhs                                         -> [#set, e, [#binop, ">>>", e, rhs]]
-                          | ">>="  expr:rhs                                          -> [#set, e, [#binop, ">>", e, rhs]]
-                          | "<<="  expr:rhs                                          -> [#set, e, [#binop, "<<", e, rhs]]
+                          | "+="  expr:rhs                                           -> [#mset, e, "+", rhs]
+                          | "-="  expr:rhs                                           -> [#mset, e, "-", rhs]
+                          | "*="  expr:rhs                                           -> [#mset, e, "*", rhs]
+                          | "/="  expr:rhs                                           -> [#mset, e, "/", rhs]
+                          | "%="  expr:rhs                                           -> [#mset, e, "%", rhs]
+                          | "&&=" expr:rhs                                           -> [#mset, e, "&&", rhs]
+                          | "||=" expr:rhs                                           -> [#mset, e, "||", rhs]
+                          | "|="  expr:rhs                                           -> [#mset, e, "|", rhs]
+                          | "&="  expr:rhs                                           -> [#mset, e, "&", rhs]
+                          | "^="  expr:rhs                                           -> [#mset, e, "^", rhs]
+                          | ">>>="  expr:rhs                                         -> [#mset, e, ">>>", rhs]
+                          | ">>="  expr:rhs                                          -> [#mset, e, ">>", rhs]
+                          | "<<="  expr:rhs                                          -> [#mset, e, "<<", rhs]
                           | empty                                                    -> e
                           ),
   orExpr       = orExpr:x "||" andExpr:y                                             -> [#binop, "||", x, y]
@@ -84,38 +294,36 @@ ometa PhotonParser <: Parser {
                | unary,
   unary        = "-"      postfix:p                                                  -> [#unop,  "-",        p]
                | "+"      postfix:p                                                  -> [#unop,  "+",        p]
-               | "++"     postfix:p                                                  -> [#set, p, [#binop, "+", p, [#number, 1]]]
-               | "--"     postfix:p                                                  -> [#set, p, [#binop, "-", p, [#number, 1]]]
+               | "++"     postfix:p                                                  -> [#preop, "++", p] 
+               | "--"     postfix:p                                                  -> [#preop, "--", p]
                | "!"      unary:p                                                    -> [#unop,  "!",        p]
                | "void"   unary:p                                                    -> [#unop,  "void",     p]
                | "delete" unary:p                                                    -> [#unop,  "delete",   p]
                | "typeof" unary:p                                                    -> [#unop,  "typeof",   p]
                | "~"      unary:p                                                    -> [#unop,  "~",        p]
                | postfix,
-  postfix      = primExpr:p ( spacesNoNl ("++" -> "+"
-                                         |"--" -> "-"):op                            -> [#begin, 
-                                                                                            p,
-                                                                                            [#code, _op("push", _EAX)],
-                                                                                            [#set, p, [#binop, op, p, [#number, 1]]],
-                                                                                            [#code, _op("pop", _EAX)]]
+  postfix      = primExpr:p ( spacesNoNl ( "++" -> "++"
+                                         | "--" -> "--" ):op                         -> [#postop, op, p] 
                             | empty                                                  -> p
                             ),
-  primExpr     = primExpr:p ( "[@" expr:i "]"                                        -> [#gets, i, p]
-                            | "["  expr:i "]"                                        -> [#getp, i, p]
+  primExpr     = primExpr:p ( "[@" expr:i "]"                                        -> [#gets, p, i]
+                            | "["  expr:i "]"                                        -> [#getp, p, i]
                             | "." ("name":n
-                                  | keyword:k -> k[0]):f                             -> [#getp, [#string, f], p]
+                                  | keyword:k -> k[0]):f                             -> [#getp, p, [#string, f]]
                             | "(" listOf(#expr, ','):as ")"                          -> [#call, p].concat(as)
                             )
                | primExprHd,
   primExprHd   = "super" "(" expr:e ")"                                              -> [#super, e] 
                | "(" expr:e ")"                                                      -> e
                | "this"                                                              -> [#this]
+               | "$closure"                                                          -> [#closure]
                | "name":n                                                            -> [#get, n]
                | "number":n                                                          -> [#number, n]
                | "string":s                                                          -> [#string, s]
                | "eval":s                                                            -> eval(s)
                | "function" funcRest
                | "new" expr:e ?(e[0] === #call)                                      -> [#new, e[1]].concat(e.slice(2))
+               | "let" "(" listOf(#binding, ','):bs ")" stmt:s                       -> [#let, _new_context(), [#begin].concat(bs), s]
                | "[" listOf(#expr, ','):es "]"                                       -> [#arr].concat(es)
                | json,
   json         = "{" listOf(#jsonBinding, ','):bs "}"                                -> [#json].concat(bs),
@@ -134,12 +342,12 @@ ometa PhotonParser <: Parser {
                                             | empty -> [#get, 'undefined'] ):f       -> [#if, c, t, f]
                | "while" "(" expr:c ")" stmt:s                                       -> [#while,   c, s]
                | "do" stmt:s "while" "(" expr:c ")" sc                               -> [#doWhile, s, c]
-               | "for" "(" ( ("var" | empty) listOf(#binding, ','):bs  -> [#begin].concat(bs)
-                           | expr
+               | "for" "(" ( "var" listOf(#binding, ','):bs   -> [#begin].concat(bs)
+                           | listOf(#expr, ','):es            -> [#begin].concat(es)
                            | empty -> [#get, 'undefined'] ):i
                        ";" ( expr
                            | empty -> [#get, 'true']      ):c
-                       ";" ( listOf(#expr, ','):es                     -> [#begin].concat(es)
+                       ";" ( listOf(#expr, ','):es            -> [#begin].concat(es)
                            | empty -> [#get, 'undefined'] ):u
                        ")" stmt:s                                                    -> [#for, i, c, u, s]
                | "for" "(" ( "var" binding
@@ -158,7 +366,7 @@ ometa PhotonParser <: Parser {
                              ( "finally" block
                              | empty -> [#get, 'undefined'] ):f
                     | "finally" block:f (empty -> [#get, 'undefined']):c (empty -> undefined):e)
-                                                                                     -> [#try, _new_context, t, e, c, f]
+                                                                                     -> [#try, _new_context(), t, e, c, f]
                | "return" ( expr
                           | empty -> [#get, 'undefined'] ):e sc                      -> [#return, e]
                | "global_return" ( expr
@@ -170,84 +378,307 @@ ometa PhotonParser <: Parser {
                | "macro" "name":n funcRest:f                                         -> [#macro, n].concat(f.slice(1))
                | stmt,
   srcElems     = srcElem*:ss                                                         -> [#begin].concat(ss),
-
   topLevel     = srcElems:r spaces end                                               -> [#global, _new_context(), r]
 }
-PhotonParser.hexDigits = "0123456789abcdef"
-PhotonParser.keywords  = { }
-keywords = ["break", "case", "catch", "continue", "default", "delete", "do", "else", "finally", "for", "function", "if", "in",
-            "instanceof", "new", "return", "switch", "this", "throw", "try", "typeof", "var", "void", "while", "with", "ometa", "const", "global_return", "macro", "super"]
-for (var idx = 0; idx < keywords.length; idx++)
-  PhotonParser.keywords[keywords[idx]] = true
-PhotonParser._isKeyword = function(k) { return this.keywords.hasOwnProperty(k) }
 
-ometa PhotonASTTraversal {
-  trans      = [:t apply(t):ans],
-  curlyTrans = [#begin trans*:rs]
-             | trans:r,
+PhotonParser.initialize = function ()
+{
+    this.hexDigits = "0123456789abcdef";
+    this.keywords  = { };
+    var keywords = ["break", "case", "catch", "continue", "default", "delete", "do", 
+                "else", "finally", "for", "function", "if", "in", "instanceof", 
+                "new", "return", "switch", "this", "throw", "try", "typeof", "var", 
+                "void", "while", "with", "ometa", "const", "global_return", "macro", 
+                "super", "let", "$closure"];
+    for (var idx = 0; idx < keywords.length; idx++)
+    {
+      this.keywords[keywords[idx]] = true
+    }
+    this._isKeyword = function(k) { return this.keywords.hasOwnProperty(k) }
+};
 
 
-  global   :ctxt trans:r,
-  this end,                                                  
-  break end,                                                 
-  continue end,
-  number   :n,
-  string   :s,
-  arr      trans*:xs,
-  unop     :op trans:x,
-  getp     trans:fd trans:x,
-  get      :x,
-  set      trans:lhs trans:rhs,
-  mset     trans:lhs :op trans:rhs,
-  binop    :op trans:x trans:y,
-  preop    :op trans:x,
-  postop   :op trans:x,
-  return   trans:x,
-  with     trans:x curlyTrans:s,
-  if       trans:cond curlyTrans:t curlyTrans:e,
-  condExpr trans:cond trans:t trans:e,
-  while    trans:cond curlyTrans:body,
-  doWhile  curlyTrans:body trans:cond,
-  for      trans:init trans:cond trans:upd
-           curlyTrans:body,
-  forIn    trans:x trans:arr curlyTrans:body,
-  begin    trans:x end,
-  begin    trans*:xs,
-  func     :args :ctxt curlyTrans:body,  
-  call     trans:fn trans*:args,
-  ccall    trans:fn trans*:args,
-  send     :msg trans:recv trans*:args,
-  new      trans:fn trans*:args,
-  var      :name trans:val,
-  throw    trans:x,
-  try      :ctxt curlyTrans:x :name curlyTrans:c curlyTrans:f,
-  json     trans*:props,
-  binding  :name trans:val,
-  switch   trans:x trans*:cases,
-  case     trans:x trans:y,
-  default          trans:y,
+// ----------------------------------------------------------------------------
+//
+//
+//                              Macro Expansion
+//
+//
+// ----------------------------------------------------------------------------
 
-  global_return    trans:x,
-  ref      :s,
-  gets     trans:fd trans:x,
-  mreturn  trans:x trans:y,
-  code     :c,
-  super    trans:e,
-  macro    :n :args :ctxt curlyTrans:body
+ometa PhotonMacroExp <: PhotonASTCopy {
+  macro    :n  :args :ctxt :body                      -> {self.macros[n] = [#macro, n, args, ctxt, body]; 
+                                                          [#begin]},
+  call     ([#get :x] ?(self.macros[x] !== undefined) 
+           trans*:args                                -> PhotonMacroRep
+                                                         .createInstance(args, self.macros)
+                                                         .match(self.macros[x], "trans")
+           | ^call)
 }
 
+PhotonMacroExp.initialize = function ()
+{
+    this.macros = {};
+}
+
+ometa PhotonMacroRep <: PhotonASTCopy {
+  get      (:x ?(self.bindings[x] !== undefined)      -> self.bindings[x]
+           | ^get),
+             
+  macro    :n  (:args -> self.bind(args)) :ctxt 
+                  trans:body                          -> body,
+  begin    [#return trans:x] end                      -> x,
+  begin    trans:x end                                -> [#begin, x],
+  begin    trans*:xs                                  -> [#begin].concat(xs),
+ 
+  // Recursively expand macro calls
+  call     ([#get :x] ?(self.macros[x] !== undefined) 
+           trans*:args                                -> self.createInstance(args, self.macros).match(self.macros[x], "trans")
+           | ^call)
+}
+
+PhotonMacroRep.initialize = function (args, macros)
+{
+    this.macro_actual_args = args;
+    this.macros = macros;
+    this.bindings = {};
+    this.bind = function (args)
+    {
+        for (var i=0; i < args.length; ++i)
+        {
+            this.bindings[args[i]] = this.macro_actual_args[i];
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+//
+//
+//                              AST Simplification
+//
+//
+// ----------------------------------------------------------------------------
+ometa PhotonDesugar <: PhotonASTCopy {
+
+  global   :ctxt 
+           {self.context.enter_function_scope();}
+           trans:r                                      
+           {self.context.leave_function_scope();}             -> {var e = gensym(); var try_ctxt = _new_context(); 
+                                                                  [#global, ctxt, 
+                                                                    [#try, _new_context(), 
+                                                                        [#begin].concat(r.slice(1)),
+                                                                        e,
+                                                                        [#begin, 
+                                                                            [#call, [#get, "print"], [#string, "Unhandled exception:"]],
+                                                                            [#call, [#get, "print"], [#get, e]]],
+                                                                        [#get, #undefined]]]},
+  func     :args :ctxt 
+           {self.context.enter_function_scope(); self.context.args(args);} 
+           trans:body
+           {self.context.leave_function_scope();}:vs          -> [#func, args, ctxt, [#begin].concat([vs]).concat(body.slice(1))],
+  var      :name {self.context.declare(name)}
+                 ( [#get #undefined]                          -> [#begin]
+                 | trans:val                                  -> [#set, [#get, name], val]),
+  arr      trans*:xs                                          -> {var a = gensym(); 
+                                                                  [#let, _new_context(), 
+                                                                    [#begin, 
+                                                                        [#var, a, [#send, "__new__", [#ref, photon.array], [#number, xs.length]]]],
+                                                                    [#begin]
+                                                                    .concat(xs.map(function (x) {
+                                                                     return [#send, "__push__", [#get, a], x];}))
+                                                                    .concat([[#get, a]])]},
+  unop     ( 'typeof' trans:x                                 -> [#send, "__typeof__",  x]
+           | 'delete' ( [#getp trans:x trans:f]               -> [#send, "__delete__",  x, f]
+                      | [#get :n]                             -> [#get, #false])
+           | ^unop), 
+  binop    ( 'instanceof' trans:x trans:y                     -> [#send, "__instanceof__", x, y]
+           | ^binop),
+  getp     trans:x trans:fd                                   -> [#send, "__get__", x, fd],
+  mset     ( ([#getp trans:rcv trans:fd]):lhs :op trans:rhs   -> {var id_rcv = gensym(); var id_fd = gensym();
+                                                                  [#let, _new_context(),
+                                                                    [#begin,
+                                                                        [#var, id_rcv, rcv],
+                                                                        [#var, id_fd, fd]],
+                                                                    [#begin,
+                                                                        [#send, "__set__", 
+                                                                            [#get, id_rcv], 
+                                                                            [#get, id_fd], 
+                                                                            [#binop, op, 
+                                                                                [#send, "__get__", 
+                                                                                    [#get, id_rcv], 
+                                                                                    [#get, id_fd]], 
+                                                                                rhs]]]]}
+           | trans:lhs                        :op trans:rhs   -> [#set, lhs, [#binop, op, lhs, rhs]]),
+  preop    ( '++' -> "+" | '--' -> "-"):op 
+           ( [#getp trans:rcv trans:fd]:x                     -> {var id_rcv = gensym(); var id_fd = gensym();
+                                                                  [#let, _new_context(),
+                                                                    [#begin,
+                                                                        [#var, id_rcv, rcv],
+                                                                        [#var, id_fd, fd]],
+                                                                    [#begin,
+                                                                        [#send, "__set__", 
+                                                                            [#get, id_rcv], 
+                                                                            [#get, id_fd], 
+                                                                            [#binop, op, 
+                                                                                [#send, "__get__", 
+                                                                                    [#get, id_rcv], 
+                                                                                    [#get, id_fd]], 
+                                                                                [#number, 1]]]]]}
+           | trans:x                                          -> [#set, x, [#binop, op, x, [#number, 1]]]),
+  postop   ( '++' -> "+" | '--' -> "-"):op                     
+           ( [#getp trans:rcv trans:fd]:x                     -> {var id_rcv = gensym(); var id_fd = gensym(); var id_r = gensym();
+                                                                  [#let, _new_context(),
+                                                                    [#begin,
+                                                                        [#var, id_rcv, rcv],
+                                                                        [#var, id_fd, fd]],
+                                                                    [#begin,
+                                                                        [#let, _new_context(),
+                                                                            [#begin,
+                                                                                [#var, id_r, 
+                                                                                    [#send, "__get__", 
+                                                                                        [#get, id_rcv], 
+                                                                                        [#get, id_fd]]]],
+                                                                            [#begin,
+                                                                                [#send, "__set__", 
+                                                                                    [#get, id_rcv], 
+                                                                                    [#get, id_fd], 
+                                                                                    [#binop, op, 
+                                                                                        [#get, id_r],
+                                                                                        [#number, 1]]],
+                                                                                [#get, id_r]]]]]}
+           | trans:x                                          -> {var id = gensym();
+                                                                  [#let, _new_context(),
+                                                                    [#begin, 
+                                                                        [#var, id, x]],
+                                                                    [#begin,
+                                                                        [#set, x, [#binop, op, [#get, id], [#number, 1]]],
+                                                                        [#get, id]]]}),  
+  forIn     ( [#get :name] 
+            | [#var :name [#get #undefined]] -> {self.context.declare(name)}) 
+            trans:arr trans:body                              -> {var it = gensym();
+                                                                  [#let, _new_context(),
+                                                                    [#begin, 
+                                                                        [#var, it, [#send, "__itr__", arr]]],
+                                                                    [#begin,
+                                                                        [#while, [#send, "valid", [#get, it]],
+                                                                            [#begin, 
+                                                                                [#set, [#get, name], [#send, "next",  [#get, it]]]]
+                                                                                .concat([body])]]]},
+  new      trans:fn trans*:args                               -> {var o = gensym(); var r = gensym();
+                                                                  [#let, _new_context(),
+                                                                      [#begin, 
+                                                                          [#var, o, [#send, "__new__", [#ref, photon.object]]],
+                                                                          [#var, r, [#get, #undefined]]],
+                                                                      [#begin,
+                                                                          [#set, [#get, r], [#send, "call", fn, [#get, o]].concat(args)],
+                                                                          [#condExpr,
+                                                                              [#binop, "===", 
+                                                                                  [#send, "__typeof__",  [#get, r]],
+                                                                                  [#string, "object"]],
+                                                                              [#get, r],
+                                                                              [#get, o]]]]},
+  json     trans*:props                                       -> {var o = gensym();
+                                                                  [#let, _new_context(), 
+                                                                    [#begin, [#var, o, [#send, "__new__", [#ref, photon.object]]]],
+                                                                    ([#begin]
+                                                                    .concat(props.map(function (b) { 
+                                                                     return [#send, "__set__", 
+                                                                                    [#get, o], 
+                                                                                    [#string, String(b[1])],
+                                                                                    b[2]];}))
+                                                                    .concat([[#get, o]]))]},
+  call     = [#getp [#super trans:rcv] ( [#string :msg] 
+                                       | { error("Super send need a static message name"); } ) ] 
+             trans*:args                                      -> [#super_send, msg, rcv].concat(args)
+           | [#getp trans:rcv [#string :msg]]  trans*:args    -> [#send, msg, rcv].concat(args)
+           | [#getp trans:rcv trans:msg]       trans*:args    -> {var id_rcv = gensym();
+                                                                  [#let, _new_context(),
+                                                                     [#begin,
+                                                                         [#var, id_rcv, rcv]],
+                                                                     [#begin,
+                                                                        [#send, "call", 
+                                                                            [#send, "__get__", 
+                                                                                [#get, id_rcv], 
+                                                                                msg],
+                                                                            [#get, id_rcv]]
+                                                                            .concat(args)]]}           
+           |  ^call,
+  set      ( [#getp trans:rcv trans:fd] trans:rhs             -> [#send, "__set__", rcv, fd, rhs]
+           | ^set)
+}
+
+PhotonDesugar.initialize = function ()
+{
+    this.context = PhotonDesugar.context.init();
+};
+PhotonDesugar.context = 
+{
+    init:function ()
+    {
+        var that = Object.create(PhotonDesugar.context);
+        that.scope = null;
+        that.previous_scopes = [];
+        return that;
+    }, 
+    enter_function_scope:function ()
+    {
+        this.previous_scopes.push(this.scope);    
+        this.scope = {};
+    },
+    leave_function_scope:function ()
+    {
+        var vs = [];
+        for (id in this.scope)
+        {
+            if (this.scope[id] === false)
+            {
+                vs.push(["var", id, ["get", "undefined"]]);
+            }
+        }
+        this.scope = this.previous_scopes.pop();
+        return [#begin].concat(vs);
+    },
+    declare:function (id)
+    {
+        if (this.scope[id] === undefined)
+        {
+            this.scope[id] = false;
+        }
+    },
+    args:function (ids)
+    {
+        for (var i = 0; i < ids.length; ++i)
+        {
+            this.scope[ids[i]] = true;
+        }
+    }
+};
+
+// ----------------------------------------------------------------------------
+//
+//
+//                              Variable Scope resolution
+//
+//
+// ----------------------------------------------------------------------------
 ometa PhotonVarAnalysis <: PhotonASTTraversal {
-  global   (:ctxt -> {ctxt.scope = scope(null); self._ctxt.push(ctxt);}) (trans:r -> {ctxt.scope.resolve(); /*print(ctxt.scope);*/}),
+  global   :ctxt {ctxt.scope = scope(null); self._ctxt.push(ctxt);} trans {ctxt.scope.resolve(); /*print(ctxt.scope);*/},
   get      (#true | #false | #undefined | #null),
-  get      (:x -> {self.scope().use(x);}),
+  get      :x {self.scope().use(x);},
+  var      :name {self.scope().declare(name, false);} trans,
+
   func     :args 
-           (:ctxt -> {ctxt.scope = scope(self.scope()); self._ctxt.push(ctxt); self.add_args(args);})
-           (curlyTrans:body ->{self._ctxt.pop();}), 
-  var      (:name -> {self.scope().declare(name, false);}) trans:val,
-  try      :ctxt  curlyTrans:x 
-           (:name        -> {ctxt.scope = catch_scope(self.scope(), name); self._ctxt.push(ctxt);}) 
-           (curlyTrans:c -> {self._ctxt.pop();})
-           curlyTrans:f
+           :ctxt {ctxt.scope = scope(self.scope()); self._ctxt.push(ctxt); self.add_args(args);}
+           trans {self._ctxt.pop();}, 
+  try      :ctxt  trans
+           :name  {ctxt.scope = let_scope(self.scope(), [name]); self._ctxt.push(ctxt);}
+           trans {self._ctxt.pop();}
+           trans,
+  letvar   [#var :name trans] -> name,
+  let      :ctxt 
+           [#begin letvar*:ns]
+           {ctxt.scope = let_scope(self.scope(), ns); self._ctxt.push(ctxt);}
+           trans {self._ctxt.pop()}
 }
 
 PhotonVarAnalysis.initialize = function () { 
@@ -270,15 +701,165 @@ PhotonVarAnalysis.initialize = function () {
     };
 };
 
+ometa PhotonVarScopeBinding <: PhotonASTCopy {
+  isGlobal    :x = ?{x.is_global()},
+  isLocal     :x = ?{x.is_local()},
+  isEscaping  :x = ?{self.context.scope.escaping(x.id) === x},
+  isCaptured  :x = ?{self.context.scope.captured(x.id) === x},
 
+  global :ctxt   {self.context.enter_function_scope(ctxt.scope)} 
+         trans:r {self.context.leave_function_scope(ctxt.scope)} -> [#global, ctxt, r], 
+
+  get       (#true | #false | #undefined | #null):c              -> [#get, c],
+  get (:id -> {self.context.scope.lookup(id)}):x 
+                                       ( isGlobal(x)             -> [#send, "__get__", [#ref, photon.global], [#string, id]]
+                                       | isLocal(x)              -> [#get, id]
+                                       | isEscaping(x)           -> [#gets, [#get, id], [#number, 0]]
+                                       | isCaptured(x)           -> [#gets, [#gets, [#closure], [#number, self.context.closure_offsets[id]]], [#number, 0]]),
+
+  set       ([#get :id] ({self.context.scope.lookup(id)}):x 
+            isGlobal(x) trans:val                                -> [#send, "__set__", [#ref, photon.global], [#string, id], val]
+            | ^set),
+  func      :args :ctxt 
+            {self.context.enter_function_scope(ctxt.scope); ctxt.scope.escaping()}:es
+            {ctxt.scope.captured()}:cs
+            {self.context.closure_offsets}:os
+            trans:body
+            {self.context.leave_function_scope();}               -> {var f = gensym(); 
+                                                                      body = [#begin]
+                                                                             .concat([body[1]])
+                                                                             .concat(self.context.gen_escaping(es))
+                                                                             .concat(body.slice(2));
+                                                                     [#let, {scope:local_let_scope(self.context.scope, [f])},
+                                                                       [#begin, [#var, f, [#send, "__clone__", [#func, args, ctxt, body]]]],
+                                                                       [#begin]
+                                                                       .concat(self.context.gen_cell_capture(cs, os, f))
+                                                                       .concat([[#get, f]])]},
+  try :ctxt trans:x :name 
+            {self.context.enter_let_scope(ctxt.scope)} 
+            {self.context.scope._escaping}:es
+            trans:c 
+            {self.context.leave_let_scope(ctxt.scope)} 
+            trans:f                                              -> [#try, ctxt, x, name, [#begin].concat(self.context.gen_escaping(es)).concat(c.slice(1)), f],
+  letvar :s [#var :name trans:val] ( ?{s._escaping[name] !== undefined} -> [#var, name, [#send, "__new__", [#ref, photon.cell], val]]
+                                   |                                    -> [#var, name, val]), 
+  let :ctxt [#begin letvar(ctxt.scope)*:vs]
+            {self.context.enter_let_scope(ctxt.scope)} 
+            trans:body 
+            {self.context.leave_let_scope(ctxt.scope)}           -> [#let, ctxt, [#begin].concat(vs), body]
+}
+
+PhotonVarScopeBinding.initialize = function ()
+{
+    this.context = PhotonVarScopeBinding.context.init();
+};
+
+PhotonVarScopeBinding.context = 
+{
+    init:function () 
+    { 
+        var that = Object.create(PhotonVarScopeBinding.context);
+
+        // Maintain the current scope and associated variables
+        that.scope = null;
+        that.previous_scopes = [];
+
+        // Maintain the current closure offsets
+        that.closure_offsets = null;
+        that.previous_closure_offsets = [];
+        // TODO: Obtain the beginning offset from the object model
+        that.closure_offset_begin = -5;
+
+
+        return that;
+    },
+    enter_function_scope:function (scope)
+    {
+        this.previous_scopes.push(this.scope);
+        this.scope = scope;
+
+        this.previous_closure_offsets.push(this.closure_offsets);
+
+        this.closure_offsets = {};
+        var i = this.closure_offset_begin;
+        for (var id in scope.captured())
+        {
+            this.closure_offsets[id] = i--; 
+        }
+    },
+    leave_function_scope:function (scope)
+    {
+        this.scope           = this.previous_scopes.pop();
+        this.closure_offsets = this.previous_closure_offsets.pop();
+    },
+    enter_let_scope:function (scope)
+    {
+        this.previous_scopes.push(this.scope);
+        this.scope = scope;
+    },
+    leave_let_scope:function (scope)
+    {
+        this.scope = this.previous_scopes.pop();
+    },
+    gen_local:function (ls)
+    {
+        return ls.map(function (l) { return ["var", l.id, ["get", "undefined"]]; });
+    },
+    gen_escaping:function (es)
+    {
+        var a = [];
+        for (id in es)
+        {
+            a.push(["set", ["get", id], ["send", "__new__", ["ref", photon.cell], ["get", id]]]);
+        }
+        return a;
+    },
+    gen_cell_capture:function (cs, os, f)
+    {
+        var a = [];
+        for (id in cs)
+        {
+            if (this.scope.escaping(id) !== undefined)
+            {
+                a.push(["set", ["gets", ["get", f], ["number", os[id]]], ["get", id]]);
+            } else 
+            {
+                a.push(["set", 
+                            ["gets", ["get", f], ["number", os[id]]], 
+                            ["gets", ["closure"], ["number", this.closure_offsets[id]]]]);
+            }
+        }
+        return a;
+    }
+};
+
+
+// ----------------------------------------------------------------------------
+//
+//
+//                              Code Generation
+//
+//
+// ----------------------------------------------------------------------------
 ometa PhotonCompiler {
-  trans      = [:t apply(t):ans]     -> ans,
-  curlyTrans = [#begin trans*:rs]    -> rs
-             | trans:r               -> [r],
+  trans       = [:t apply(t):ans]     -> ans,
+  push    :n  = trans:t -> {self.context.stack_location_nb += n; t},
+  pop     :n  = empty   -> {self.context.stack_location_nb -= n;},
+  align   :e  = remNb:nb 
+                { 
+                  // nb: the number of remaining element to match in the AST node 
+                  // 2: offset to take into account the base EBP location and the Return Address location
+                  // e: a parameter to adjust for extraneous or missing parameters
+                  var alignNb  = (4 - ((nb + 2 + e + self.context.stack_location_nb) % 4)) % 4; 
+                  var stackInc = alignNb + nb + e;
+                  self.context.stack_location_nb += stackInc;
+                  stackInc; },
+  restore :nb = ({self.context.stack_location_nb -= nb;}),
 
-  // The global scope is not popped from context after matching
-  global   (:ctxt -> {self.context.enter_function_scope(ctxt.scope, []); self.context.new_ref_ctxt();})  
-           trans:r                                            -> [r, _op("ret")],
+  global   (:ctxt -> {self.context.enter_global_scope(ctxt.scope); self.context.new_ref_ctxt();})  
+           trans:r                                            -> [_op("push", _EBP), _op("mov", _ESP, _EBP), 
+                                                                  r, 
+                                                                  _op("mov", _EBP, _ESP), _op("pop", _EBP), _op("ret")],
   this                                                        -> self.context.gen_get_this(),
   break                                                       -> self.context.gen_break(),   
   continue                                                    -> self.context.gen_continue(),
@@ -286,24 +867,20 @@ ometa PhotonCompiler {
   string   :s                                                 -> self.context.gen_symbol(s), 
   ref      :s (?(typeof s === "object" && 
                  s.__addr__ !== undefined))                   -> _op("mov", self.context.gen_mref(s), _EAX),
-  arr      trans*:xs                                          -> self.context.gen_array(xs),
-  get      ( #true      -> _$(_TRUE)
-           | #false     -> _$(_FALSE)
-           | #undefined -> _$(_UNDEFINED)
-           | #null      -> _$(_NIL)):x                        -> _op("mov", x, _EAX),
-  get      :x                                                 -> self.context.gen_get_var(x),
-  getp     trans:fd trans:x                                   -> self.context.gen_send(x, self.context.gen_symbol("__get__"), [fd]),
-  gets     trans:fd trans:x                                   -> [fd, _op("dec", _EAX), _op("push", _EAX), 
-                                                                   x, _op("pop", _ECX), _op("mov", _mem(0, _EAX, _ECX, 2), _EAX)],
-  set      [#get :x] trans:rhs                                -> self.context.gen_set_var(x, rhs),
-  set      [#getp trans:fd trans:rcv] trans:rhs               -> self.context.gen_send(rcv, self.context.gen_symbol("__set__"), [fd, rhs]),
-  set      [#gets trans:fd trans:rcv] trans:rhs               -> [rhs, _op("push", _EAX), 
+  get      (( #true      -> _$(_TRUE)
+            | #false     -> _$(_FALSE)
+            | #undefined -> _$(_UNDEFINED)
+            | #null      -> _$(_NIL)):x                       -> _op("mov", x, _EAX)
+           | :x                                               -> self.context.gen_get_local(x)),
+  gets     push(1):x  trans:fd pop(1)                         -> [x, _op("push", _EAX), fd, _op("dec", _EAX), _op("pop", _ECX), 
+                                                                  _op("mov", _mem(0, _ECX, _EAX, 2), _EAX)],
+  set      ( [#get :x] trans:rhs                              -> self.context.gen_set_local(x, rhs)
+           | [#gets push(1):rcv push(1):fd] trans:rhs pop(2)  -> [rcv, _op("push", _EAX), 
                                                                   fd,  _op("dec", _EAX), _op("push", _EAX), 
-                                                                  rcv, _op("mov", _EAX, _ECX),
+                                                                  rhs,
                                                                   _op("pop", _EDX), 
-                                                                  _op("pop", _EAX),
-                                                                  _op("mov", _EAX, _mem(0, _ECX, _EDX, 2))],
-  mset     trans:lhs :op trans:rhs                            -> {throw "Unimplemented mset '" + op + "'";},
+                                                                  _op("pop", _ECX),
+                                                                  _op("mov", _EAX, _mem(0, _ECX, _EDX, 2))]),
   unop     ( '-'          -> [_op("push", _$(1)), 
                               self.context.gen_arith("sub"),
                               _op("inc", _EAX),
@@ -313,13 +890,6 @@ ometa PhotonCompiler {
                               _op("mov", _$(_FALSE), _ECX),
                               _op("cmovz", _ECX, _EAX)]):op 
              trans:x                                          -> [x, op],
-  unop     ( 'typeof' trans:rcv                               -> self.context.gen_send(rcv, self.context.gen_symbol("__typeof__"), [])
-           | 'delete' ([#getp trans:f trans:rcv]              -> self.context.gen_send(rcv, self.context.gen_symbol("__delete__"), [f])
-                      |[#get :n]                              -> _op("mov", _$(_FALSE), _EAX))),
-
-  binop    ( '+' -> "add"
-           | '-' -> "sub"):op trans:x [#number :n]            -> [x, self.context.gen_arith_cste(op,  _$(n*2))],
-
   binop    ( '+'          -> [self.context.gen_arith("add", true), _op("dec", _EAX)]     
            | '-'          -> [self.context.gen_arith("sub", false), _op("inc", _EAX)]    
            | '*'          -> self.context.gen_arith_mul()    
@@ -339,28 +909,16 @@ ometa PhotonCompiler {
            | '^'          -> self.context.gen_bitwise("xor")                                         
            | '&'          -> self.context.gen_bitwise("and")                                          
            | '|'          -> self.context.gen_bitwise("or")):op                                          
-           trans:x trans:y                                    -> [x, _op("push", _EAX), y, op, _op("add", _$(4), _ESP)],
+           push(1):x trans:y pop(1)                           -> [x, _op("push", _EAX), y, op, _op("add", _$(4), _ESP)],
   binop    ( '||' (empty -> _TRUE):skip  -> self.context.gen_logic("or")
            | '&&' (empty -> _FALSE):skip -> self.context.gen_logic("and")):op  
-           trans:x trans:y                                    -> {var END = _label();
+           push(1):x trans:y pop(1)                           -> {var END = _label();
                                                                   [x, _op("cmp", _$(skip), _EAX), _op("je", END),
                                                                    _op("push", _EAX), y, op, _op("add", _$(4), _ESP), END]},
-  binop      'instanceof' trans:x trans:y                     -> self.context.gen_send(x, self.context.gen_symbol("__instanceof__"), [y]),
-  preop    :op trans:x                                        -> {throw "Unimplemented preop '" + op + "'";},
-  postop   :op trans:x                                        -> {throw "Unimplemented postop '" + op + "'";},
   return   trans:x                                            -> [x, self.context.gen_epilogue()],
-  with     trans:x curlyTrans:s                               -> {throw "Unimplemented with statement"},
   if       (empty -> _label()):FALSE 
-           ([#binop ('<'   -> "jge"
-                    |'<='  -> "jg"
-                    |'>'   -> "jle"
-                    |'>='  -> "jl"):jcc
-               trans:x ([#number :n] -> [self.context.gen_type_check(1), _op("cmp", _$(_ref(n)), _EAX)]
-                       | trans:y     -> [_op("push", _EAX), y, self.context.gen_type_check(2), 
-                                         _op("cmp", _EAX, _mem(0, _ESP)), _op("pop", _EAX)]):cmp]    
-                                            -> [x, cmp, _op(jcc, FALSE)]
-           | trans:cond                     -> [cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", FALSE)]):cond                      
-           curlyTrans:t curlyTrans:e                          -> {var END = _label(); 
+           (trans:cond                   -> [cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", FALSE)]):cond                      
+           trans:t trans:e                                    -> {var END = _label(); 
                                                                   [cond, _listing("TRUE:"), 
                                                                          t, _op("jmp", END), FALSE, _listing("FALSE:"), 
                                                                          e, END, _listing("END:")];},
@@ -371,69 +929,70 @@ ometa PhotonCompiler {
                                                                      t, _op("jmp", END), FALSE, 
                                                                      e, END, _listing("END:")];},
   while    (empty -> self.context.push_block())
-           trans:cond curlyTrans:body                         -> {var LOOP = _label(); var END = _label();
+           trans:cond trans:body                              -> {var LOOP = _label(); var END = _label();
                                                                   var CONT = self.context.cont_lbl(); var BREAK = self.context.break_lbl();
                                                                   self.context.pop_block();
                                                                   [LOOP, CONT,
                                                                    cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", END),
                                                                          body, _op("jmp", LOOP), BREAK, END]},
   doWhile  (empty -> self.context.push_block())
-           curlyTrans:body trans:cond                         -> {var LOOP = _label(); var END = _label();
+           trans:body trans:cond                              -> {var LOOP = _label(); var END = _label();
                                                                   var CONT = self.context.cont_lbl(); var BREAK = self.context.break_lbl();
                                                                   self.context.pop_block();
                                                                   [LOOP, CONT, body, cond, _op("cmp", _$(_TRUE), _EAX), _op("je", LOOP), 
                                                                    BREAK, END]},
   for      (empty -> self.context.push_block()) 
            trans:init trans:cond trans:upd
-           curlyTrans:body                                    -> {var LOOP = _label(); var END = _label();
+           trans:body                                         -> {var LOOP = _label(); var END = _label();
                                                                   var CONT = self.context.cont_lbl(); var BREAK = self.context.break_lbl();
                                                                   self.context.pop_block();
                                                                   [init, LOOP, cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", END),
                                                                          body, CONT, upd, _op("jmp", LOOP), BREAK, END]},
-  forIn    trans:x trans:arr curlyTrans:body                  -> [],
   begin    trans:x end                                        -> [x],
   begin    trans*:xs                                          -> xs,
   func     (:args :ctxt  -> {self.context.enter_function_scope(ctxt.scope, args);  self.context.new_ref_ctxt();})
-           curlyTrans:body                                    -> {var f = self.context.new_js_function_object(ctxt.name, args, body); 
-                                                                  var offsets = self.context.closure_offsets;
-                                                                  self.context.leave_function_scope();
-                                                                  self.context.pop_ref_ctxt();
-                                                                  self.context.gen_closure(f, ctxt.scope, offsets);},
-  send     trans:msg trans:rcv trans*:args                    -> self.context.gen_send(rcv, msg, args, photon.bind),
-  call     [#getp trans:msg [#super trans:rcv]] trans*:args   -> self.context.gen_send(rcv, msg, args, photon.super_bind),
-  call     [#getp trans:msg trans:rcv]  trans*:args           -> self.context.gen_send(rcv, msg, args, photon.bind),
-  call     trans:fn trans*:args                               -> self.context.gen_call(fn, args),
-  new      trans:cls trans*:args                              -> self.context.gen_new(cls, args),
-  var      :name trans:val                                    -> self.context.gen_set_var(name, val),
+           trans:body                                         -> {var f = self.context.new_js_function_object(ctxt.name, args, body); 
+                                                                  self.context.leave_function_scope(); self.context.pop_ref_ctxt();
+                                                                  self.context.gen_closure(f, ctxt.scope)},
+  send     :msg align(2):nb trans:rcv trans*:args restore(nb) -> self.context.gen_send(nb, rcv, self.context.gen_symbol(msg), args, photon.bind),
+  call     align(2):nb trans:fn trans*:args restore(nb)       -> self.context.gen_call(nb, fn, args),
+  var      :name trans:val                                    -> self.context.gen_set_local(name, val),
   throw    trans:x                                            -> self.context.gen_throw(x),
-  try      :ctxt (empty -> self.context.enter_try_block()) curlyTrans:x 
+  try      :ctxt (empty -> self.context.enter_try_block()) trans:x 
            (:name -> { self.context.leave_try_block(); self.context.enter_catch_scope(ctxt.scope);})
-           curlyTrans:c (empty -> self.context.leave_catch_scope())
-           ([#get #undefined] | curlyTrans -> {throw "Unsupported finally block";})                                       
+           trans:c (empty -> self.context.leave_catch_scope())
+           ([#get #undefined] | trans -> {throw "Unsupported finally block";})                                       
                                                               -> self.context.gen_try_catch(x, c, ctxt.scope),
-  json     trans*:props                                       -> self.context.gen_object(props),
-  binding  :name trans:val                                    -> [name, val],
   switch   (empty -> self.context.push_block()) 
-           trans:x trans*:cases                               -> {var BREAK = self.context.break_lbl(); self.context.pop_block();
+           push(1):x trans*:cases pop(1)                      -> {var BREAK = self.context.break_lbl(); self.context.pop_block();
                                                                   [x, _op("push", _EAX), cases, BREAK, _op("add", _$(4), _ESP)]},
   case     trans:x trans:y                                    -> {var END = _label();
                                                                  [x, _op("cmp", _mem(0, _ESP), _EAX), _op("jne", END), y, END]},
   default          trans:y                                    -> [y],
 
   // Extensions
-  ccall    trans:fn trans*:args                               -> [self.context.gen_push_args(args),
-                                                                  fn, _op("call", _EAX), 
-                                                                  self.context.gen_pop_args(args.length)],
-  global_return   trans:x                                     -> [x, _op("ret")],
-  mreturn  trans:x trans:y                                    -> [x, _op("push", _EAX), y, _op("mov", _EAX, _ECX), _op("pop", _EAX), 
-                                                                  self.context.gen_epilogue()],
-  code     :c                                                 -> c
+
+  super_send :msg align(2):nb trans:rcv trans*:args restore(nb) -> self.context.gen_send(nb, rcv, self.context.gen_symbol(msg), args, photon.super_bind),
+
+  // align(-1) because 'fn' is not part of the arguments that are pushed on the stack
+  ccall    align(-1):nb trans:fn trans*:args restore(nb)      -> self.context.gen_ccall(nb, fn, args),
+  code     :c                                                 -> c,
+  closure                                                     -> self.context.gen_get_clos(),
+  letvars :os =  
+           [#begin 
+             ([#var :name trans:val] -> self.context.gen_let_binding(os, name, val))*:es] -> es,
+  let      :ctxt 
+           {self.context.enter_let_init(ctxt.scope);}:os
+           letvars(os):es  
+           {self.context.enter_let_scope(ctxt.scope, os);}
+           trans:body 
+           {self.context.leave_let_scope();}:nb    -> self.context.gen_let(nb, es, body) 
 }
 
 PhotonCompiler.initialize = function ()
 {
     this.context = PhotonCompiler.context.init();
+    this.context.compiler = this;
 };
 
 PhotonCompiler.context = {init:function () { print("Invalid context"); }};
-

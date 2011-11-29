@@ -11,9 +11,31 @@ macro ref_is_fixnum(r)
     ]}@;
 }
 
+macro static_lookup(map, msg)
+{
+    return @{["ccall",
+                ["ref",    photon.send(photon.map, "__get__", "__lookup__")],
+                ["number", 1],
+                ["get", "map"],
+                ["get", "null"],
+                ["get", "msg"]]}@;
+}
+
+macro dynamic_lookup(map, msg)
+{
+    return map.__lookup__(msg);
+}
+
 function bind(msg, n, rcv, closure)
 {
-    if (msg === "__lookup__" && rcv === rcv[@-1])
+    if (ref_is_fixnum(rcv))
+    {
+        var l_rcv = @{["ref", photon.fixnum]}@;
+        var l_offset = dynamic_lookup(l_rcv[@-1], msg);
+        //var l_offset = static_lookup(l_rcv[@-1], msg);
+        //return (l_offset === undefined) ? undefined : 
+        return ref_is_fixnum(l_offset) ? l_rcv[@l_offset - 4] : l_offset;
+    } else if (msg === "__lookup__" && rcv === rcv[@-1])
     {
         var l_rcv    = @{["ref", photon.map]}@;
         var l_offset = 
@@ -26,20 +48,15 @@ function bind(msg, n, rcv, closure)
         return (ref_is_fixnum(l_offset)) ? l_rcv[@l_offset - 4] : l_offset;
     }
 
-    if (ref_is_fixnum(rcv))
-    {
-        var l_rcv = @{["ref", photon.fixnum]}@;
-        var l_offset = l_rcv[@-1].__lookup__(msg);
-        //return (l_offset === undefined) ? undefined : 
-        return ref_is_fixnum(l_offset) ? l_rcv[@l_offset - 4] : l_offset;
-    }
+
 
     var l_offset = undefined;
     var l_rcv  = rcv;
 
     while (rcv !== null)
     {
-        l_offset = l_rcv[@-1].__lookup__(msg);
+        l_offset = dynamic_lookup(l_rcv[@-1], msg);
+        //l_offset = static_lookup(l_rcv[@-1], msg);
 
         if (l_offset !== undefined)
         {

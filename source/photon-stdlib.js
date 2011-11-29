@@ -61,5 +61,3 @@ function print(s)
 
     return undefined;
 }
-
-
