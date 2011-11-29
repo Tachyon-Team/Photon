@@ -43,7 +43,7 @@ ometa PhotonASTTraversal {
   throw    trans:x,
   try      :ctxt trans:x :name trans:c trans:f,
   json     trans*:props,
-  binding  :name trans:val,
+  binding  trans:name trans:val,
   switch   trans:x trans*:cases,
   case     trans:x trans:y,
   default          trans:y,
@@ -98,7 +98,7 @@ ometa PhotonASTCopy {
   throw    trans:x                              -> [#throw, x],
   try      :ctxt trans:x :name trans:c trans:f  -> [#try, _deep_copy(ctxt), x, _deep_copy(name), c, f],
   json     trans*:props                         -> [#json].concat(props),
-  binding  :name trans:val                      -> [#binding, _deep_copy(name), val],
+  binding  trans:name trans:val                 -> [#binding, name, val],
   switch   trans:x trans*:cases                 -> [#switch, x].concat(cases),
   case     trans:x trans:y                      -> [#case, x, y],
   default          trans:y                      -> [#default, y],
@@ -166,7 +166,7 @@ ometa PhotonPrettyPrinter
   throw    trans:x                                                 -> ("throw " +  x),
   try      :ctxt block:x :name block:c block:f                     -> ("try\n" + x + " catch (" + name + ")\n" + c + " finally \n" +  f),
   json     inc trans*:props dec                                    -> ("{\n" +  props.join(",\n") +  "\n" + self.ilvl() + "}"),
-  binding  :name trans:val                                         -> (self.ilvl() + name.toProgramString() +  ":" +  val),
+  binding  trans:name trans:val                                    -> (self.ilvl() + name +  ":" +  val),
   switch   trans:x inc trans*:cases dec                            -> ("switch (" +  x +  ")\n" +  self.ilvl() +  "{\n" +  cases.join("\n") +  self.ilvl() +  "}"),
   case     trans:x inc block:y dec                                 -> (self.ilvl() + "case " +  x +  ":\n" + y),
   default          inc block:y dec                                 -> (self.ilvl() + "default:\n" +  y),
@@ -328,7 +328,9 @@ ometa PhotonParser <: Parser {
                | json,
   json         = "{" listOf(#jsonBinding, ','):bs "}"                                -> [#json].concat(bs),
   jsonBinding  = jsonPropName:n ":" expr:v                                           -> [#binding, n, v],
-  jsonPropName = "name" | "number" | "string",
+  jsonPropName = "name":n   -> [#string, n] 
+               | "number":n -> [#number, n]
+               | "string":s -> [#string, s],
   formal       = spaces "name",
   funcRest     = "(" listOf(#formal, ','):fs ")" "{" srcElems:body "}"               -> [#func, fs, _new_context(), body],
   sc           = spacesNoNl ('\n' | &'}' | end)
@@ -584,7 +586,7 @@ ometa PhotonDesugar <: PhotonASTCopy {
                                                                     .concat(props.map(function (b) { 
                                                                      return [#send, "__set__", 
                                                                                     [#get, o], 
-                                                                                    [#string, String(b[1])],
+                                                                                    b[1],
                                                                                     b[2]];}))
                                                                     .concat([[#get, o]]))]},
   call     = [#getp [#super trans:rcv] ( [#string :msg] 
