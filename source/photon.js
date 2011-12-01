@@ -9,6 +9,8 @@ photon.map.pp      = function () { return "photon.map"; };
 photon.symbol.pp   = function () { return "photon.symbol"; };
 photon.fixnum.pp   = function () { return "photon.fixnum"; };
 
+create_handlers();
+
 function _compile(s, print)
 {
     if (print === undefined)

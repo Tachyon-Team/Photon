@@ -917,7 +917,7 @@ ometa PhotonCompiler {
            push(1):x trans:y pop(1)                           -> {var END = _label();
                                                                   [x, _op("cmp", _$(skip), _EAX), _op("je", END),
                                                                    _op("push", _EAX), y, op, _op("add", _$(4), _ESP), END]},
-  return   trans:x                                            -> [x, self.context.gen_epilogue()],
+  return   trans:x                                            -> [x, self.context.gen_epilogue(self.context.arg_nb)],
   if       (empty -> _label()):FALSE 
            (trans:cond                   -> [cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", FALSE)]):cond                      
            trans:t trans:e                                    -> {var END = _label(); 

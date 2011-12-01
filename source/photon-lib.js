@@ -537,6 +537,76 @@ function local_let_scope(p, names)
 }
 
 
+function subr(code)
+{
+    code = flatten(code);
+    var codeBlock = _asm(code).codeBlock;
+    codeBlock.assemble();
+    //print(codeBlock.listingString());
+
+    code = clean(codeBlock.code);
+    var length = code.length;
+
+    var f = photon.send(photon.function, "__new__", length, 0);
+    photon.send(f, "__intern__", code);
+
+    return f;
+}
+
+function create_handlers()
+{
+    var LOOP = _label("LOOP");
+    var INIT = _label("INIT");
+    photon.variadic_enter = subr(
+    [
+        // Initialize stack to new position
+        _op("mov", _mem(4, _ESP), _EAX),  // Retrieve expected nb of args
+        _op("sub", _mem(16, _ESP), _EAX), // Substract received nb of args
+        _op("sal", _$(2), _EAX),          // Multiply by 4 to get the number of bytes
+        _op("mov", _ESP, _ECX),           // Obtain a pointer to current stack 
+        _op("sub", _EAX, _ESP),           // Reserve extra space for missing args
+        _op("and", _$(-16), _ESP),        // Align new stack position ***
+
+        // Move stack from old to new position
+        _op("mov", _$(0), _EAX),          // Initialize counter
+        _op("mov", _mem(16, _ECX), _EBP), // Retrieve the number of args
+        _op("add", _$(7), _EBP),          // Also copy values under args 
+        LOOP,
+        _op("mov", _mem(0, _ECX, _EAX, 4), _EDX), // Retrieve current value
+        _op("mov", _EDX, _mem(0, _ESP, _EAX, 4)), // Move to new position
+        _op("inc", _EAX),                         // Next value
+        _op("cmp", _EBP, _EAX),      
+        _op("jl", LOOP),                          // Loop while there are remaining values
+
+        // Initialize extraneous arguments to undefined
+        _op("sub", _$(7), _EBP),          // Retrieve the received nb of args
+        _op("mov", _mem(4, _ESP), _EAX),  // Retrieve the expected nb of args
+        INIT,
+        _op("mov", _$(_UNDEFINED), _mem(28, _ESP, _EBP, 4), 32), // Store 'undefined' for current value
+        _op("inc", _EBP),
+        _op("cmp", _EAX, _EBP),
+        _op("jl", INIT),
+
+        _op("ret")
+    ]);
+
+    photon.variadic_exit = subr(
+    [
+        _op("mov", _mem(8, _EBP), _ECX), // Compute extraneous arg nb
+        _op("sub", _EDX, _ECX),
+        _op("sal", _$(2), _ECX),         // Obtain the adjustment in bytes
+        _op("and", _$(-16), _ECX),       // Reverse alignment
+        _op("mov", _EBP, _ESP),          // Restore stack 
+        _op("pop", _EBP),
+        _op("pop", _EDX),                // Retrieve return address
+        _op("sub", _ECX, _ESP),          // Remove extra args
+        _op("jmp", _EDX)                 // Return
+    ]);
+
+    // ***: Alignment is valid since 4 values of 4 bytes each are on top of the 
+    // stack frame
+}
+
 // Compiler context for stateful code generation from AST
 PhotonCompiler.context = {   
     init:function ()
@@ -584,6 +654,10 @@ PhotonCompiler.context = {
         // Nesting level of try
         that.try_lvl = 0;
         that.previous_try_lvls = [];
+
+        // Current argument number
+        that.arg_nb = 0;
+        that.previous_arg_nb = [];
 
         return that;
     },
@@ -676,6 +750,8 @@ PhotonCompiler.context = {
         this.bias  = 0;
         this.previous_try_lvls.push(this.try_lvl);
         this.try_lvl = 0;
+        this.previous_arg_nb.push(this.arg_nb);
+        this.arg_nb = args.length;
 
         var stack_offsets = {};
         var stack_location_nb = 0;
@@ -710,6 +786,7 @@ PhotonCompiler.context = {
         this.stack_location_nb = this.previous_stack_location_nb.pop();
         this.stack_offsets   = this.previous_offsets.pop();
         this.try_lvl = this.previous_try_lvls.pop();
+        this.arg_nb = this.previous_arg_nb.pop();
     },
 
     enter_try_block:function ()
@@ -813,7 +890,7 @@ PhotonCompiler.context = {
         codeBlock.assemble();
         //print(codeBlock.code);
         //print("listing");
-        //print(codeBlock.listingString());
+        print(codeBlock.listingString());
 
         // Add positions of refs as tagged integers
         ref_labels.forEach(function (l)
@@ -839,7 +916,7 @@ PhotonCompiler.context = {
             this.gen_prologue(this.stack_location_nb, args.length),
             body,
             _op("mov", _$(_UNDEFINED), _EAX),
-            this.gen_epilogue()
+            this.gen_epilogue(args.length)
         ];
 
         var f = this.new_function_object(code, this.ref_ctxt(), 0);
@@ -878,18 +955,20 @@ PhotonCompiler.context = {
         var FAST = _label("FAST_ENTRY");
         var a = new x86.Assembler(x86.target.x86);
         a.
+        push(_EBP).
        
         // Check arg number
-        cmp(_$(arg_n), _mem(4, _ESP), 32).
-        je(FAST).
-        mov(_$(0), _EAX).
+        cmp(_$(arg_n), _mem(8, _ESP), 32).
+        jge(FAST).
+        mov(this.gen_mref(photon.variadic_enter), _EAX).
+        push(_$(arg_n)).
         call(_EAX).
+        add(_$(4), _ESP).
 
         // Fast entry point
         label(FAST).
 
         // Setup stack frame 
-        push(_EBP).
         mov(_ESP, _EBP).
 
         // Reserve space for locals
@@ -898,9 +977,10 @@ PhotonCompiler.context = {
         return a.codeBlock.code;
     },
 
-    gen_epilogue:function ()
+    gen_epilogue:function (arg_n)
     {
         var a = new x86.Assembler(x86.target.x86);
+        var SLOW = _label("SLOW");
 
         for (var i = 0; i < this.try_lvl; ++i)
         {
@@ -908,9 +988,15 @@ PhotonCompiler.context = {
         }
 
         a.
+        cmp(_$(arg_n), _mem(8, _EBP), 32).
+        jl(SLOW).
         mov(_EBP, _ESP).   
         pop(_EBP).
-        ret();
+        ret().
+        label(SLOW).
+        mov(_$(arg_n), _EDX).
+        mov(this.gen_mref(photon.variadic_exit), _ECX).
+        jmp(_ECX);
         return a.codeBlock.code;
     },
 
@@ -1134,7 +1220,7 @@ PhotonCompiler.context = {
         var label = _label();
         this.ref_ctxt().push(label);
 
-        assert((typeof m) === "object" && m.__addr__ !== undefined)
+        assert((typeof m) === "object" && m.__addr__ !== undefined, "Invalid reference");
         return _$(addr_to_num(m.__addr__), label);
     },
 
