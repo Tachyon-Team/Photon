@@ -890,7 +890,7 @@ PhotonCompiler.context = {
         codeBlock.assemble();
         //print(codeBlock.code);
         //print("listing");
-        print(codeBlock.listingString());
+        //print(codeBlock.listingString());
 
         // Add positions of refs as tagged integers
         ref_labels.forEach(function (l)

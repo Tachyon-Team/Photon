@@ -542,11 +542,12 @@ struct object *function_allocate(
     struct object   *payload_size)
 {
     char *ptr = (char *)ealloc(
-        fx(prelude_size) + fx(payload_size)
+        fx(prelude_size) + fx(payload_size) + sizeof(ssize_t)
     );
 
     assert(ptr != MAP_FAILED);
-   
+
+    *((ssize_t *)(ptr + fx(prelude_size) + fx(payload_size))) = fx(payload_size);
     struct object *po = (struct object *)(ptr + fx(prelude_size));
 
     return po;
@@ -795,8 +796,10 @@ struct object *object_allocate(
 {
     char *ptr = (char *)raw_calloc(
         1, 
-        fx(prelude_size) + fx(payload_size)
+        fx(prelude_size) + fx(payload_size) + sizeof(ssize_t)
     );
+
+    *((ssize_t *)(ptr + fx(prelude_size) + fx(payload_size))) = fx(payload_size);
     
     return (struct object *)(ptr + fx(prelude_size));
 }
