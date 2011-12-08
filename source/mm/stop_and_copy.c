@@ -9,8 +9,9 @@
  
 #include <stdio.h> 
 #include <stdlib.h>
+#include <unistd.h>
 
-typedef long word;
+typedef ssize_t word;
 // Macro qui extrait un entier d'un pointer.
 #define V_TO_I(x) ((x)>>1)
 // Macro int to void *
@@ -34,7 +35,7 @@ typedef long word;
 
 typedef struct page{
 	word * current;
-	word * nextfree;
+	char * nextfree;
 	word * barrier;
 	struct page * next;
 	struct page * previous;
@@ -46,38 +47,15 @@ typedef struct pile{
 	word ** current;
 } Pile;
 
-
-
 static Page * memory = NULL, * LOA = NULL, * currentPage, * scanPage;
-static word * fromspace, * tospace, * free_mem, * scan;
+static word * fromspace, * tospace, * scan;
+static char * free_mem;
 static word * root[6];
 static Pile * gcstack = NULL;
 static int rootcount = 0;
 
-//#define GC_PUSH(p) (Pile * temp_PUSH = (Pile *) malloc(sizeof(Pile)); temp_PUSH->previous = gcstack; temp_PUSH->current = p; gcstack = temp_PUSH;)
-//#define GC_POP() (word * t_POP = gcstack->current, Pile * p_POP = gcstack, gcstack = gcstack->previous, free(p_POP), t_POP;)
-
-
 #define GCPRO( var_ref, local_name ) Pile local_name; local_name.current = &var_ref; local_name.previous = gcstack; gcstack = &local_name;
 #define UNGCPRO(local_name) ( gcstack = local_name.previous )
-
-/*
-word * GC_PUSH(word * p){
-	Pile * temp_PUSH = (Pile *) malloc(sizeof(Pile)); 
-	temp_PUSH->previous = gcstack; 
-	temp_PUSH->current = p; 
-	gcstack = temp_PUSH;
-	return gcstack->current;
-}
-
-word * GC_POP(){
-	word * t_POP = gcstack->current;
-	Pile * p_POP = gcstack; 
-	gcstack = gcstack->previous; 
-	free(p_POP); 
-	return t_POP;
-}
-*/
 
 // Imprime l'espace global.
 void print_global(){
@@ -100,61 +78,31 @@ int mem_init(){
 	// Initialise les pointeurs.
 	fromspace = memory->current;
 	tospace = fromspace+(PAGE_SIZE/2);
-	memory->nextfree = fromspace+PAGE_SIZE-1;
-	free_mem = tospace-1;
+	memory->nextfree = (char *)(fromspace+PAGE_SIZE-1);
+	free_mem = (char *)(tospace-1);
 
 	// On met tout a 0:
 	word * iterator = currentPage->current;
-	//printf("current: %d\n",currentPage->current);
-	while(iterator < currentPage+PAGE_SIZE){
+	while(iterator < currentPage->current+PAGE_SIZE){
 		*iterator++ = 0;
 	}
-
-	//mem_print();
-	//printf("mem_init done \n\n");
 	return 1;
 }
 
 void change_page(Page *);
 void add_Page(){
-
-	//printf("\nIn add_Page\n");
-	//mem_print();
 	Page * p = (Page *) malloc(sizeof(Page));
-	//printf("After page Alloc: memory %d\n", memory == NULL);
-
-	//printf("In else: currentPage[0]: %d\n", currentPage->current[PAGE_SIZE/2]);
 	currentPage->next = p;
 	p->previous = currentPage;
 	p->next = NULL;
-	//printf("currentPage[0]: %d\n",currentPage->current[PAGE_SIZE/2]);
-	// Ne devrait pas etre fait ici.
-	//currentPage = p;
-	//printf("currentPage[0]: %d\n",currentPage->previous->current[PAGE_SIZE/2]);
-
-	
-	//printf("currentPage[0]: %d\n",currentPage->previous->current[PAGE_SIZE/2]);
-
-
-	// Fix ad-hoc: si la page contenant les données est a droite, flip!.
-
-	// La valeur s'ajoute ici... Who HHO!
-	//mem_print();
 	p->current = (word *) malloc(PAGE_SIZE_B);
-	//printf("After if: current: %d\n", currentPage->current);
-	
-	//printf("currentPage[0]: %d\n",currentPage->previous->current[PAGE_SIZE/2]);
-		
 	p->barrier = p->current;
-	p->nextfree = p->current+(PAGE_SIZE/2)-1;	
-		
-		
+	p->nextfree = (char *)(p->current+(PAGE_SIZE/2)-1);	
 	change_page(p);
-	//mem_print();
-	//printf("End add_Page\n\n");
 }
 
 void add_LoA(int size) { 
+	printf("In LOA\n");
 	Page * p = (Page *) malloc(sizeof(Page));
 	if(LOA != NULL) {
 		LOA->next = p;
@@ -169,33 +117,25 @@ void add_LoA(int size) {
 	p->nextfree = NULL;
 	p->size = size;
 	LOA=p;
+	printf("End LOA\n");
 }
 
 // Change le free de page.
 void change_page(Page * p){
-
-	//printf("In Change Page \n");
-	//print_global();
-
-	// Marche pas. Pointe sur la nouvelle page.
-	currentPage->barrier = free_mem+1;
+	currentPage->barrier = ((word *)free_mem)+1;
 	free_mem = p->nextfree;
 	currentPage = p;
 	
-	if(free_mem == p->current+PAGE_SIZE-1){
-		//printf("Free end\n");
-		currentPage->nextfree = currentPage->current+PAGE_SIZE/2-1;
+	if(((word *)free_mem) == p->current+PAGE_SIZE-1){
+		currentPage->nextfree = (char *)(currentPage->current+PAGE_SIZE/2-1);
 		fromspace = p->current+PAGE_SIZE/2;
 		tospace = p->current;
 	}
 	else{
-		//printf("Free middle\n");
-		currentPage->nextfree = currentPage->current+PAGE_SIZE-1;
+		currentPage->nextfree = (char *)(currentPage->current+PAGE_SIZE-1);
 		fromspace = p->current;
 		tospace = p->current+PAGE_SIZE/2;
-	}
-	//print_global();
-	//printf("End Change Page\n");	
+	}	
 }
 
 word * copy(word * root);
@@ -203,10 +143,8 @@ void scanner();
 
 // Enleve les pages redondantes.
 void freeLoop(Page * p){
-	//printf("freeloop: %d \n", p!=NULL);
 	if(p!=NULL){
 		freeLoop(p->next);
-	
 		free(p->current);
 		free(p);	
 	}
@@ -214,41 +152,21 @@ void freeLoop(Page * p){
 
 void trim_memory(){
 	Page * temp;
-	//printf("\nIn trim\n");
-	if(free_mem-fromspace+1 < PAGE_SIZE/20){
+	if(((word)free_mem)-((word)fromspace)+1 < PAGE_SIZE/20)
 		temp = currentPage->next;
-		
-	}
-	else{
-		temp = currentPage;
-	}
-	//printf("tem: %d \n", temp);
+	else temp = currentPage;
 	freeLoop(temp->next);
 	currentPage->next = NULL;
-	//printf("End Trim\n");
 }
 
 // Inverse to et from. 
 void flip(word ** root, int rootcount){
-
-	//printf("In Flip\n\n");
-
 	change_page(memory);
 	scanPage = memory;
-	
-	/*
-	word * t = fromspace;
-	fromspace = tospace;
-	tospace = t;
-	nextfree = tospace+(PAGE_SIZE/2);
-	*/
-	
-	scan = free_mem;
-
-
-	// Scan le root
-	int i = 0;
-	for(i; i< rootcount ; i++){
+	scan = (word *)free_mem;
+	// Scan le root array
+	int i;
+	for(i=0; i< rootcount ; i++){
 		root[i] = copy(root[i]);
 	}
 	// Scan les Gc protected
@@ -257,60 +175,53 @@ void flip(word ** root, int rootcount){
 		*(GC_pro->current) = copy(*(GC_pro->current));
 		GC_pro = GC_pro->previous;
 	}
-	
-	//mem_print();
 	scanner();
-	//printf("Trim: cur: %d, cur->next: %d\n", currentPage->current, currentPage->next==NULL);
 	if(currentPage->next != NULL) trim_memory();
-	//printf("End flip\n");
 }
 
 // Alloue un bloc de mémoire dans memory/LOA
 word * m_alloc(int size){
 	
-	//printf("\nIn m_alloc\n\n");
-	
-	//printf("Size: %d \n", size);
-	if(size > PAGE_SIZE/2){
-		//printf("In LOA\n");
+	printf("\nIn m_alloc: size = %d\n\n", size);
+	printf("diff: %d\n", ((word)free_mem - (word)(fromspace-1)));	
+	if(size > PAGE_SIZE_B/2){
 		add_LoA(size);
 		return LOA->current;
 	}
-	
-	// Si la prochaine page n'existe pas.
-	if(size > (free_mem - fromspace+1) && currentPage->next == NULL){
-		//printf("free_mem: %d, fromspace: %d, diff: %d\n", free_mem, fromspace, free_mem-fromspace);
 
-		flip(root, rootcount);
-		
-		if(size > free_mem - fromspace+1){
+	// Si la prochaine page n'existe pas.
+	if(size > ((word)free_mem - (word)(fromspace-1)) && currentPage->next == NULL){
+		//flip(root, rootcount);
+		if(size > ((word)free_mem - (word)(fromspace-1))){
 			add_Page();
 		}
 	}
-	else if(size > (free_mem - fromspace+1)){
+	else if(size > ((word)free_mem - (word)(fromspace-1))){
 		change_page(currentPage->next);
 	}
 	
 	free_mem -= size;
-	//printf("End m_alloc\n");
-	return free_mem;
+	printf("End m_alloc\n");
+	return (word *)free_mem;
 }
+
+
 
 // Alloue de la mémoire puis met a jour les valeurs pertinents (td etc).
 word * mem_allocate(int sizeL, int sizeR){
 	
-	//printf("\nIn mem_allocate\n");
-	
-	word * p = m_alloc(sizeL+sizeR+(sizeR?2:1));
+	printf("free_mem: %u\n", free_mem);
+	word * p = m_alloc((sizeL+sizeR+(sizeR?2:1))*sizeof(word));
 	p += (sizeL+2);
 	p[-1] = ((sizeL<<4) + (sizeR<<8));
 	if(sizeR) p[sizeR] = I_TO_V(sizeR);
 	if((sizeL+sizeR+2)>PAGE_SIZE/2) p[-1]+=(0x10000);
-	
-	//printf("End mem_allocate\n");
-	
+	printf("free_mem: %u\n", free_mem);
+	// Initialise sizeL et sizeR
+	int i;
+	for(i=0; i<sizeR; i++) p[i] = 0x1;
+	for(i=-2; (-i-2)<sizeL; i--) p[i] = 0x1;
 	return p;
-
 }
 
 // Imprime le stack.
@@ -321,7 +232,6 @@ void stack_print(){
 	while(ite != NULL){
 		printf("%u\n", ite->current);
 		ite = ite->previous;
-
 	}
 	printf("End stack Print \n");
 }
@@ -346,7 +256,6 @@ void mem_print(){
 	while(p != NULL){
 		printf("\nPage: %u\n", p->current);
 		word * pointer = p->current;
-		//printf("free: %d\n", free_mem);
 		while(pointer < p->current + PAGE_SIZE){
 			printf("%u %u\n", pointer ,pointer[0]);
 			pointer++;
@@ -359,21 +268,16 @@ void mem_print(){
 
 // Déplace un objet au nouveau free.
 word * move(word * p){
-	//printf("In move\n");
 	int att = TD_EXTRACT(p[-1]), pay = PAYLOAD(p[-1]), i=0;
 	word * w = mem_allocate(att, pay);
-	
 	if(pay){
 		i=pay;
 		for(i;i>0;i--) {
 			w[i-1] = p[i-1];
-			//printf("wi-1: %d\n", w[i-1]);
 		}
 	}
 	for(i;i<=att;i++) w[-i-1] = p[-i-1];
 	p[-1] = (((word)w)|0x1);
-	//mem_print();
-	//printf("End Move\n");
 	return w;
 
 }
@@ -382,39 +286,27 @@ word * copy(word * p){
 
 	// Teste si p est un gros objet.
 	if(TEST_LOA(p[-1])) return p;
-
-	//printf("In copy: p:%d, p[-1]: %d\n", p, p[-1]);
-	//printf("TEST: %d \n", TEST(p[-1]));
 	
 	if((TEST(p[-1]))){
-		//printf("in if: free: %d, p: %d, p[-1]: %d\n", free_mem, p, p[-1]);
 		p = move(p);
 	}
 	else
 		p = (word *) (p[-1] - 0x01);
-		
-	//printf("End copy\n\n");
 	return p;
 }
 
 // Scan le tospace pour copier les objets pointés par d'autres objets.
-// Revoir la condition d'arret du scan. Changer de page au besoin.
 void scanner(){
 	int pay_len, i, at_len, fun_len;
 	word * p;
 	scanPage = memory;
-	//printf("\nIn scanner: scan: %d, free: %d, VTOI: %d\n", scan, free_mem, V_TO_I(*scan));
-	//printf("scan>free: %d\ncurr==scan: %d, barrier: %d\n", scan>free_mem, currentPage == scanPage, scanPage->barrier);
 	
-	while((scan > free_mem) || currentPage != scanPage ){
-		//printf("In while: \n");
+	while((scan > ((word *)free_mem)) || currentPage != scanPage ){
 		
 		// change scan page as scan reach barrier.
-		//printf("TAG : scanPage->current: %d, cond1: %d, cond2: %d, barrier: %d\n", scanPage->current, scanPage != currentPage, scan == scanPage->barrier, scanPage->barrier);
 		if(scanPage != currentPage && scan <= scanPage->barrier) {
-			//printf("Scan swap: In if: scanPage->next: %d \n",scanPage->next->current);
 			scanPage = scanPage->next;
-			if(scanPage->nextfree == scanPage->current+PAGE_SIZE-1){
+			if(((word *)scanPage->nextfree) == scanPage->current+PAGE_SIZE-1){
 				scan = scanPage->current+PAGE_SIZE/2-1;
 			}
 			else{
@@ -422,74 +314,49 @@ void scanner(){
 			}
 		}		
 	
-	
 		if(!(TEST(*scan))){
 			// Case PAYLOAD
 			pay_len = V_TO_I(scan[0]); 
 			fun_len = FUN_EX(scan[-pay_len-1]);
 			
-			//printf("*scan: %d\n", *scan);
-			//printf("In if: pay_len: %d, fun_len: %d, scan: %d, free: %d\n", pay_len, fun_len, scan, free_mem);
-			//printf("\nfun_len: %d\n", fun_len);
-			
 			if(fun_len){
-				//printf("Begin fun\n");
-				i = 1;
 				word * jump = scan;
-				for(i; i<=fun_len; i++){
+				for(i=1; i<=fun_len; i++){
 					jump--;
 					p = (word *) scan[-(*jump)-1];
-					//printf("Apres scan: p %d, p[0] %d, p[-1] %d\n", p, *p, p[-1]);
 					if((TEST(p[-1]))) *jump = (word) copy(p);
-					//printf("Apres if: \n");
 				}
 				scan -= pay_len;
-				//printf("End Fun\n");
 			}
 			else{
-				i = 1;
-				//printf("in PAYLOAD: scan: %d, free: %d, pay: %d, i: %d\n",scan, free_mem,pay_len, i);
-
-				for(i ; i<= pay_len; i++){
+				for(i=1 ; i<= pay_len; i++){
 					scan--;
 					if(TEST(*scan)){
 						p = (word *) *scan;	
-						//printf("in for: p: %d, *p: %d \n", p, *p);
 						if((TEST(p[-1]))){ 
 							*scan = (long)copy(p);
 						}
 					}
-				
 				}
-				//printf("End if\n");
-				//mem_print();
 			}
 			scan--;
 		}
 		at_len = TD_EXTRACT(scan[0]);
-		//printf("in TD: at_len: %d, scan : %d, free: %d, *scan: %d\n", at_len, scan, free_mem, *scan);
-		i=1;
-		for(i ; i<=at_len ; i++){
+		for(i=1 ; i<=at_len ; i++){
 			scan--;
-			//printf("\n\n *scan: %d, scan: %d, TEST: %d\n", *scan, scan, TEST(*scan));
 			if(TEST(*scan)){
 				p =	(word *) *scan;	
-				//printf("*p: %d, TEST: %d\n", *p, TEST(p[-1]));
 				if((TEST(p[-1]))) *scan = (word)copy(p);
-				//printf("p: %d \n",p);
 			}
 		}
 		scan--;
-		//mem_print();
-		//printf("End While: scan: %d, free: %d \n", scan, free_mem);
 	}
-	//printf("End Scanner: scan: %d, free: %d \n", scan, free_mem);
 }
 
 // Les tests.
 
 // 1. Copie de listes naive.
-
+/*
 word * Create_List(int n){
 
 	printf("Dans Create_List\n");
@@ -604,54 +471,42 @@ word evalTree(word * tree){
 	}
 	return 0;
 }
-
+*/
 // Main.
+
 int main(int argc, char ** argv){
 
 	mem_init();
 	
 	printf("mem_init done\n");
-	word * liste = Create_List(5);
-	mem_print();
-	GCPRO(liste, l2);
-	word * var = Copy_List(liste);
-	GCPRO(var , cl);
-	UNGCPRO(l2);
-	mem_print();
+	//word * liste = Create_List(5);
+	//mem_print();
+	//GCPRO(liste, l2);
+	//word * var = Copy_List(liste);
+	//GCPRO(var , cl);
+	//UNGCPRO(l2);
+	//mem_print();
 	
-	flip(root, rootcount);
-	mem_print();
-	
-	//add_Page();
-
 	//flip(root, rootcount);
-	//mem_print();
-	/*
-	word * tree = Gen_Tree();
-	//stack_print();
 	mem_print();
-
-	//word * tree = 33;
-	GCPRO(tree, tree3);
-	//stack_print();
+	mem_allocate(3,3);
+	//word * tree = Gen_Tree();
 	//mem_print();
-	printf("Jambon\n");
-	//mem_print();
-	printf("Eval Tree: %d\n" , evalTree(tree));
-	printf("Brebies");
-	flip(root,rootcount);
-		flip(root,rootcount);
-			flip(root,rootcount);
-				flip(root,rootcount);
-	printf("Eval Tree: %d\n" , evalTree(tree));
-	printf("fromage");
-	UNGCPRO(tree3);
-	flip(root, rootcount);
 
-	*/
+	//GCPRO(tree, tree3);
+	//printf("Eval Tree: %d\n" , evalTree(tree));
+	//flip(root,rootcount);
+	//	flip(root,rootcount);
+	//		flip(root,rootcount);
+	//			flip(root,rootcount);
+	//printf("Eval Tree: %d\n" , evalTree(tree));
+	//UNGCPRO(tree3);
+	//flip(root, rootcount);
 	
 	mem_print();
+	
 	
 	printf("End Main\n");
 	return 0;
 }
+
