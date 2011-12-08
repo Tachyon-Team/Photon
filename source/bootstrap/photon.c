@@ -303,21 +303,21 @@ bind_t g_super_bind = 0;
 
 #define send0(RCV, MSG) ({                                                     \
     struct object *r      = (struct object *)(RCV);		                       \
-    struct object *m      = g_bind(0, 0, 0, (MSG), 0, r);                         \
+    struct object *m      = g_bind(0, 0, 0, (MSG), 0, r);                      \
     (m == UNDEFINED) ? UNDEFINED :                                             \
         ((method_t)m)(0, r, m);\
 });
 
 #define send(RCV, MSG, ARGS...) ({                                             \
     struct object *r      = (struct object *)(RCV);		                       \
-    struct object *m      = g_bind(0, 0, 0, (MSG), 0, r);                         \
+    struct object *m      = g_bind(0, 0, 0, (MSG), 0, r);                      \
     (m == UNDEFINED) ? UNDEFINED :                                             \
         ((method_t)m)(PHOTON_PP_NARG(ARGS), r, m, ##ARGS);\
 });
 
 #define super_send(RCV, MSG, ARGS...) ({                                       \
     struct object *r      = (struct object *)(RCV);		                       \
-    struct object *m      = g_super_bind(0, 0, 0, (MSG), 0, r);                   \
+    struct object *m      = g_super_bind(0, 0, 0, (MSG), 0, r);                \
     (m == UNDEFINED) ? UNDEFINED :                                             \
         ((method_t)m)(PHOTON_PP_NARG(ARGS), r, m, ##ARGS);\
 });
