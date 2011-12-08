@@ -290,32 +290,6 @@ struct object *map_lookup(size_t n, struct map *self, struct function *closure, 
 
 // Special send for 0 argument case since the PP_NARG macro does not detect
 // it correctly
-/*
-#define send0(RCV, MSG) ({                                             \
-    struct object *r      = (struct object *)(RCV);		               \
-    struct lookup _l      = _bind(r, (MSG));                           \
-    (_l.offset == UNDEFINED) ? UNDEFINED :                             \
-        ((method_t)(_l.rcv->_hd[-1].values[fx(_l.offset)]))(0, r);\
-});
-
-#define send(RCV, MSG, ARGS...) ({                                             \
-    struct object *r      = (struct object *)(RCV);		                       \
-    struct lookup _l      = _bind(r, (MSG));                                   \
-    (_l.offset == UNDEFINED) ? UNDEFINED :                                     \
-        ((method_t)(_l.rcv->_hd[-1].values[fx(_l.offset)]))(PHOTON_PP_NARG(ARGS), r, ##ARGS);\
-});
-
-#define super_send(RCV, MSG, ARGS...) ({                                       \
-    struct object *r      = (struct object *)(RCV);		                       \
-    struct lookup _l      = _bind(r, (MSG));                                   \
-    assert(_l.rcv != NIL);                                                     \
-                  _l      = _bind(_l.rcv->_hd[-1].prototype, (MSG));           \
-    assert(_l.rcv != NIL);                                                     \
-    assert(_l.offset != UNDEFINED);                                            \
-    (_l.offset == UNDEFINED) ? UNDEFINED :                                     \
-        ((method_t)(_l.rcv->_hd[-1].values[fx(_l.offset)]))(PHOTON_PP_NARG(ARGS), r, ##ARGS);\
-});
-*/
 typedef struct object *(*bind_t)(
     struct object *null_n, 
     struct object *null_rcv, 
@@ -697,7 +671,7 @@ struct object *map_new(size_t n, struct map *self, struct function *closure)
         self, 
         s_init, 
         ref(4), 
-        ref(4*sizeof(struct property) + sizeof(struct object *))
+        ref(4*sizeof(struct property) + sizeof(struct map))
     );
 
     new_map->_hd[-1].map       = self->_hd[-1].map;
@@ -992,7 +966,7 @@ struct object *symbol_print(size_t n, struct object *self, struct function *clos
 
 void log(const char* s)
 {
-    //printf("%s", s); 
+    printf("%s", s); 
 }
 
 //--------------------------------- Bootstrap ----------------------------------
@@ -1009,7 +983,7 @@ extern void bootstrap()
         NIL, 
         NULL_CLOSURE,
         ref(30), 
-        ref(30*sizeof(struct property) + sizeof(struct object *))
+        ref(30*sizeof(struct property) + sizeof(struct map))
     ); 
     root_map->_hd[-1].map       = (struct map *)root_map;
     root_map->_hd[-1].prototype = NIL;
@@ -1056,7 +1030,7 @@ extern void bootstrap()
         NIL, 
         NULL_CLOSURE,
         ref(4), 
-        ref(4*sizeof(struct property) + sizeof(struct object *))
+        ref(4*sizeof(struct property) + sizeof(struct map))
     );
     root_object->_hd[-1].map->_hd[-1].prototype = root_map;
 
@@ -1084,7 +1058,7 @@ extern void bootstrap()
         NIL, 
         NULL_CLOSURE,
         ref(0), 
-        ref(sizeof(struct object *))
+        ref(sizeof(struct map))
     );
     root_object_map_map->_hd[-1].prototype = (struct object *)root_object_map_map;
     root_object_map_map->_hd[-1].map = root_object_map_map;
