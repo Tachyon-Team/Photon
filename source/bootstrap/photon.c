@@ -327,17 +327,17 @@ struct lookup _bind(struct object *rcv, struct object *msg)
     struct lookup _l; 
     struct map   *map;
 
-    if (msg == s_lookup && ((struct map *)rcv == rcv->_hd[-1].map))
-    {
-        _l.rcv    = root_map;
-        _l.offset = map_lookup(1, (struct map *)root_map, (struct function *)NIL, s_lookup);
-        return _l;
-    }
-
     if (ref_is_fixnum(rcv))
     {
         _l.rcv    = root_fixnum;
         _l.offset = send(root_fixnum->_hd[-1].map, s_lookup, msg);
+        return _l;
+    }
+
+    if (msg == s_lookup && ((struct map *)rcv == rcv->_hd[-1].map))
+    {
+        _l.rcv    = root_map;
+        _l.offset = map_lookup(1, (struct map *)root_map, (struct function *)NIL, s_lookup);
         return _l;
     }
 
