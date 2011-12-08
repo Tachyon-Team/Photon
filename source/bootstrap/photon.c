@@ -136,6 +136,7 @@ struct lookup {
 
 struct map {
     struct header      _hd[0];
+    struct object     *type;
     struct object     *count;
     struct object     *next_offset;
     struct property    properties[0];
@@ -183,6 +184,15 @@ struct object *s_push        = (struct object *)0;
 struct object *s_remove      = (struct object *)0;
 struct object *s_set         = (struct object *)0;
 struct object *s_symbols     = (struct object *)0;
+
+struct object *ARRAY_TYPE    = (struct object *)0;
+struct object *CELL_TYPE     = (struct object *)0;
+struct object *FIXNUM_TYPE   = (struct object *)0;
+struct object *FUNCTION_TYPE = (struct object *)0;
+struct object *MAP_TYPE      = (struct object *)0;
+struct object *OBJECT_TYPE   = (struct object *)0;
+struct object *SYMBOL_TYPE   = (struct object *)0;
+
 
 //--------------------------------- Helper Functions ---------------------------
 inline ssize_t ref_to_fixnum(struct object *obj);
@@ -427,6 +437,7 @@ struct object *array_new(size_t n, struct array *self, struct function *closure,
     );
 
     new_array->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
+    new_array->_hd[-1].map->type = ARRAY_TYPE;
     new_array->_hd[-1].prototype = (struct object *)self;
     
     ((struct array *)new_array)->count = ref(0);
@@ -497,6 +508,7 @@ struct object *cell_new(size_t n, struct cell *self, struct function *closure, s
     new_cell->value = val;
 
     new_cell->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
+    new_cell->_hd[-1].map->type = CELL_TYPE;
     new_cell->_hd[-1].prototype = (struct object *)self;
 
     return (struct object *)new_cell;
@@ -576,6 +588,7 @@ struct object *function_new(
     new_fct->_hd[-1].prototype = (struct object *)self;
 
     new_fct->_hd[-1].map->next_offset = ref(-fx(cell_nb) - 1);
+    new_fct->_hd[-1].map->type        = FUNCTION_TYPE;
 
     ssize_t i = 0;
 
@@ -602,6 +615,7 @@ struct object *map_clone(size_t n, struct map *self, struct function *closure, s
     struct map* new_map = (struct map *)super_send(self, s_clone, payload_size);
     new_map->count = self->count;
     new_map->next_offset = self->next_offset; 
+    new_map->type  = self->type;
 
     for (i=0; i < fx(self->count); ++i)
     {
@@ -678,6 +692,7 @@ struct object *map_new(size_t n, struct map *self, struct function *closure)
     new_map->_hd[-1].prototype = (struct object *)self;
     new_map->count             = ref(0);
     new_map->next_offset       = ref(-1);
+    new_map->type              = MAP_TYPE;
 
     return (struct object *)new_map;
 }
@@ -893,6 +908,7 @@ struct object *object_new(size_t n, struct object *self, struct function *closur
 {
     struct map    *new_map   = (struct map *)send0(self->_hd[-1].map, s_new);
     struct object *child     = send(self, s_clone, 0);
+    new_map->type            = OBJECT_TYPE;
     child->_hd[-1].map       = new_map;
     child->_hd[-1].prototype = self;
     return child;
@@ -955,6 +971,8 @@ struct object *symbol_new(size_t n, struct object *self, struct function *closur
     new_symbol->_hd[-1].prototype = self;
     strcpy((char *)new_symbol, string);
 
+    new_symbol->_hd[-1].map->type = SYMBOL_TYPE;
+
     return new_symbol;
 }
 
@@ -977,6 +995,14 @@ extern void bootstrap()
 
     struct function *NULL_CLOSURE = (struct function *)NIL;
 
+    ARRAY_TYPE     = ref(0);
+    CELL_TYPE      = ref(1); 
+    FIXNUM_TYPE    = ref(2);
+    FUNCTION_TYPE  = ref(3);
+    MAP_TYPE       = ref(4);
+    OBJECT_TYPE    = ref(5);
+    SYMBOL_TYPE    = ref(6);
+
     log("Create Root Map\n");
     root_map = object_init_static(
         2,
@@ -989,6 +1015,7 @@ extern void bootstrap()
     root_map->_hd[-1].prototype = NIL;
     ((struct map *)root_map)->count       = ref(0);
     ((struct map *)root_map)->next_offset = ref(-1);
+    ((struct map *)root_map)->type        = MAP_TYPE;
 
     log("Initializing Root Map\n");
     s_lookup      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
@@ -1049,6 +1076,7 @@ extern void bootstrap()
 
     root_object->_hd[-1].map->count       = ref(4);
     root_object->_hd[-1].map->next_offset = ref(-5);
+    root_object->_hd[-1].map->type        = OBJECT_TYPE;
 
     object_values_count_set(root_object, 4);
 
@@ -1064,6 +1092,7 @@ extern void bootstrap()
     root_object_map_map->_hd[-1].map = root_object_map_map;
     root_object_map_map->count       = ref(0);
     root_object_map_map->next_offset = ref(-1);
+    root_object_map_map->type        = MAP_TYPE;
     map_values_set_immutable(root_object_map_map);
 
     root_object->_hd[-1].map->_hd[-1].map = root_object_map_map;
@@ -1135,6 +1164,7 @@ extern void bootstrap()
         root_symbol->_hd[-1].map,
         s_new
     );
+    empty_map->type = SYMBOL_TYPE;
 
     for (ssize_t i = 0; i < fx(((struct array *)symbols)->count); ++i)
     {
