@@ -78,7 +78,7 @@ inline char *raw_calloc(size_t nb, size_t size)
     char *new_ptr = next;
     
     // Increment and align pointer 
-    next += (obj_size + (sizeof(ssize_t))) & (-(sizeof(ssize_t)));
+    next += (obj_size + (sizeof(ssize_t) - 1)) & (-(sizeof(ssize_t)));
 
     return new_ptr;
 }
@@ -162,6 +162,7 @@ struct object *root_map           = (struct object *)0;
 struct object *root_object        = (struct object *)0;
 struct object *root_symbol        = (struct object *)0;
 
+struct object *RESERVED      = (struct object *)10;
 struct object *FALSE         = (struct object *)4;
 // NULL renamed to NIL to avoid conflicts with some NULL definitions in C
 struct object *NIL           = (struct object *)2;
@@ -195,10 +196,11 @@ struct object *SYMBOL_TYPE   = (struct object *)0;
 
 
 //--------------------------------- Helper Functions ---------------------------
-inline ssize_t ref_to_fixnum(struct object *obj);
 inline ssize_t fx(struct object *obj);
 inline ssize_t object_values_count(struct object *self);
+inline ssize_t object_values_size(struct object *self);
 inline struct object *ref(ssize_t i);
+inline ssize_t ref_to_fixnum(struct object *obj);
 
 inline ssize_t array_indexed_values_size(struct array *self)
 {
@@ -240,6 +242,11 @@ inline ssize_t map_values_count(struct map *self)
 void map_values_set_immutable(struct map *self)
 {
     self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) | 0x10000);
+}
+
+inline ssize_t object_prelude_size(struct object *self)
+{
+    return sizeof(struct header) + object_values_size(self)*sizeof(struct object *);
 }
 
 inline ssize_t object_values_count(struct object *self)
@@ -316,21 +323,21 @@ bind_t g_super_bind = 0;
     struct object *m      = g_bind(0, 0, 0, (MSG), 0, r);                      \
     (m == UNDEFINED) ? UNDEFINED :                                             \
         ((method_t)m)(0, r, m);\
-});
+})
 
 #define send(RCV, MSG, ARGS...) ({                                             \
     struct object *r      = (struct object *)(RCV);		                       \
     struct object *m      = g_bind(0, 0, 0, (MSG), 0, r);                      \
     (m == UNDEFINED) ? UNDEFINED :                                             \
         ((method_t)m)(PHOTON_PP_NARG(ARGS), r, m, ##ARGS);\
-});
+})
 
 #define super_send(RCV, MSG, ARGS...) ({                                       \
     struct object *r      = (struct object *)(RCV);		                       \
     struct object *m      = g_super_bind(0, 0, 0, (MSG), 0, r);                \
     (m == UNDEFINED) ? UNDEFINED :                                             \
         ((method_t)m)(PHOTON_PP_NARG(ARGS), r, m, ##ARGS);\
-});
+})
 
 struct lookup _bind(struct object *rcv, struct object *msg)
 {
@@ -609,6 +616,7 @@ struct object *function_print(size_t n, struct function *self)
 struct object *map_clone(size_t n, struct map *self, struct function *closure, struct object *payload_size)
 {
     assert(fx(payload_size) >= fx(self->_hd[-1].payload_size));
+    printf("map_clone\n");
     
     ssize_t i;
 
@@ -681,6 +689,7 @@ struct object *map_lookup(size_t n, struct map *self, struct function *closure, 
 
 struct object *map_new(size_t n, struct map *self, struct function *closure)
 {
+    printf("map_new\n");
     struct map* new_map = (struct map *)send(
         self, 
         s_init, 
@@ -783,14 +792,19 @@ struct object *object_allocate(
     struct object *payload_size
 )
 {
+    // Align payload_size to sizeof(struct object *) bytes
+    payload_size = ref((fx(payload_size) + sizeof(struct object *) - 1) & -sizeof(struct object *));
+
     char *ptr = (char *)raw_calloc(
         1, 
         fx(prelude_size) + fx(payload_size) + sizeof(ssize_t)
     );
 
-    *((ssize_t *)(ptr + fx(prelude_size) + fx(payload_size))) = fx(payload_size);
+    // Store prelude size before the object
+    *((ssize_t *)ptr) = fx(prelude_size);
+    printf("object_allocate prelude_size %zd, payload_size %zd, %p\n", *((ssize_t *)ptr), fx(payload_size), ptr);
     
-    return (struct object *)(ptr + fx(prelude_size));
+    return (struct object *)((ssize_t)ptr + fx(prelude_size) + sizeof(ssize_t));
 }
 
 struct object *object_clone(size_t n, struct object *self, struct function *closure, struct object *payload_size)
@@ -985,6 +999,242 @@ struct object *symbol_print(size_t n, struct object *self, struct function *clos
 void log(const char* s)
 {
     printf("%s", s); 
+}
+
+//--------------------------------- Memory Management --------------------------
+struct object *object_forward(struct object *self);
+
+char *from_start = 0;
+char *from_end   = 0;
+struct object *forward(struct object *self)
+{
+    if ((char *)self >= from_start && (char *)self <= from_end)
+    {
+        return object_forward(self);
+    } else
+    {
+        return self;
+    }
+}
+
+struct object *shallow_copy(struct object *self)
+{
+    ssize_t prelude_size = object_prelude_size(self);
+    ssize_t payload_size = fx(self->_hd[-1].payload_size);
+
+    struct object *copy = object_allocate(
+        2, 
+        NIL, 
+        (struct function *)NIL, 
+        ref(prelude_size), 
+        ref(payload_size)
+    );
+
+    memcpy(
+        ((void *)((ssize_t)copy - prelude_size)), 
+        ((void *)((ssize_t)self - prelude_size)),
+        (size_t)(prelude_size + payload_size)
+    );
+    
+    return copy;
+}
+
+struct object *array_inner_forward(size_t n, struct array *self, struct function *closure)
+{
+    struct object **a = (struct object **)self;
+    ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
+    ssize_t payload_length = fx(self->count) + sizeof(struct array) / sizeof(struct object *);
+
+    printf("array_inner_forward prelude_length %zd, payload_length %zd\n", prelude_length, payload_length);
+
+    for (ssize_t i = -prelude_length; i < payload_length; ++i)
+    {
+        a[i] = forward(a[i]);
+    }
+
+    return (struct object *)self;
+}
+
+struct object *cell_inner_forward(size_t n, struct cell *self, struct function *closure)
+{
+    struct object **a = (struct object **)self;
+    ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
+    ssize_t payload_length = sizeof(struct cell) / sizeof(struct object *);
+
+    for (ssize_t i = -prelude_length; i < payload_length; ++i)
+    {
+        a[i] = forward(a[i]);
+    }
+
+    return (struct object *)self;
+}
+
+struct object *fixnum_inner_forward(size_t n, struct object *self, struct function *closure)
+{
+    return self;
+}
+
+struct object *function_inner_forward(size_t n, struct function *self, struct function *closure)
+{
+    struct object **a = (struct object **)self;
+    ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
+    ssize_t payload_length = sizeof(struct function) / sizeof(struct object *);
+
+    for (ssize_t i = -prelude_length; i < payload_length; ++i)
+    {
+        a[i] = forward(a[i]);
+    }
+
+    // TODO: forward also pointers in function's code
+
+    return (struct object *)self;
+}
+
+struct object *map_inner_forward(size_t n, struct map *self, struct function *closure)
+{
+    struct object **a = (struct object **)self;
+    ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
+    ssize_t payload_length = (fx(self->count) * sizeof(struct property) + sizeof(struct map)) 
+                             / sizeof(struct object *);
+
+    for (ssize_t i = -prelude_length; i < payload_length; ++i)
+    {
+        a[i] = forward(a[i]);
+    }
+
+    return (struct object *)self;
+}
+
+struct object *object_inner_forward(size_t n, struct object *self, struct function *closure)
+{
+    struct object **a = (struct object **)self;
+    ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
+    ssize_t payload_length = 0;
+
+    //printf("object_inner_forward prelude_length %zd, payload_length %zd\n", prelude_length, payload_length);
+
+    for (ssize_t i = -prelude_length; i < payload_length; ++i)
+    {
+        a[i] = forward(a[i]);
+    }
+
+    return (struct object *)self;
+}
+
+method_t inner_forward[] = {
+    (method_t)array_inner_forward,
+    (method_t)cell_inner_forward,
+    (method_t)fixnum_inner_forward,
+    (method_t)function_inner_forward,
+    (method_t)map_inner_forward,
+    (method_t)object_inner_forward,
+    (method_t)object_inner_forward
+};
+
+struct object *object_scan(struct object *self)
+{
+    ssize_t type = fx(self->_hd[-1].map->type);
+
+    printf("object_scan %p type %zd\n", self, type);
+
+    if (type >= 7 || type < 0)
+    {
+        printf("Unsupported type number '%zd'\n", type);
+        exit(1);
+    }
+    return inner_forward[type](0, self, NIL);
+}
+
+struct object *object_forward(struct object *self)
+{
+    if (ref_is_fixnum(self) || fx(self) < fx(RESERVED))
+    {
+        return self;
+    } else if ((ssize_t)self->_hd[-1].map & 1 == 1)
+    {
+        return (struct object *)((ssize_t)self->_hd[-1].map & -2);
+    } else
+    {
+        self->_hd[-1].map = (struct map *)((ssize_t)shallow_copy(self) | 1);
+        return (struct object *)((ssize_t)self->_hd[-1].map & -2);
+    }
+}
+
+// TODO: Make sure values are always initialized to UNDEFINED for object fields
+void mm_test()
+{
+    newHeap();
+    from_start = start;
+    from_end   = end;
+
+    printf("from_start %p, from_end %p \n", from_start, from_end);
+
+    struct object *roots[3];
+
+    // Creating some objects
+    printf("root_object payload_size %zd\n", fx(root_object->_hd[-1].payload_size));
+    roots[0] = send0(root_object, s_new);
+    roots[1] = send(root_symbol, s_intern, (struct object *)"foo");
+    roots[2] = send(root_symbol, s_intern, (struct object *)"bar");
+    roots[3] = send(root_array, s_new, ref(10));
+    
+    // Initializing members to some values
+    send(roots[0], s_set, roots[1], ref(42)); * 
+    send(roots[0], s_set, roots[2], roots[3]);
+    send(roots[3], s_push, ref(1));
+    send(roots[3], s_push, ref(2));
+    send(roots[3], s_push, roots[0]);
+
+    // Check initial working of the object model
+    assert(send(roots[0], s_get, roots[1]) == ref(42)); 
+    assert(send(roots[0], s_get, roots[2]) == roots[3]);
+    assert(send(roots[3], s_get, ref(0))   == ref(1));
+    assert(send(roots[3], s_get, ref(1))   == ref(2));
+    assert(send(roots[3], s_get, ref(2))   == roots[0]);
+
+    // Create a new memory location for forwarded objects
+    newHeap();
+
+    printf("Forwarding roots\n");
+    char *scan = next;
+    for (ssize_t i = 0; i < 4; ++i)
+    {
+        roots[i] = forward(roots[i]);
+        printf("roots[%zd] = %p\n", i, roots[i]);
+    }
+
+    struct object *symbols = send(root_symbol, s_get, s_symbols); 
+    for (ssize_t i = 0; i < fx(((struct array *)symbols)->count); ++i)
+    {
+        ((struct array *)symbols)->indexed_values[i] = 
+            forward(((struct array *)symbols)->indexed_values[i]);
+    }
+
+    printf("Beginning scan\n");
+    while (scan < end && scan < next)
+    {
+        // Ajust for prelude size
+        ssize_t size = *((ssize_t *)scan); 
+        scan = (char *)((ssize_t)scan + size + sizeof(ssize_t));
+
+        // Scan object
+        object_scan((struct object *)scan);
+
+        // Adjust for payload_size, align on a word boundary
+        size = fx(((struct object *)scan)->_hd[-1].payload_size);
+        size = (size + sizeof(struct object *) - 1) & -sizeof(struct object *);
+        scan = (char *)((ssize_t)scan + size);
+    }
+
+    assert(scan < end);
+    assert(send(roots[0], s_get, roots[1]) == ref(42)); 
+    assert(send(roots[0], s_get, roots[2]) == roots[3]);
+    assert(send(roots[3], s_get, ref(0))   == ref(1));
+    assert(send(roots[3], s_get, ref(1))   == ref(2));
+    assert(send(roots[3], s_get, ref(2))   == roots[0]);
+    assert(send(root_symbol, s_intern, (struct object *)"foo") == roots[1]);
+    assert(send(root_symbol, s_intern, (struct object *)"bar") == roots[2]);
+
 }
 
 //--------------------------------- Bootstrap ----------------------------------
@@ -1230,12 +1480,13 @@ extern void bootstrap()
     send(root_array, s_set, name, array_print);
     send(root_fixnum, s_set, name, fixnum_print);
 
+    log("Bootstrap done\n");
 }
-/*
+
 int main()
 {
     newHeap();
     bootstrap();
+    mm_test();
     return 0;
 }
-*/
