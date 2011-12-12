@@ -172,6 +172,7 @@ struct symbol {
 //--------------------------------- Root Objects ------------------------------
 struct object *roots              = (struct object *)0;
 struct object *roots_names        = (struct object *)0;
+struct object *root_arguments     = (struct object *)0;
 struct object *root_array         = (struct object *)0;
 struct object *root_cell          = (struct object *)0;
 struct object *root_fixnum        = (struct object *)0;
@@ -193,6 +194,7 @@ struct object *s_clone       = (struct object *)0;
 struct object *s_create      = (struct object *)0;
 struct object *s_delete      = (struct object *)0;
 struct object *s_get         = (struct object *)0;
+struct object *s_get_cell    = (struct object *)0;
 struct object *s_init        = (struct object *)0;
 struct object *s_intern      = (struct object *)0;
 struct object *s_length      = (struct object *)0;
@@ -202,6 +204,7 @@ struct object *s_prototype   = (struct object *)0;
 struct object *s_push        = (struct object *)0;
 struct object *s_remove      = (struct object *)0;
 struct object *s_set         = (struct object *)0;
+struct object *s_set_cell    = (struct object *)0;
 struct object *s_symbols     = (struct object *)0;
 
 struct object *ARRAY_TYPE    = (struct object *)0;
@@ -416,6 +419,97 @@ struct object *super_bind(struct object *null_n, struct object *null_rcv, struct
 }
 
 //--------------------------------- Object Primitives --------------------------
+
+struct object *object_get(size_t n, struct object *self, struct function *closure, struct object *name);
+struct object *object_set(size_t n, struct object *self, struct function *closure, struct object *name, struct object *value);
+struct object *arguments_get(size_t n, struct array *self, struct function *closure, struct object *name)
+{
+    if (ref_is_fixnum(name) && fx(name) >= 0)
+    {
+        ssize_t i = fx(name);
+        if (i >= fx(self->count))
+        {
+            return UNDEFINED;
+        } else
+        {
+            return ((struct cell *)(self->indexed_values[i]))->value;
+        }
+    } else if (name == s_length)
+    {
+        return self->count;
+    }
+
+    return object_get(n, (struct object *)self, closure, name);
+}
+
+struct object *arguments_get_cell(size_t n, struct array *self, struct function *closure, struct object *name)
+{
+    assert(ref_is_fixnum(name) && (fx(name) >= 0) && (fx(name) < fx(self->count)));
+    return self->indexed_values[fx(name)];
+}
+
+struct object *arguments_new(size_t n, struct array *self, struct function *closure, struct object *size)
+{
+    assert(ref_is_fixnum(size));
+    assert(fx(size) >= 0);
+
+    struct array *new_args = (struct array *)send(
+        self, 
+        s_init, 
+        ref(5), 
+        ref(fx(size)*sizeof(struct object *) + sizeof(struct array))
+    );
+
+    new_args->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
+    new_args->_hd[-1].map->type = ARRAY_TYPE;
+    new_args->_hd[-1].prototype = (struct object *)self;
+    
+    new_args->count = size;
+
+    for (ssize_t i = 0; i < fx(size); ++i)
+    {
+        new_args->indexed_values[i] = send(root_cell, s_new, UNDEFINED);
+    }
+
+    return (struct object *)new_args;
+}
+
+struct object *arguments_set_cell(size_t n, struct array *self, struct function *closure, struct object *name, struct object *cell)
+{
+    assert(ref_is_fixnum(name) && (fx(name) >= 0) && (fx(name) < fx(self->count)));
+    self->indexed_values[fx(name)] = cell;
+    return cell;
+}
+
+struct object *arguments_print(size_t n, struct array *self, struct function *closure)
+{
+    printf("[Arguments]\n");
+    return UNDEFINED;
+}
+
+struct object *arguments_set(
+    size_t n,
+    struct array *self, 
+    struct function *closure,
+    struct object *name, 
+    struct object *value
+)
+{
+    ssize_t i = fx(name);
+
+    if (ref_is_fixnum(name) && i >= 0 && i < fx(self->count))
+    {
+        ((struct cell *)(self->indexed_values[i]))->value = value;
+    } 
+    else     
+    {
+        assert(name != s_length);
+        return object_set(n, (struct object *)self, closure, name, value);
+    }
+
+    return value;
+}
+
 struct object *array_delete(size_t n, struct array *self, struct function *closure, struct object *name)
 {
     if (ref_is_fixnum(name))
@@ -444,6 +538,9 @@ struct object *array_get(size_t n, struct array *self, struct function *closure,
         {
             return self->indexed_values[i];
         }
+    } else if (name == s_length)
+    {
+        return self->count;
     }
 
     return super_send(self, s_get, name);
@@ -457,8 +554,8 @@ struct object *array_new(size_t n, struct array *self, struct function *closure,
     struct object *new_array = send(
         self, 
         s_init, 
-        ref(4), 
-        ref(fx(size)*sizeof(struct object *) + sizeof(struct object *))
+        ref(6), 
+        ref(fx(size)*sizeof(struct object *) + sizeof(struct array))
     );
 
     new_array->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
@@ -634,7 +731,6 @@ struct object *function_print(size_t n, struct function *self)
 struct object *map_clone(size_t n, struct map *self, struct function *closure, struct object *payload_size)
 {
     assert(fx(payload_size) >= fx(self->_hd[-1].payload_size));
-    printf("map_clone\n");
     
     ssize_t i;
 
@@ -707,7 +803,6 @@ struct object *map_lookup(size_t n, struct map *self, struct function *closure, 
 
 struct object *map_new(size_t n, struct map *self, struct function *closure)
 {
-    printf("map_new\n");
     struct map* new_map = (struct map *)send(
         self, 
         s_init, 
@@ -819,7 +914,7 @@ struct object *object_allocate(
     );
 
     // Initialize all values to 0
-    for (ssize_t i = 0; i < (fx(prelude_size) + fx(payload_size) + sizeof(ssize_t)); ++i)
+    for (ssize_t i = 0; i < (fx(prelude_size) + fx(payload_size) + (ssize_t)sizeof(ssize_t)); ++i)
     {
         ptr[i] = (char)0;
     }
@@ -1024,7 +1119,7 @@ struct object *symbol_print(size_t n, struct object *self, struct function *clos
 
 void log(const char* s)
 {
-    printf("%s", s); 
+    //printf("%s", s); 
 }
 
 //--------------------------------- Memory Management --------------------------
@@ -1174,10 +1269,6 @@ struct object *object_scan(struct object *self)
     return inner_forward[type](0, self, NIL);
 }
 
-struct object *object_forward(struct object *self)
-{
-}
-
 // TODO: Make sure values are always initialized to UNDEFINED for object fields
 void mm_test()
 {
@@ -1217,31 +1308,34 @@ void mm_test()
         roots[i] = forward(roots[i]);
     }
     
-    roots_names = forward(roots_names);
-    root_array = forward(root_array);
-    root_cell = forward(root_cell);
-    root_fixnum = forward(root_fixnum);
-    root_function = forward(root_function);
-    root_map = forward(root_map);
-    root_object = forward(root_object);
-    root_symbol = forward(root_symbol);
+    roots_names    = forward(roots_names);
+    root_array     = forward(root_array);
+    root_arguments = forward(root_array);
+    root_cell      = forward(root_cell);
+    root_fixnum    = forward(root_fixnum);
+    root_function  = forward(root_function);
+    root_map       = forward(root_map);
+    root_object    = forward(root_object);
+    root_symbol    = forward(root_symbol);
 
-    s_add = forward(s_add);
-    s_allocate = forward(s_allocate);
-    s_clone = forward(s_clone);
-    s_create = forward(s_create);
-    s_delete = forward(s_delete);
-    s_get = forward(s_get);
-    s_init = forward(s_init);
-    s_intern = forward(s_intern);
-    s_length = forward(s_length);
-    s_lookup = forward(s_lookup);
-    s_new = forward(s_new);
+    s_add       = forward(s_add);
+    s_allocate  = forward(s_allocate);
+    s_clone     = forward(s_clone);
+    s_create    = forward(s_create);
+    s_delete    = forward(s_delete);
+    s_get       = forward(s_get);
+    s_get_cell  = forward(s_get_cell);
+    s_init      = forward(s_init);
+    s_intern    = forward(s_intern);
+    s_length    = forward(s_length);
+    s_lookup    = forward(s_lookup);
+    s_new       = forward(s_new);
     s_prototype = forward(s_prototype);
-    s_push = forward(s_push);
-    s_remove = forward(s_remove);
-    s_set = forward(s_set);
-    s_symbols = forward(s_symbols);
+    s_push      = forward(s_push);
+    s_remove    = forward(s_remove);
+    s_set       = forward(s_set);
+    s_set_cell  = forward(s_set_cell);
+    s_symbols   = forward(s_symbols);
 
 
     log("Beginning scan\n");
@@ -1325,6 +1419,7 @@ extern void bootstrap()
     s_create      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
     s_delete      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
     s_get         = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(8));
+    s_get_cell    = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(13));
     s_init        = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(9));
     s_intern      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
     s_length      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(7));
@@ -1332,6 +1427,7 @@ extern void bootstrap()
     s_prototype   = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(10));
     s_push        = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(9));
     s_remove      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
+    s_set_cell    = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(13));
     s_symbols     = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(12));
 
     log("Add primitive methods on Root Map\n");
@@ -1427,6 +1523,7 @@ extern void bootstrap()
     send(symbols, s_push, s_create);
     send(symbols, s_push, s_delete);
     send(symbols, s_push, s_get);
+    send(symbols, s_push, s_get_cell);
     send(symbols, s_push, s_init);
     send(symbols, s_push, s_intern);
     send(symbols, s_push, s_length);
@@ -1436,6 +1533,7 @@ extern void bootstrap()
     send(symbols, s_push, s_push);
     send(symbols, s_push, s_remove);
     send(symbols, s_push, s_set);
+    send(symbols, s_push, s_set_cell);
     send(symbols, s_push, s_symbols);
 
     strcpy((char*)s_add,       "__add__");
@@ -1444,6 +1542,7 @@ extern void bootstrap()
     strcpy((char*)s_create,    "__create__");
     strcpy((char*)s_delete,    "__delete__");
     strcpy((char*)s_get,       "__get__");
+    strcpy((char*)s_get_cell,  "__get_cell__");
     strcpy((char*)s_init,      "__init__");
     strcpy((char*)s_intern,    "__intern__");
     strcpy((char*)s_length,    "length");
@@ -1453,6 +1552,7 @@ extern void bootstrap()
     strcpy((char*)s_push,      "__push__");
     strcpy((char*)s_remove,    "__remove__");
     strcpy((char*)s_set,       "__set__");
+    strcpy((char*)s_set_cell,  "__set_cell__");
     strcpy((char*)s_symbols,   "__symbols__");
 
     struct map *empty_map = (struct map *)send0(
@@ -1490,8 +1590,20 @@ extern void bootstrap()
     log("Add primitive methods on Root Cell object\n");
     send(root_cell, s_set, s_new, register_function((struct object *)cell_new));
 
+    log("Create Root Arguments object\n");
+    root_arguments = send(root_array, s_new, ref(0));
+
+    log("Add primitive methods on Root Arguments object \n");
+    send(root_arguments, s_set, s_get,      register_function((struct object *)arguments_get));
+    send(root_arguments, s_set, s_get_cell, register_function((struct object *)arguments_get_cell));
+    send(root_arguments, s_set, s_new,      register_function((struct object *)arguments_new));
+    send(root_arguments, s_set, s_set,      register_function((struct object *)arguments_set));
+    send(root_arguments, s_set, s_set_cell, register_function((struct object *)arguments_set_cell));
+
+    log("Registering roots\n");
     roots = send(root_array, s_new, ref(20));
 
+    send(roots, s_push, root_arguments); 
     send(roots, s_push, root_array); 
     send(roots, s_push, root_cell);
     send(roots, s_push, root_fixnum); 
@@ -1502,7 +1614,9 @@ extern void bootstrap()
 
     roots_names = send(root_array, s_new, ref(20));
 
-    struct object *name = send(root_symbol, s_intern, "array");
+    struct object *name = send(root_symbol, s_intern, "arguments");
+    send(roots_names, s_push, name); 
+    name = send(root_symbol, s_intern, "array");
     send(roots_names, s_push, name); 
     name = send(root_symbol, s_intern, "cell");
     send(roots_names, s_push, name); 
@@ -1518,20 +1632,24 @@ extern void bootstrap()
     send(roots_names, s_push, name); 
 
     // Debugging support
+    log("Adding print method on objects\n");
     name = send(root_symbol, s_intern, "__print__");
-    send(root_symbol, s_set, name, register_function((struct object *)symbol_print));
-    send(root_map, s_set, name, register_function((struct object *)map_print));
-    send(root_object, s_set, name, register_function((struct object *)object_print));
-    send(root_array, s_set, name, register_function((struct object *)array_print));
-    send(root_fixnum, s_set, name, register_function((struct object *)fixnum_print));
+    send(root_arguments, s_set, name, register_function((struct object *)arguments_print));
+    send(root_array,     s_set, name, register_function((struct object *)array_print));
+    send(root_fixnum,    s_set, name, register_function((struct object *)fixnum_print));
+    send(root_map,       s_set, name, register_function((struct object *)map_print));
+    send(root_object,    s_set, name, register_function((struct object *)object_print));
+    send(root_symbol,    s_set, name, register_function((struct object *)symbol_print));
 
     log("Bootstrap done\n");
 }
 
+/*
 int main()
 {
     newHeap();
     bootstrap();
-    mm_test();
+    //mm_test();
     return 0;
 }
+*/

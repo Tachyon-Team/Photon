@@ -163,6 +163,7 @@ function scope(p)
     that.used     = {};
     that.parent   = p;
     that.children = [];
+    that.useArguments = false;
 
     if (p !== null)
     {
@@ -225,6 +226,11 @@ scope.prototype.resolve = function ()
         if (v.is_local() && !v.isParam)
         {
             this._local.push(v);
+        }
+
+        if (this.useArguments && v.isParam)
+        {
+            this._escaping[id] = v; 
         }
     }
 };
@@ -337,6 +343,11 @@ scope.prototype.captured = function (id)
 
     return this._captured[id];
 };
+
+scope.prototype.set_use_arguments = function ()
+{
+    this.useArguments = true;
+}
 
 function let_scope(p, names)
 {
@@ -480,6 +491,11 @@ let_scope.prototype.lookup = function (id)
     return v;
 };
 
+let_scope.prototype.set_use_arguments = function ()
+{
+    this.delegate.set_use_arguments();
+};
+
 function variable(scope, id, isParam)
 {
    var that = Object.create(variable.prototype); 
@@ -621,7 +637,7 @@ PhotonCompiler.context = {
         that.sizeof_header = 20;
 
         // Offsets of this and closure parameters from frame pointer
-        that.arg_nb_stack_offset = 8;
+        that.arg_nb_offset = 8;
         that.this_offset         = 12;
         that.clos_offset         = 16;
 
@@ -854,7 +870,7 @@ PhotonCompiler.context = {
 
     arg_nb_stack_offset:function ()
     {
-        return this.arg_nb_stack_offset + this.bias;
+        return this.arg_nb_offset + this.bias;
     },
 
     new_ref_ctxt:function ()
@@ -1456,5 +1472,20 @@ PhotonCompiler.context = {
                 }),
                 fn, _op("call", _EAX), 
                 _op("add", _$(nb*this.sizeof_ref), _ESP)];
+    },
+
+    gen_get_arguments:function (i)
+    {
+        return [i, _op("sar", _$(1), _EAX), _op("mov", _mem(5*this.sizeof_ref + this.bias, _EBP, _EAX, this.sizeof_ref), _EAX)];
+    },
+
+    gen_set_arguments:function (i, v)
+    {
+        return [i, _op("push", _EAX), v, _op("pop", _ECX), _op("sar", _$(1), _ECX), _op("mov", _EAX, _mem(5*this.sizeof_ref + this.bias, _EBP, _ECX, this.sizeof_ref))];
+    },
+
+    gen_get_arguments_length:function ()
+    {
+        return [_op("mov", _mem(this.arg_nb_stack_offset(), _EBP), _EAX), _op("sal", _$(1), _EAX), _op("inc", _EAX)];
     }
 };

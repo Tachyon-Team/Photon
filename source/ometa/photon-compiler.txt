@@ -57,7 +57,9 @@ ometa PhotonASTTraversal {
   letvar   [#var :name trans],
   let      :ctxt [#begin letvar*] trans,
   super_send :msg trans:rcv trans*:args,
-  closure end
+  closure end,
+  arguments trans:i,
+  arguments_length end
 }
 
 ometa PhotonASTCopy {
@@ -112,7 +114,9 @@ ometa PhotonASTCopy {
   letvar   [#var :name trans:val]               -> [#var, name, val],
   let      :ctxt [#begin letvar*:vs] trans:body -> [#let, _deep_copy(ctxt), [#begin].concat(vs), body],
   super_send :msg trans:rcv trans*:args         -> [#super_send, _deep_copy(msg), rcv].concat(args),
-  closure end                                   -> [#closure]
+  closure end                                   -> [#closure],
+  arguments trans:i                             -> [#arguments, i],
+  arguments_length end                          -> [#arguments_length]
 }
 
 ometa PhotonPrettyPrinter 
@@ -184,7 +188,10 @@ ometa PhotonPrettyPrinter
              | trans)*:es] -> (es.join(", ")),
   let      :ctxt letvars:es block:body                             -> ("(let (" + es + ")\n" + body + ")"),
   closure                                                          -> ("$closure"),
-  super_send :msg trans:recv trans*:args                           -> ("super(" + recv + ")." + msg + "(" + args.join(" ,") + ")")
+  super_send :msg trans:recv trans*:args                           -> ("super(" + recv + ")." + msg + "(" + args.join(" ,") + ")"),
+  arguments trans:i end                                            -> ("$arguments[@" + i + "]"),
+  arguments_length end                                             -> ("$arguments_length")
+
 }
 
 PhotonPrettyPrinter.initialize = function ()
@@ -317,6 +324,8 @@ ometa PhotonParser <: Parser {
                | "(" expr:e ")"                                                      -> e
                | "this"                                                              -> [#this]
                | "$closure"                                                          -> [#closure]
+               | "$arguments" "[@" expr:i "]"                                        -> [#arguments, i]
+               | "$arguments_length"                                                 -> [#arguments_length]
                | "name":n                                                            -> [#get, n]
                | "number":n                                                          -> [#number, n]
                | "string":s                                                          -> [#string, s]
@@ -391,7 +400,7 @@ PhotonParser.initialize = function ()
                 "else", "finally", "for", "function", "if", "in", "instanceof", 
                 "new", "return", "switch", "this", "throw", "try", "typeof", "var", 
                 "void", "while", "with", "ometa", "const", "global_return", "macro", 
-                "super", "let", "$closure"];
+                "super", "let", "$closure", "$arguments", "$arguments_length"];
     for (var idx = 0; idx < keywords.length; idx++)
     {
       this.keywords[keywords[idx]] = true
@@ -606,7 +615,9 @@ ometa PhotonDesugar <: PhotonASTCopy {
                                                                             .concat(args)]]}           
            |  ^call,
   set      ( [#getp trans:rcv trans:fd] trans:rhs             -> [#send, "__set__", rcv, fd, rhs]
-           | ^set)
+           | ^set),
+  get      ( :name ?(name === "arguments")                    -> {self.context.declare(name); [#get, "arguments"]}
+           | ^get)
 }
 
 PhotonDesugar.initialize = function ()
@@ -665,7 +676,7 @@ PhotonDesugar.context =
 // ----------------------------------------------------------------------------
 ometa PhotonVarAnalysis <: PhotonASTTraversal {
   global   :ctxt {ctxt.scope = scope(null); self._ctxt.push(ctxt);} trans {ctxt.scope.resolve(); /*print(ctxt.scope);*/},
-  get      (#true | #false | #undefined | #null),
+  get      (#true | #false | #undefined | #null | #arguments -> {self.scope().set_use_arguments(); self.scope().declare("arguments", false);}),
   get      :x {self.scope().use(x);},
   var      :name {self.scope().declare(name, false);} trans,
 
@@ -712,7 +723,7 @@ ometa PhotonVarScopeBinding <: PhotonASTCopy {
   global :ctxt   {self.context.enter_function_scope(ctxt.scope)} 
          trans:r {self.context.leave_function_scope(ctxt.scope)} -> [#global, ctxt, r], 
 
-  get       (#true | #false | #undefined | #null):c              -> [#get, c],
+  get       (#true | #false | #undefined | #null | #arguments):c -> [#get, c],
   get (:id -> {self.context.scope.lookup(id)}):x 
                                        ( isGlobal(x)             -> [#send, "__get__", [#ref, photon.global], [#string, id]]
                                        | isLocal(x)              -> [#get, id]
@@ -731,6 +742,7 @@ ometa PhotonVarScopeBinding <: PhotonASTCopy {
                                                                       body = [#begin]
                                                                              .concat([body[1]])
                                                                              .concat(self.context.gen_escaping(es))
+                                                                             .concat(self.context.gen_arguments(args.length, ctxt.scope))
                                                                              .concat(body.slice(2));
                                                                      [#let, {scope:local_let_scope(self.context.scope, [f])},
                                                                        [#begin, [#var, f, [#send, "__clone__", [#func, args, ctxt, body]]]],
@@ -812,6 +824,13 @@ PhotonVarScopeBinding.context =
         var a = [];
         for (id in es)
         {
+            var v = es[id];
+
+            if (v.scope.useArguments && v.isParam)
+            {
+                continue;
+            }
+
             a.push(["set", ["get", id], ["send", "__new__", ["ref", photon.cell], ["get", id]]]);
         }
         return a;
@@ -832,6 +851,34 @@ PhotonVarScopeBinding.context =
             }
         }
         return a;
+    },
+    gen_arguments:function (expected_nb, scope)
+    {
+        if (scope.useArguments)
+        {
+            var i = gensym(), c = gensym();
+            return [["let", {scope:local_let_scope(scope, [i, c])},
+                ["begin", ["var", i, ["number", 0]], ["var", c, ["get", "undefined"]]],
+                ["begin",
+                    ["set", ["get", "arguments"], ["send", "__new__", ["ref", photon.arguments], ["arguments_length"]]],
+                    ["for", 
+                        ["begin", ["set", ["get", i], ["number", 0]]],
+                        ["binop", "<", ["get", i], ["arguments_length"]],
+                        ["begin", ["set", ["get", i], ["binop", "+", ["get", i], ["number", 1]]]],
+                        ["begin",
+                            ["set", ["get", c], ["send", "__get_cell__", ["get", "arguments"], ["get", i]]],
+                            ["set", ["gets", ["get", c], ["number", 0]], ["arguments", ["get", i]]],
+                            ["set", ["arguments", ["get", i]], ["get", c]]]],
+                    ["for", 
+                        ["begin", ["set", ["get", i], ["arguments_length"]]],
+                        ["binop", "<", ["get", i], ["number", expected_nb]],
+                        ["begin", ["set", ["get", i], ["binop", "+", ["get", i], ["number", 1]]]],
+                        ["begin",
+                            ["set", ["arguments", ["get", i]], ["send", "__new__", ["ref", photon.cell], ["arguments", ["get", i]]]]]]]]];
+        } else
+        {
+            return [];
+        }
     }
 };
 
@@ -877,6 +924,7 @@ ometa PhotonCompiler {
   gets     push(1):x  trans:fd pop(1)                         -> [x, _op("push", _EAX), fd, _op("dec", _EAX), _op("pop", _ECX), 
                                                                   _op("mov", _mem(0, _ECX, _EAX, 2), _EAX)],
   set      ( [#get :x] trans:rhs                              -> self.context.gen_set_local(x, rhs)
+           | [#arguments push(1):i] trans:rhs pop(1)          -> self.context.gen_set_arguments(i, rhs)
            | [#gets push(1):rcv push(1):fd] trans:rhs pop(2)  -> [rcv, _op("push", _EAX), 
                                                                   fd,  _op("dec", _EAX), _op("push", _EAX), 
                                                                   rhs,
@@ -988,7 +1036,9 @@ ometa PhotonCompiler {
            letvars(os):es  
            {self.context.enter_let_scope(ctxt.scope, os);}
            trans:body 
-           {self.context.leave_let_scope();}:nb    -> self.context.gen_let(nb, es, body) 
+           {self.context.leave_let_scope();}:nb    -> self.context.gen_let(nb, es, body),
+  arguments trans:i                                           -> self.context.gen_get_arguments(i),
+  arguments_length                                            -> self.context.gen_get_arguments_length()
 }
 
 PhotonCompiler.initialize = function ()
