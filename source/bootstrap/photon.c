@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <assert.h>
+#include "../mm/stop_and_copy.c"
 
 /*
  * The PP_NARG macro evaluates to the number of arguments that have been
@@ -634,7 +635,6 @@ struct object *function_print(size_t n, struct function *self)
 struct object *map_clone(size_t n, struct map *self, struct function *closure, struct object *payload_size)
 {
     assert(fx(payload_size) >= fx(self->_hd[-1].payload_size));
-    printf("map_clone\n");
     
     ssize_t i;
 
@@ -707,7 +707,6 @@ struct object *map_lookup(size_t n, struct map *self, struct function *closure, 
 
 struct object *map_new(size_t n, struct map *self, struct function *closure)
 {
-    printf("map_new\n");
     struct map* new_map = (struct map *)send(
         self, 
         s_init, 
@@ -810,26 +809,20 @@ struct object *object_allocate(
     struct object *payload_size
 )
 {
-    // Align payload_size to sizeof(struct object *) bytes
-    payload_size = ref((fx(payload_size) + sizeof(struct object *) - 1) & -sizeof(struct object *));
+	//printf("\nobject_allocate\n");
+	printf("pay_size: %zd\n", fx(payload_size));
+	payload_size = ref((fx(payload_size) + sizeof(struct object *) - 1) & -sizeof(struct object *));
+	char *ptr = (char *) m_alloc(fx(prelude_size) + fx(payload_size) + sizeof(ssize_t));
 
-    char *ptr = (char *)raw_calloc(
-        1, 
-        fx(prelude_size) + fx(payload_size) + sizeof(ssize_t)
-    );
-
-    // Initialize all values to 0
+	// Initialize all values to 0
     for (ssize_t i = 0; i < (fx(prelude_size) + fx(payload_size) + sizeof(ssize_t)); ++i)
     {
         ptr[i] = (char)0;
     }
 
-    // Store prelude size before the object
-    *((ssize_t *)ptr) = fx(prelude_size);
-    struct object *po = (struct object *)((ssize_t)ptr + fx(prelude_size) + sizeof(ssize_t));
-
-    //printf("object_allocate prelude_size %zd, payload_size %zd, %p\n", *((ssize_t *)ptr), fx(payload_size), po);
-
+    *((ssize_t *)(ptr + (fx(prelude_size) + fx(payload_size) + sizeof(ssize_t)))) = fx(payload_size);
+	struct object *po = (struct object *)(ptr + fx(prelude_size) + sizeof(ssize_t));
+	printf("End object_allocate: ptr %p, pre %zd, pay %zd\n", po, fx(prelude_size), fx(payload_size));
     return po;
 }
 
@@ -963,18 +956,15 @@ struct object *object_print(size_t n, struct object *self, struct function *clos
 struct object *object_set(size_t n, struct object *self, struct function *closure, struct object *name, struct object *value)
 {
     struct map *new_map;
-    struct object *offset = send(self->_hd[-1].map, s_lookup, name);
-
+	struct object *offset = send(self->_hd[-1].map, s_lookup, name);
+	
     if (offset == UNDEFINED)
     {
         assert(object_values_count(self) < object_values_size(self));
-
         ssize_t i = fx(self->_hd[-1].map->next_offset);
-        
         new_map = (struct map *)send(self->_hd[-1].map, s_create, name);
         self->_hd[-1].map = new_map;  
         object_values_count_inc(self);
-
         return self->_hd[-1].values[i] = value;
     } else
     {
@@ -1162,9 +1152,10 @@ method_t inner_forward[] = {
 
 struct object *object_scan(struct object *self)
 {
+	printf("Scan: self %p\n", self);
     ssize_t type = fx(self->_hd[-1].map->type);
 
-    printf("object_scan %p type %zd\n", self, type);
+    //printf("object_scan %p type %zd\n", self, type);
 
     if (type >= 7 || type < 0)
     {
@@ -1181,8 +1172,8 @@ struct object *object_forward(struct object *self)
 // TODO: Make sure values are always initialized to UNDEFINED for object fields
 void mm_test()
 {
-    from_start = start;
-    from_end   = end;
+    //from_start = start;
+    //from_end   = end;
 
     struct object *roots[3];
 
@@ -1207,10 +1198,11 @@ void mm_test()
     assert(send(roots[3], s_get, ref(2))   == roots[0]);
 
     // Create a new memory location for forwarded objects
-    newHeap();
+    //newHeap();
+	flip();
 
     log("Forwarding roots\n");
-    char *scan = next;
+    //char *scan = next;
 
     for (ssize_t i = 0; i < 4; ++i)
     {
@@ -1245,7 +1237,12 @@ void mm_test()
 
 
     log("Beginning scan\n");
-    while (scan < end && scan < next)
+	
+	print_global();
+	page_print();
+	scanner();
+	
+    /*while (scan < end && scan < next)
     {
         // Ajust for prelude size
         ssize_t size = *((ssize_t *)scan); 
@@ -1259,17 +1256,17 @@ void mm_test()
         size = (size + sizeof(struct object *) - 1) & -sizeof(struct object *);
         scan = (char *)((ssize_t)scan + size);
     }
-
+	*/
     log("Erasing initial memory page\n");
-    scan = from_start;
+    /*scan = from_start;
     while (scan < from_end)
     {
         *scan = (char)0;
         scan += 1;
     }
-
+	*/
     log("Testing object model\n");
-    assert(scan < end);
+    //assert(scan < end);
     assert(send(roots[0], s_get, roots[1]) == ref(42)); 
     assert(send(roots[0], s_get, roots[2]) == roots[3]);
     assert(send(roots[3], s_get, ref(0))   == ref(1));
@@ -1354,6 +1351,7 @@ extern void bootstrap()
         ref(4), 
         ref(4*sizeof(struct property) + sizeof(struct map))
     );
+	assert(!ref_is_fixnum((struct object *)root_object->_hd[-1].map));
     root_object->_hd[-1].map->_hd[-1].prototype = root_map;
 
     // For bootstrapping purposes, create properties on the map first
@@ -1383,15 +1381,15 @@ extern void bootstrap()
         ref(0), 
         ref(sizeof(struct map))
     );
+
     root_object_map_map->_hd[-1].prototype = (struct object *)root_object_map_map;
     root_object_map_map->_hd[-1].map = root_object_map_map;
+
     root_object_map_map->count       = ref(0);
     root_object_map_map->next_offset = ref(-1);
-    root_object_map_map->type        = MAP_TYPE;
+	root_object_map_map->type        = MAP_TYPE;
     map_values_set_immutable(root_object_map_map);
-
     root_object->_hd[-1].map->_hd[-1].map = root_object_map_map;
-
 
     log("Add primitive methods on Root Object\n");
     object_set(2, root_object, NULL_CLOSURE, s_set, register_function((struct object *)object_set));
@@ -1530,8 +1528,10 @@ extern void bootstrap()
 
 int main()
 {
-    newHeap();
+    mem_init();
+	//newHeap();
     bootstrap();
     mm_test();
     return 0;
 }
+

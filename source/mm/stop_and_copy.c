@@ -3,13 +3,16 @@
  * 
  *	TODO
  *	
- *	Pile GCProtect pour vars.
+ *	
  *
  */
  
 #include <stdio.h> 
 #include <stdlib.h>
 #include <unistd.h>
+
+ssize_t object_prelude_size(struct object *self);
+struct object *object_scan(struct object *self);
 
 typedef ssize_t word;
 // Macro qui extrait un entier d'un pointer.
@@ -30,7 +33,7 @@ typedef ssize_t word;
 // La taille d'une page en byte.
 
 
-#define PAGE_SIZE (32)
+#define PAGE_SIZE (4096)
 #define PAGE_SIZE_B (PAGE_SIZE*sizeof(word))
 
 typedef struct page{
@@ -39,7 +42,7 @@ typedef struct page{
 	word * barrier;
 	struct page * next;
 	struct page * previous;
-	int size;
+	//int size;
 }Page;
 
 typedef struct pile{
@@ -59,7 +62,7 @@ static int rootcount = 0;
 
 // Imprime l'espace global.
 void print_global(){
-	printf(" tospace: %d\n fromspace: %d\n free: %d\n currentPage: %d\n nextfree: %d\n memory: %d\n\n", tospace, fromspace, free_mem, currentPage->current,currentPage->nextfree, memory->current);
+	printf(" tospace: %p\n fromspace: %p\n free: %p\n currentPage: %p\n nextfree: %p\n memory: %p\n\n", tospace, fromspace, free_mem, currentPage->current,currentPage->nextfree, memory->current);
 }
 
 void mem_print();
@@ -82,8 +85,8 @@ int mem_init(){
 	free_mem = (char *)(tospace-1);
 
 	// On met tout a 0:
-	word * iterator = currentPage->current;
-	while(iterator < currentPage->current+PAGE_SIZE){
+	char * iterator = (char *)currentPage->current;
+	while(iterator < ((char *)currentPage->current+PAGE_SIZE_B)){
 		*iterator++ = 0;
 	}
 	return 1;
@@ -98,6 +101,7 @@ void add_Page(){
 	p->current = (word *) malloc(PAGE_SIZE_B);
 	p->barrier = p->current;
 	p->nextfree = (char *)(p->current+(PAGE_SIZE/2)-1);	
+	printf("Add Page: p: %u p->current: %u p->next: %u current->next: %u\n", p, p->current, p->next, currentPage->next);
 	change_page(p);
 }
 
@@ -115,7 +119,7 @@ void add_LoA(int size) {
 	}
 	p->current = (word *) malloc(size);
 	p->nextfree = NULL;
-	p->size = size;
+	//p->size = size;
 	LOA=p;
 	printf("End LOA\n");
 }
@@ -160,12 +164,12 @@ void trim_memory(){
 }
 
 // Inverse to et from. 
-void flip(word ** root, int rootcount){
+void flip(){
 	change_page(memory);
 	scanPage = memory;
 	scan = (word *)free_mem;
 	// Scan le root array
-	int i;
+	/*int i;
 	for(i=0; i< rootcount ; i++){
 		root[i] = copy(root[i]);
 	}
@@ -175,23 +179,25 @@ void flip(word ** root, int rootcount){
 		*(GC_pro->current) = copy(*(GC_pro->current));
 		GC_pro = GC_pro->previous;
 	}
-	scanner();
-	if(currentPage->next != NULL) trim_memory();
+	*/
+	//scanner();
+	//if(currentPage->next != NULL) trim_memory();
 }
 
 // Alloue un bloc de mémoire dans memory/LOA
-word * m_alloc(int size){
+// ToDO ajouter un param avec taille de l'alignement.
+char * m_alloc(ssize_t size, ssize_t align = 0, ssize_t gc = 0){
 	
-	printf("\nIn m_alloc: size = %d\n\n", size);
-	printf("diff: %d\n", ((word)free_mem - (word)(fromspace-1)));	
 	if(size > PAGE_SIZE_B/2){
-		add_LoA(size);
-		return LOA->current;
+		printf("Objet trop gros");
+		return NULL;
+		//add_LoA(size);
+		//return (char *)LOA->current;
 	}
 
 	// Si la prochaine page n'existe pas.
 	if(size > ((word)free_mem - (word)(fromspace-1)) && currentPage->next == NULL){
-		//flip(root, rootcount);
+		//if(gc)flip();
 		if(size > ((word)free_mem - (word)(fromspace-1))){
 			add_Page();
 		}
@@ -199,10 +205,9 @@ word * m_alloc(int size){
 	else if(size > ((word)free_mem - (word)(fromspace-1))){
 		change_page(currentPage->next);
 	}
-	
 	free_mem -= size;
-	printf("End m_alloc\n");
-	return (word *)free_mem;
+	free_mem = (char *)((ssize_t)free_mem & -sizeof(ssize_t));
+	return free_mem;
 }
 
 
@@ -211,7 +216,7 @@ word * m_alloc(int size){
 word * mem_allocate(int sizeL, int sizeR){
 	
 	printf("free_mem: %u\n", free_mem);
-	word * p = m_alloc((sizeL+sizeR+(sizeR?2:1))*sizeof(word));
+	word * p = (word *)m_alloc((sizeL+sizeR+(sizeR?2:1))*sizeof(word));
 	p += (sizeL+2);
 	p[-1] = ((sizeL<<4) + (sizeR<<8));
 	if(sizeR) p[sizeR] = I_TO_V(sizeR);
@@ -236,6 +241,32 @@ void stack_print(){
 	printf("End stack Print \n");
 }
 
+// Imprime la liste de pages:
+void LOA_print(){
+	printf("In LOA_print\n");
+	Page * p = LOA; int count = 0;
+	while (p != NULL){
+		// Imprime les infos de p.
+		printf("\nLOA: %u \naddress: %u \nnext: %u \nprevious: %u \ncurrent: %u\n", count++, p, p->next, p->previous, p->current);
+		p = p->previous;
+	}
+	
+}
+void page_print(){
+
+	//LOA_print();
+	printf("\nIn page_print\n");	
+	Page * p = memory; int count = 0;
+	while (p != NULL){
+		// Imprime les infos de p.
+		printf("\nPage: %u \naddress: %p \nnext: %p \nprevious: %p \ncurrent: %p\n", count++, p, p->next, p->previous, p->current);
+		p = p->next;
+	}
+	
+}
+
+
+
 // Pretty print le block courant.
 void mem_print(){
 	printf("In mem_print\n");
@@ -254,10 +285,10 @@ void mem_print(){
 	p = memory;
 	printf("Print memory: \n");
 	while(p != NULL){
-		printf("\nPage: %u\n", p->current);
+		printf("\nPage: %p\n", p->current);
 		word * pointer = p->current;
 		while(pointer < p->current + PAGE_SIZE){
-			printf("%u %u\n", pointer ,pointer[0]);
+			printf("%p %u\n", pointer ,pointer[0]);
 			pointer++;
 			if(pointer == p->current + PAGE_SIZE/2) printf("\n");
 		}
@@ -297,8 +328,8 @@ word * copy(word * p){
 
 // Scan le tospace pour copier les objets pointés par d'autres objets.
 void scanner(){
-	int pay_len, i, at_len, fun_len;
-	word * p;
+	//int pay_len, i, at_len, fun_len;
+	//word * p;
 	scanPage = memory;
 	
 	while((scan > ((word *)free_mem)) || currentPage != scanPage ){
@@ -314,7 +345,16 @@ void scanner(){
 			}
 		}		
 	
-		if(!(TEST(*scan))){
+		ssize_t size = *((ssize_t *)scan); 
+		printf("Scan: size %zd, scan %p, scan[-2] %zd\n", size, scan, scan[-2]);
+        scan = (word *)((ssize_t)scan - size);// -sizeof(ssize_t));
+	
+		object_scan((struct object *)scan);
+		
+		size = object_prelude_size((struct object *)scan);
+		scan = (word *)((ssize_t)scan - sizeof(ssize_t) - size);
+	
+		/*if(!(TEST(*scan))){
 			// Case PAYLOAD
 			pay_len = V_TO_I(scan[0]); 
 			fun_len = FUN_EX(scan[-pay_len-1]);
@@ -350,7 +390,10 @@ void scanner(){
 			}
 		}
 		scan--;
+		*/
 	}
+	
+	if(currentPage->next != NULL) trim_memory();
 }
 
 // Les tests.
@@ -406,6 +449,7 @@ word * Copy_List(word * List){
 	printf("Fin Create_List: it %d, nl %d\n", iterator[0], newList[0]);
 	return newList;
 }
+*/
 
 // 2. Arbre arithm. To redo.
 
@@ -471,9 +515,9 @@ word evalTree(word * tree){
 	}
 	return 0;
 }
-*/
-// Main.
 
+// Main.
+/*
 int main(int argc, char ** argv){
 
 	mem_init();
@@ -487,26 +531,25 @@ int main(int argc, char ** argv){
 	//UNGCPRO(l2);
 	//mem_print();
 	
-	//flip(root, rootcount);
-	mem_print();
-	mem_allocate(3,3);
-	//word * tree = Gen_Tree();
+	//ç(root, rootcount);
 	//mem_print();
+	//mem_allocate(3,3);
+	word * tree = Gen_Tree();
+	mem_print();
 
-	//GCPRO(tree, tree3);
-	//printf("Eval Tree: %d\n" , evalTree(tree));
-	//flip(root,rootcount);
-	//	flip(root,rootcount);
-	//		flip(root,rootcount);
+	GCPRO(tree, tree3);
+	printf("Eval Tree: %d\n" , evalTree(tree));
+	flip(root,rootcount);
+		flip(root,rootcount);
+			flip(root,rootcount);
 	//			flip(root,rootcount);
-	//printf("Eval Tree: %d\n" , evalTree(tree));
-	//UNGCPRO(tree3);
-	//flip(root, rootcount);
+	printf("Eval Tree: %d\n" , evalTree(tree));
+	UNGCPRO(tree3);
+	flip(root, rootcount);
 	
 	mem_print();
-	
 	
 	printf("End Main\n");
 	return 0;
 }
-
+*/
