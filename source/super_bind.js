@@ -11,6 +11,11 @@ macro ref_is_fixnum(r)
     ]}@;
 }
 
+macro header_size()
+{
+    return @{["number", photon.send(photon.object, "__header_size__") / photon.send(photon.object, "__ref_size__")]}@;
+}
+
 function super_bind(msg, n, rcv, closure)
 {
     var l_offset = undefined;
@@ -29,7 +34,7 @@ function super_bind(msg, n, rcv, closure)
                 continue;
             }
 
-            return ref_is_fixnum(l_offset) ? l_rcv[@l_offset - 4] : l_offset;
+            return ref_is_fixnum(l_offset) ? l_rcv[@l_offset - header_size()] : l_offset;
         }
         
         l_rcv = l_rcv[@-2];

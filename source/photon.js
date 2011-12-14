@@ -53,22 +53,27 @@ function _compile(s, print)
     return f; 
 }
 
-//print("Creating bind function");
+function log(s)
+{
+    print(s);
+}
+
+log("Creating bind function");
 photon.bind = photon.send(photon.function, "__new__", 10, 0);
 var _bind = photon.bind;
 photon.bind = _compile(readFile("_bind.js")).functions["bind"];
 photon.send(_bind, "__intern__", 
             clean(_op("mov", _mref(photon.bind), _EAX).concat(_op("jmp", _EAX))));
 
-//print("Creating super_bind function");
+log("Creating super_bind function");
 photon.super_bind = _compile(readFile("super_bind.js")).functions["super_bind"];
 
-//print("Installing standard library");
+log("Installing standard library");
 var f = _compile(readFile("photon-stdlib.js"));
-//print("Initializing standard library");
+log("Initializing standard library");
 photon.send({f:f}, "f");
 
-//print("Compilation");
+log("Compilation");
 var f = _compile(readFile(arguments[0]), arguments[1] === "-v" ? print : undefined);
-//print("Execution");
+log("Execution");
 photon.send({f:f}, "f");

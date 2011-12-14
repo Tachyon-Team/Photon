@@ -781,8 +781,7 @@ PhotonVarScopeBinding.context =
         // Maintain the current closure offsets
         that.closure_offsets = null;
         that.previous_closure_offsets = [];
-        // TODO: Obtain the beginning offset from the object model
-        that.closure_offset_begin = -5;
+        that.closure_offset_begin = -(photon.send(photon["function"], "__header_size__") / photon.send(photon["function"], "__ref_size__")) - 1;
 
 
         return that;

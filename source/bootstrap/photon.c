@@ -989,6 +989,11 @@ struct object *object_get(size_t n, struct object *self, struct function *closur
     } 
 }
 
+struct object *object_header_size(size_t n, struct object* self, struct function *closure)
+{
+    return ref(sizeof(struct header));
+}
+
 struct object *object_init(
     size_t n,
     struct object *self, 
@@ -1055,6 +1060,11 @@ struct object *object_print(size_t n, struct object *self, struct function *clos
     return UNDEFINED;
 }
 
+struct object *object_ref_size(size_t n, struct object* self, struct function *closure)
+{
+    return ref(sizeof(struct object *));
+}
+
 struct object *object_set(size_t n, struct object *self, struct function *closure, struct object *name, struct object *value)
 {
     struct map *new_map;
@@ -1119,7 +1129,7 @@ struct object *symbol_print(size_t n, struct object *self, struct function *clos
 
 void log(const char* s)
 {
-    //printf("%s", s); 
+    printf("%s", s); 
 }
 
 //--------------------------------- Memory Management --------------------------
@@ -1640,6 +1650,12 @@ extern void bootstrap()
     send(root_map,       s_set, name, register_function((struct object *)map_print));
     send(root_object,    s_set, name, register_function((struct object *)object_print));
     send(root_symbol,    s_set, name, register_function((struct object *)symbol_print));
+    
+    log("Adding object model meta-information\n");
+    name = send(root_symbol, s_intern, "__header_size__");
+    send(root_object, s_set, name, register_function((struct object *)object_header_size));
+    name = send(root_symbol, s_intern, "__ref_size__");
+    send(root_object, s_set, name, register_function((struct object *)object_ref_size));
 
     log("Bootstrap done\n");
 }

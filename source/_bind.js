@@ -26,6 +26,11 @@ macro dynamic_lookup(map, msg)
     return map.__lookup__(msg);
 }
 
+macro header_size()
+{
+    return @{["number", photon.send(photon.object, "__header_size__") / photon.send(photon.object, "__ref_size__")]}@;
+}
+
 function bind(msg, n, rcv, closure)
 {
     if (ref_is_fixnum(rcv))
@@ -34,7 +39,7 @@ function bind(msg, n, rcv, closure)
         var l_offset = dynamic_lookup(l_rcv[@-1], msg);
         //var l_offset = static_lookup(l_rcv[@-1], msg);
         //return (l_offset === undefined) ? undefined : 
-        return ref_is_fixnum(l_offset) ? l_rcv[@l_offset - 4] : l_offset;
+        return ref_is_fixnum(l_offset) ? l_rcv[@l_offset - header_size()] : l_offset;
     } else if (msg === "__lookup__" && rcv === rcv[@-1])
     {
         var l_rcv    = @{["ref", photon.map]}@;
@@ -45,7 +50,7 @@ function bind(msg, n, rcv, closure)
                   ["ref",    photon.map],
                   ["get", "null"],
                   ["string", "__lookup__"]]}@;
-        return (ref_is_fixnum(l_offset)) ? l_rcv[@l_offset - 4] : l_offset;
+        return (ref_is_fixnum(l_offset)) ? l_rcv[@l_offset - header_size()] : l_offset;
     }
 
 
@@ -60,7 +65,7 @@ function bind(msg, n, rcv, closure)
 
         if (l_offset !== undefined)
         {
-            return ref_is_fixnum(l_offset) ? l_rcv[@l_offset - 4] : l_offset;
+            return ref_is_fixnum(l_offset) ? l_rcv[@l_offset - header_size()] : l_offset;
         }
         
         l_rcv = l_rcv[@-2];

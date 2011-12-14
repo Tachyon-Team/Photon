@@ -633,13 +633,13 @@ PhotonCompiler.context = {
         that.functions = {};
 
         // Compiler constants
-        that.sizeof_ref    = 4;
-        that.sizeof_header = 20;
+        that.sizeof_ref    = photon.send(photon.object, "__ref_size__");
+        that.sizeof_header = photon.send(photon.object, "__header_size__");
 
         // Offsets of this and closure parameters from frame pointer
         that.arg_nb_offset = 8;
-        that.this_offset         = 12;
-        that.clos_offset         = 16;
+        that.this_offset   = 12;
+        that.clos_offset   = 16;
 
         // Maintain the current block labels for changes of control flow
         that.block  = {};
