@@ -58,8 +58,10 @@ function bind(msg, n, rcv, closure)
     var l_offset = undefined;
     var l_rcv  = rcv;
 
-    while (rcv !== null)
+    while (l_rcv !== null)
     {
+        l_rcv = l_rcv[@-5];
+
         l_offset = dynamic_lookup(l_rcv[@-1], msg);
         //l_offset = static_lookup(l_rcv[@-1], msg);
 
@@ -70,6 +72,9 @@ function bind(msg, n, rcv, closure)
         
         l_rcv = l_rcv[@-2];
     }
+
+    print("send message not understood: ");
+    print(msg);
 
     return undefined;
 }

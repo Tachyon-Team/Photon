@@ -22,8 +22,10 @@ function super_bind(msg, n, rcv, closure)
     var l_rcv  = rcv;
     var i = 1;
 
-    while (rcv !== null)
+    while (l_rcv !== null)
     {
+        l_rcv = l_rcv[@-5];
+
         l_offset = l_rcv[@-1].__lookup__(msg);
 
         if (l_offset !== undefined)
@@ -39,6 +41,9 @@ function super_bind(msg, n, rcv, closure)
         
         l_rcv = l_rcv[@-2];
     }
+
+    print("super message not understood: ");
+    print(msg);
 
     return undefined;
 }
