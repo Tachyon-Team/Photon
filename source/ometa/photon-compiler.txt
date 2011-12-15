@@ -922,8 +922,11 @@ ometa PhotonCompiler {
            | :x                                               -> self.context.gen_get_local(x)),
   gets     push(1):x  trans:fd pop(1)                         -> [x, _op("push", _EAX), fd, _op("dec", _EAX), _op("pop", _ECX), 
                                                                   _op("mov", _mem(0, _ECX, _EAX, 2), _EAX)],
-  set      ( [#get :x] trans:rhs                              -> self.context.gen_set_local(x, rhs)
-           | [#arguments push(1):i] trans:rhs pop(1)          -> self.context.gen_set_arguments(i, rhs)
+  set      ( [#get :x]                      trans:rhs         -> self.context.gen_set_local(x, rhs)
+           | [#arguments push(1):i]         trans:rhs pop(1)  -> self.context.gen_set_arguments(i, rhs)
+           | [#arguments_length]            trans:rhs         -> self.context.gen_set_arguments_length(rhs)
+           | [#this]                        trans:rhs         -> self.context.gen_set_this(rhs)
+           | [#closure]                     trans:rhs         -> self.context.gen_set_closure(rhs)
            | [#gets push(1):rcv push(1):fd] trans:rhs pop(2)  -> [rcv, _op("push", _EAX), 
                                                                   fd,  _op("dec", _EAX), _op("push", _EAX), 
                                                                   rhs,

@@ -3,6 +3,9 @@ function Empty()
     return this;
 }
 
+Empty.prototype   = Empty;
+Empty.constructor = null;
+
 function Object()
 {
     return this;
@@ -28,8 +31,32 @@ Function.prototype = @{["ref", photon.function]}@;
 Function.prototype.constructor = Function;
 Function.constructor = Empty;
 
-Empty.prototype   = Empty;
-Empty.constructor = null;
+Function.prototype.call = function ()
+{
+    let (t = this, i = 0)
+    {
+        if ($arguments_length === 0)
+        {
+            this = @{["ref", photon.global]}@;
+        } else
+        { 
+            this = $arguments[@0];
+
+            for (i=1; i < $arguments_length; ++i)
+            {
+                $arguments[@i-1] = $arguments[@i];
+            }
+
+            $arguments_length -= 1;
+        }
+
+        $closure = t;
+    }
+
+    @{["code", 
+        [_op("pop", _EBP),
+         _op("jmp", _EAX)]]}@;
+};
 
 function String()
 {

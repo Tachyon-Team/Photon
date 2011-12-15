@@ -1487,5 +1487,18 @@ PhotonCompiler.context = {
     gen_get_arguments_length:function ()
     {
         return [_op("mov", _mem(this.arg_nb_stack_offset(), _EBP), _EAX), _op("sal", _$(1), _EAX), _op("inc", _EAX)];
+    },
+
+    gen_set_arguments_length:function (v)
+    {
+        return [v, _op("sar", _$(1), _EAX), _op("mov", _EAX, _mem(this.arg_nb_stack_offset(), _EBP))];
+    },
+    gen_set_this:function (v)
+    {
+        return [v, _op("mov", _EAX, _mem(this.this_stack_offset(), _EBP))];
+    },
+    gen_set_closure:function (v)
+    {
+        return [v, _op("mov", _EAX, _mem(this.clos_stack_offset(), _EBP))];
     }
 };

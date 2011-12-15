@@ -69,7 +69,7 @@ log("Creating super_bind function");
 photon.super_bind = _compile(readFile("super_bind.js")).functions["super_bind"];
 
 log("Installing standard library");
-var f = _compile(readFile("photon-stdlib.js"));
+var f = _compile(readFile("photon-stdlib.js"), arguments[1] === "-v" ? print : undefined);
 log("Initializing standard library");
 photon.send({f:f}, "f");
 
