@@ -108,7 +108,7 @@ ometa PhotonASTCopy {
   ref      :s                                   -> [#ref, _deep_copy(s)],
   gets     trans:x trans:fd                     -> [#gets, x, fd],
   mreturn  trans:x trans:y                      -> [#mreturn, x, y],
-  code     :c                                   -> [#code, _deep_copy(c)],
+  code     :c                                   -> [#code, c],
   super    trans:e                              -> [#super, e],
   macro    :n :args :ctxt trans:body            -> [#macro, _deep_copy(n), _deep_copy(args), _deep_copy(ctxt), body],
   letvar   [#var :name trans:val]               -> [#var, name, val],

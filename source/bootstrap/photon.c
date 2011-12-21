@@ -33,6 +33,8 @@
          9,8,7,6,5,4,3,2,1,0
 
 struct array;
+struct cell;
+struct frame;
 struct function;
 struct header;
 struct lookup;
@@ -153,6 +155,14 @@ struct cell {
     struct object*     value;
 };
 
+struct frame {
+    struct header      _hd[0];
+    size_t             n;
+    struct object     *self;
+    struct function   *closure;
+    struct object     *arguments[0];
+};
+
 struct function {
     struct header      _hd[0];
     char               code[0];
@@ -187,6 +197,7 @@ struct object *root_arguments     = (struct object *)0;
 struct object *root_array         = (struct object *)0;
 struct object *root_cell          = (struct object *)0;
 struct object *root_fixnum        = (struct object *)0;
+struct object *root_frame         = (struct object *)0;
 struct object *root_function      = (struct object *)0;
 struct object *root_map           = (struct object *)0;
 struct object *root_object        = (struct object *)0;
@@ -221,6 +232,7 @@ struct object *s_symbols     = (struct object *)0;
 struct object *ARRAY_TYPE    = (struct object *)0;
 struct object *CELL_TYPE     = (struct object *)0;
 struct object *FIXNUM_TYPE   = (struct object *)0;
+struct object *FRAME_TYPE    = (struct object *)0;
 struct object *FUNCTION_TYPE = (struct object *)0;
 struct object *MAP_TYPE      = (struct object *)0;
 struct object *OBJECT_TYPE   = (struct object *)0;
@@ -690,7 +702,7 @@ struct object *array_set(
         self->count = ref(c);
     } else
     {
-        return super_send(self, s_set, name, value);
+        return super_send(orig, s_set, name, value);
     }
 
     return value;
@@ -732,6 +744,49 @@ struct object *function_allocate(
     struct object *po = (struct object *)(ptr + fx(prelude_size));
 
     return po;
+}
+
+struct object *frame_new(
+    size_t n, 
+    struct frame    *self, 
+    struct function *closure, 
+    struct object   *arguments, 
+    struct object   *rcv,
+    struct function *fn
+){
+    size_t f_n = fx(send(arguments, s_get, s_length));
+
+    struct frame *f = (struct frame *)send(
+        self, 
+        s_init, 
+        ref(0), 
+        ref(f_n*sizeof(struct object *) + sizeof(struct frame))
+    );
+
+    f->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
+    f->_hd[-1].map->type = FRAME_TYPE;
+    f->_hd[-1].prototype = (struct object *)self;
+
+    f->n       = f_n;
+    f->self    = rcv;
+    f->closure = fn;
+
+    for (size_t i = 0; i < f_n; ++i)
+    {
+        f->arguments[i] = send(arguments, s_get, ref(i));
+    }
+
+    return (struct object *)f;
+}
+
+struct object *frame_print(
+    size_t n, 
+    struct frame    *self, 
+    struct function *closure)
+{
+    printf("frame n:%zd, self:%p, closure:%p\n", self->n, self->self, self->closure); 
+    
+    return UNDEFINED;
 }
 
 struct object *function_clone(size_t n, struct function *self, struct function *closure)
@@ -1522,10 +1577,11 @@ extern void bootstrap()
     ARRAY_TYPE     = ref(0);
     CELL_TYPE      = ref(1); 
     FIXNUM_TYPE    = ref(2);
-    FUNCTION_TYPE  = ref(3);
-    MAP_TYPE       = ref(4);
-    OBJECT_TYPE    = ref(5);
-    SYMBOL_TYPE    = ref(6);
+    FRAME_TYPE     = ref(3);
+    FUNCTION_TYPE  = ref(4);
+    MAP_TYPE       = ref(5);
+    OBJECT_TYPE    = ref(6);
+    SYMBOL_TYPE    = ref(7);
 
     log("Create Root Map\n");
     root_map = object_init_static(
@@ -1735,6 +1791,12 @@ extern void bootstrap()
     send(root_arguments, s_set, s_set,      register_function((struct object *)arguments_set));
     send(root_arguments, s_set, s_set_cell, register_function((struct object *)arguments_set_cell));
 
+    log("Create Root Frame object\n");
+    root_frame = send0(root_object, s_new);
+
+    log("Add primitive methods on Root Frame object \n");
+    send(root_frame, s_set, s_new, register_function((struct object *)frame_new));
+
     log("Registering roots\n");
     roots = send(root_array, s_new, ref(20));
 
@@ -1742,6 +1804,7 @@ extern void bootstrap()
     send(roots, s_push, root_array); 
     send(roots, s_push, root_cell);
     send(roots, s_push, root_fixnum); 
+    send(roots, s_push, root_frame); 
     send(roots, s_push, root_function); 
     send(roots, s_push, root_map); 
     send(roots, s_push, root_object); 
@@ -1756,6 +1819,8 @@ extern void bootstrap()
     name = send(root_symbol, s_intern, "cell");
     send(roots_names, s_push, name); 
     name = send(root_symbol, s_intern, "fixnum");
+    send(roots_names, s_push, name); 
+    name = send(root_symbol, s_intern, "frame");
     send(roots_names, s_push, name); 
     name = send(root_symbol, s_intern, "function");
     send(roots_names, s_push, name); 
@@ -1772,6 +1837,7 @@ extern void bootstrap()
     send(root_arguments, s_set, name, register_function((struct object *)arguments_print));
     send(root_array,     s_set, name, register_function((struct object *)array_print));
     send(root_fixnum,    s_set, name, register_function((struct object *)fixnum_print));
+    send(root_frame,     s_set, name, register_function((struct object *)frame_print));
     send(root_map,       s_set, name, register_function((struct object *)map_print));
     send(root_object,    s_set, name, register_function((struct object *)object_print));
     send(root_symbol,    s_set, name, register_function((struct object *)symbol_print));
