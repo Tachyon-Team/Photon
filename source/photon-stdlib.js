@@ -15,6 +15,29 @@ Object.prototype  = @{["ref", photon.object]}@;
 Object.prototype.constructor = Object;
 Object.constructor = Function;
 
+Object.prototype.__instanceof__ = function (f)
+{
+    var o = this;
+    var proto = f.prototype;
+
+    while (o !== null)
+    {
+        if (o === proto)
+        {
+            return true;
+        }
+
+        o = o[@-2];
+    }
+
+    return false;
+}
+
+Object.prototype.__typeof__ = function ()
+{
+    return "object";
+}
+
 function Array()
 {
     return this;
@@ -30,6 +53,11 @@ function Function()
 Function.prototype = @{["ref", photon.function]}@;
 Function.prototype.constructor = Function;
 Function.constructor = Empty;
+
+Function.prototype.__typeof__ = function ()
+{
+    return "function";
+}
 
 Function.prototype.call = function ()
 {
@@ -123,6 +151,11 @@ function String()
 String.prototype = @{["ref", photon.symbol]}@;
 String.prototype.constructor = String;
 String.constructor = Function;
+
+String.prototype.__typeof__ = function ()
+{
+    return "string";
+}
 
 function print(s)
 {

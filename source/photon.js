@@ -55,7 +55,7 @@ function _compile(s, print)
 
 function log(s)
 {
-    print(s);
+    //print(s);
 }
 
 log("Creating bind function");

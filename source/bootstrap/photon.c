@@ -1287,7 +1287,7 @@ struct object *symbol_print(size_t n, struct object *self, struct function *clos
 
 void log(const char* s)
 {
-    printf("%s", s); 
+    //printf("%s", s); 
 }
 
 //--------------------------------- Memory Management --------------------------
