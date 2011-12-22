@@ -10,7 +10,6 @@ host
 makefile.common
 parser
 programs
-stdlib
 tests
 utility
 

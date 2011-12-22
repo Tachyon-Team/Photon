@@ -38,9 +38,37 @@ Object.prototype.__typeof__ = function ()
     return "object";
 }
 
-function Array()
+/**
+15.4.2 Array constructor function.
+new Array (len)
+new Array ([item0 [, item1 [, … ]]])
+Array ([item0 [, item1 [, … ]]])
+*/
+function Array(len)
 {
-    return this;
+    // Constructor call with length
+    if (isGlobalObj(this) === false &&
+        typeof len === 'number' &&
+        arguments.length === 1)
+    {
+        // Allocate an array of the desired capacity and set its length
+        var a = Array.prototype.__new__(len);
+        a.length = len;
+
+        return a;
+    }
+
+    // Allocate an array of the desired capacity and set its length
+    var a = Array.prototype.__new__(arguments.length);
+    a.length = arguments.length;
+
+    // Copy the arguments into the array
+    for (var i = 0; i < arguments.length; ++i)
+    {
+        a[i] = arguments[i];
+    }
+
+    return a;
 }
 Array.prototype   = @{["ref", photon.array]}@;
 Array.prototype.constructor = Array;
@@ -144,10 +172,27 @@ Function.prototype.apply = function ()
     return f.call();
 }
 
-function String()
+/**
+@class 15.5.2 String constructor
+new String(value)
+String(value)
+*/
+function String(value)
 {
-    return this;
+    // If this is a constructor call (new String)
+    if (isGlobalObj(this) === false)
+    {
+        throw "String: object strings not supported";
+    }
+    else if (typeof value !== "string")
+    {
+        throw "String: object conversion to string not supported";
+    } else
+    {
+        return value;
+    }
 }
+
 String.prototype = @{["ref", photon.symbol]}@;
 String.prototype.constructor = String;
 String.constructor = Function;
@@ -157,25 +202,50 @@ String.prototype.__typeof__ = function ()
     return "string";
 }
 
+String.prototype.__get__ = function (i)
+{
+    if (i === "length")
+    {
+        return this[@-3] - 1;
+    } else if ((typeof i) === "number" && i >= 0 && i < this.length)
+    {
+        throw "String.prototype.__get__: character indexing not supported";
+    } else 
+    {
+        return super(this).__get__(i);
+    }
+}
+
+@{["ref", photon.constant]}@.__typeof__ = function ()
+{
+    if (this === undefined)
+    {
+        return "undefined";
+    } else if (this === null)
+    {
+        return "object";
+    } else if (this === true || this === false)
+    {
+        return "boolean";
+    } else
+    {
+        throw "Invalid constant";
+    }
+}
+
+@{["ref", photon.fixnum]}@.__typeof__ = function ()
+{
+    return "number";
+}
+
 function print(s)
 {
 
-    if (s === undefined)
-    {
-        "undefined".__print__();
-    } else if (s === true)
-    {
-        "true".__print__();
-    } else if (s === false)
-    {
-        "false".__print__();
-    } else if (s === null)
-    {
-        "null".__print__();
-    } else
-    {
-        s.__print__();
-    }
-
+    s.__print__();
     return undefined;
+}
+
+function isGlobalObj(o)
+{
+    return o === this;
 }

@@ -187,7 +187,7 @@ struct object {
 
 struct symbol {
     struct header      _hd[0];
-    char*              string;
+    char               string[0];
 };
 
 //--------------------------------- Root Objects ------------------------------
@@ -196,12 +196,14 @@ struct object *roots_names        = (struct object *)0;
 struct object *root_arguments     = (struct object *)0;
 struct object *root_array         = (struct object *)0;
 struct object *root_cell          = (struct object *)0;
+struct object *root_constant      = (struct object *)0;
 struct object *root_fixnum        = (struct object *)0;
 struct object *root_frame         = (struct object *)0;
 struct object *root_function      = (struct object *)0;
 struct object *root_map           = (struct object *)0;
 struct object *root_object        = (struct object *)0;
 struct object *root_symbol        = (struct object *)0;
+struct object *symbol_table       = (struct object *)0;
 
 struct object *RESERVED      = (struct object *)10;
 struct object *FALSE         = (struct object *)4;
@@ -336,6 +338,11 @@ inline struct object *ref(ssize_t i)
     return fixnum_to_ref(i);
 }
 
+inline ssize_t ref_is_constant(struct object *obj)
+{
+    return obj == UNDEFINED || obj == NIL || obj == TRUE || obj == FALSE;
+}
+
 inline ssize_t ref_is_fixnum(struct object *obj)
 {
     return ((size_t)obj & 1) == 1;
@@ -409,6 +416,13 @@ struct lookup _bind(struct object *rcv, struct object *msg)
     {
         _l.rcv    = root_fixnum;
         _l.offset = send(root_fixnum->_hd[-1].map, s_lookup, msg);
+        return _l;
+    }
+
+    if (ref_is_constant(rcv))
+    {
+        _l.rcv    = root_constant;
+        _l.offset = send(root_constant->_hd[-1].map, s_lookup, msg);
         return _l;
     }
 
@@ -719,6 +733,29 @@ struct object *cell_new(size_t n, struct cell *self, struct function *closure, s
     new_cell->_hd[-1].prototype = (struct object *)self;
 
     return (struct object *)new_cell;
+}
+
+struct object *constant_print(size_t n, struct object *self, struct function *closure)
+{
+    if (self == UNDEFINED)
+    {
+        printf("undefined\n");
+    } else if (self == NIL)
+    {
+        printf("null\n");
+    } else if (self == TRUE)
+    {
+        printf("true\n");
+    } else if (self == FALSE)
+    {
+        printf("false\n");
+    } else
+    {
+        printf("Invalid constant %p\n", self);
+        exit(1);
+    }
+
+    return self;
 }
 
 struct object *fixnum_print(size_t n, struct object *self)
@@ -1244,6 +1281,48 @@ struct object *object_set(size_t n, struct object *self, struct function *closur
 
 struct object *symbol_intern(size_t n, struct object *self, struct function *closure, char *string)
 {
+    return send(symbol_table, s_intern, (struct object *)string);
+}
+
+struct object *symbol_new(size_t n, struct object *self, struct function *closure, struct object *data)
+{
+    struct object *size = ref_is_fixnum(data) ? data : send(data, s_get, s_length);
+
+    struct symbol *new_symbol = (struct symbol *)send(
+        self, 
+        s_init, 
+        ref(0), 
+        ref(fx(size) + 1)
+    );
+    new_symbol->_hd[-1].map = (struct map *)send0(self->_hd[-1].map, s_new);
+    new_symbol->_hd[-1].prototype = self;
+    new_symbol->_hd[-1].map->type = SYMBOL_TYPE;
+    new_symbol->string[0]        = '\0';
+    new_symbol->string[fx(size)] = '\0';
+
+    if (!ref_is_fixnum(data))
+    {
+        for (ssize_t i = 0; i < fx(size); ++i)
+        {
+            struct object *c = send(data, s_get, ref(i));
+            assert(ref_is_fixnum(c));
+            new_symbol->string[i] = (char)fx(c);
+        }
+        return send(symbol_table, s_intern, new_symbol);
+    } else
+    {
+        return (struct object *)new_symbol;
+    }
+}
+
+struct object *symbol_print(size_t n, struct object *self, struct function *closure)
+{
+    printf("%s\n", (char*)self);
+    return UNDEFINED;
+}
+
+struct object *symbol_table_intern(size_t n, struct object *self, struct function *closure, char *string)
+{
     ssize_t i; 
     struct object *symbols = send(self, s_get, s_symbols);
     ssize_t length = fx(send(symbols, s_get, s_length));
@@ -1256,34 +1335,13 @@ struct object *symbol_intern(size_t n, struct object *self, struct function *clo
             return s;
     }
 
-    struct object *new_symbol = send(self, s_new, string);
+    struct object *new_symbol = send(root_symbol, s_new, ref(strlen(string)));
+    strcpy((char *)new_symbol, string);
     send(symbols, s_push, new_symbol);
    
     return new_symbol;
 }
 
-struct object *symbol_new(size_t n, struct object *self, struct function *closure, char *string)
-{
-    struct object *new_symbol = send(
-        self, 
-        s_init, 
-        ref(0), 
-        ref(strlen(string) + 1)
-    );
-    new_symbol->_hd[-1].map = (struct map *)send0(self->_hd[-1].map, s_new);
-    new_symbol->_hd[-1].prototype = self;
-    strcpy((char *)new_symbol, string);
-
-    new_symbol->_hd[-1].map->type = SYMBOL_TYPE;
-
-    return new_symbol;
-}
-
-struct object *symbol_print(size_t n, struct object *self, struct function *closure)
-{
-    printf("%s\n", (const char *)self);
-    return UNDEFINED;
-}
 
 void log(const char* s)
 {
@@ -1721,11 +1779,12 @@ extern void bootstrap()
     send(root_array,  s_set, s_push,     register_function((struct object *)array_push));
 
     log("Create Root Symbol\n");
-    root_symbol = send0(root_object, s_new);
+    symbol_table = send0(root_object, s_new);
+    root_symbol  = send0(root_object, s_new);
 
     log("Add string values to symbols\n");
     struct object *symbols = send(root_array, s_new, ref(0));
-    send(root_symbol,  s_set, s_symbols, symbols); 
+    send(symbol_table, s_set, s_symbols, symbols); 
     
     send(symbols, s_push, s_add);
     send(symbols, s_push, s_allocate);
@@ -1760,8 +1819,9 @@ extern void bootstrap()
     }
 
     log("Add primitive methods on Root Symbol\n");
-    send(root_symbol, s_set, s_intern, register_function((struct object *)symbol_intern));
-    send(root_symbol, s_set, s_new,    register_function((struct object *)symbol_new));
+    send(symbol_table, s_set, s_intern, register_function((struct object *)symbol_table_intern));
+    send(root_symbol,  s_set, s_new,    register_function((struct object *)symbol_new));
+    send(root_symbol,  s_set, s_intern, register_function((struct object *)symbol_intern));
 
     log("Create Root Function object\n");
     root_function = send0(root_object, s_new);
@@ -1774,6 +1834,9 @@ extern void bootstrap()
 
     log("Create Root Fixnum object\n");
     root_fixnum = send0(root_object, s_new);
+
+    log("Create Root Constant object\n");
+    root_constant = send0(root_object, s_new);
 
     log("Create Root Cell object\n");
     root_cell = send0(root_object, s_new);
@@ -1803,12 +1866,14 @@ extern void bootstrap()
     send(roots, s_push, root_arguments); 
     send(roots, s_push, root_array); 
     send(roots, s_push, root_cell);
+    send(roots, s_push, root_constant); 
     send(roots, s_push, root_fixnum); 
     send(roots, s_push, root_frame); 
     send(roots, s_push, root_function); 
     send(roots, s_push, root_map); 
     send(roots, s_push, root_object); 
     send(roots, s_push, root_symbol); 
+    send(roots, s_push, symbol_table); 
 
     roots_names = send(root_array, s_new, ref(20));
 
@@ -1817,6 +1882,8 @@ extern void bootstrap()
     name = send(root_symbol, s_intern, "array");
     send(roots_names, s_push, name); 
     name = send(root_symbol, s_intern, "cell");
+    send(roots_names, s_push, name); 
+    name = send(root_symbol, s_intern, "constant");
     send(roots_names, s_push, name); 
     name = send(root_symbol, s_intern, "fixnum");
     send(roots_names, s_push, name); 
@@ -1830,12 +1897,15 @@ extern void bootstrap()
     send(roots_names, s_push, name); 
     name = send(root_symbol, s_intern, "symbol");
     send(roots_names, s_push, name); 
+    name = send(root_symbol, s_intern, "symbol_table");
+    send(roots_names, s_push, name); 
 
     // Debugging support
     log("Adding print method on objects\n");
     name = send(root_symbol, s_intern, "__print__");
     send(root_arguments, s_set, name, register_function((struct object *)arguments_print));
     send(root_array,     s_set, name, register_function((struct object *)array_print));
+    send(root_constant,  s_set, name, register_function((struct object *)constant_print));
     send(root_fixnum,    s_set, name, register_function((struct object *)fixnum_print));
     send(root_frame,     s_set, name, register_function((struct object *)frame_print));
     send(root_map,       s_set, name, register_function((struct object *)map_print));

@@ -9,6 +9,8 @@ photon.map.pp      = function () { return "photon.map"; };
 photon.symbol.pp   = function () { return "photon.symbol"; };
 photon.fixnum.pp   = function () { return "photon.fixnum"; };
 
+var verbose = arguments[1] === "-v"; 
+
 create_handlers();
 
 function _compile(s, print)
@@ -55,7 +57,7 @@ function _compile(s, print)
 
 function log(s)
 {
-    //print(s);
+    print(s);
 }
 
 log("Creating bind function");
@@ -73,7 +75,15 @@ var f = _compile(readFile("photon-stdlib.js"), arguments[1] === "-v" ? print : u
 log("Initializing standard library");
 photon.send({f:f}, "f");
 
+["stdlib/array.js", "stdlib/string.js"].forEach(function (s)
+{
+    log("Compiling '" + s + "'");
+    var f = _compile(readFile(s), verbose ? print : undefined);
+    log("Executing '" + s + "'");
+    photon.send({f:f}, "f");
+});
+
 log("Compilation");
-var f = _compile(readFile(arguments[0]), arguments[1] === "-v" ? print : undefined);
+var f = _compile(readFile(arguments[0]), verbose ? print : undefined);
 log("Execution");
 photon.send({f:f}, "f");
