@@ -573,7 +573,7 @@ ometa PhotonDesugar <: PhotonASTCopy {
                                                                     [#begin,
                                                                         [#while, [#send, "valid", [#get, it]],
                                                                             [#begin, 
-                                                                                [#set, [#get, name], [#send, "next",  [#get, it]]]]
+                                                                                [#set, [#get, name], [#send, "get",  [#get, it]]]]
                                                                                 .concat([body])]]]},
   new      trans:fn trans*:args                               -> {var o = gensym(); var r = gensym();
                                                                   [#let, _new_context(),
@@ -1015,7 +1015,7 @@ ometa PhotonCompiler {
            trans:c (empty -> self.context.leave_catch_scope())
            ([#get #undefined] | trans -> {throw "Unsupported finally block";})                                       
                                                               -> self.context.gen_try_catch(x, c, ctxt.scope),
-  switch   (empty -> self.context.push_block()) 
+  switch   (empty -> self.context.push_block(true)) 
            push(1):x trans*:cases pop(1)                      -> {var BREAK = self.context.break_lbl(); self.context.pop_block();
                                                                   [x, _op("push", _EAX), cases, BREAK, _op("add", _$(4), _ESP)]},
   case     trans:x trans:y                                    -> {var END = _label();

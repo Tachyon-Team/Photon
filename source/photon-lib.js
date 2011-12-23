@@ -14,7 +14,7 @@ var gensym = (function ()
 
 function _asm(code)
 {
-    var a = new x86.Assembler(x86.target.x86);
+    var a = new (x86.Assembler)(x86.target.x86);
 
     if (code !== undefined) a.codeBlock.code = code;
 
@@ -90,7 +90,7 @@ const _UNDEFINED = 0;
 
 function _op(op)
 {
-    var a = new x86.Assembler(x86.target.x86);
+    var a = new (x86.Assembler)(x86.target.x86);
     var args = Array.prototype.slice.apply(arguments, [1]);
     a[op].apply(a, args);
     return a.codeBlock.code;
@@ -710,10 +710,15 @@ PhotonCompiler.context = {
         return n;
     },
 
-    push_block:function ()
+    push_block:function (isSwitch)
     {
+        if (isSwitch === undefined)
+        {
+            isSwitch = false;
+        }
+
         this.previous_blocks.push(this.block);
-        this.block = {"continue":_label(), "break":_label(), "try_lvl":this.try_lvl};
+        this.block = {"continue":(isSwitch ? this.block["continue"] : _label()), "break":_label(), "try_lvl":this.try_lvl};
     },
 
     pop_block:function ()
@@ -961,7 +966,7 @@ PhotonCompiler.context = {
             
         var c = this.new_function_object([
             _op("mov", _$(addr_to_num(f.__addr__), label), _EAX),
-            _op("jmp", _EAX),
+            _op("jmp", _EAX)
         ], ref_labels, cell_nb);
         return _op("mov", this.gen_mref(c), _EAX); 
     },
@@ -969,7 +974,7 @@ PhotonCompiler.context = {
     gen_prologue:function (local_n, arg_n)
     {
         var FAST = _label("FAST_ENTRY");
-        var a = new x86.Assembler(x86.target.x86);
+        var a = new (x86.Assembler)(x86.target.x86);
         a.
         push(_EBP).
        
@@ -995,7 +1000,7 @@ PhotonCompiler.context = {
 
     gen_epilogue:function (arg_n)
     {
-        var a = new x86.Assembler(x86.target.x86);
+        var a = new (x86.Assembler)(x86.target.x86);
         var SLOW = _label("SLOW");
 
         for (var i = 0; i < this.try_lvl; ++i)
@@ -1023,7 +1028,7 @@ PhotonCompiler.context = {
             n = 2;
         }
 
-        var a = new x86.Assembler(x86.target.x86);
+        var a = new (x86.Assembler)(x86.target.x86);
         var FAST = _label("FAST");
 
         a.
@@ -1050,7 +1055,7 @@ PhotonCompiler.context = {
 
     gen_ovf_check:function ()
     {
-        var a = new x86.Assembler(x86.target.x86);
+        var a = new (x86.Assembler)(x86.target.x86);
         var NO_OVF = _label("NO_OVF");
 
         a.
@@ -1067,7 +1072,7 @@ PhotonCompiler.context = {
         if (type_check === undefined)
             type_check = false;
 
-        var a = new x86.Assembler(x86.target.x86);
+        var a = new (x86.Assembler)(x86.target.x86);
         var FAST = _label("FAST");
         var CONT = _label("CONT");
 

@@ -31,12 +31,75 @@ Object.prototype.__instanceof__ = function (f)
     }
 
     return false;
-}
+};
 
 Object.prototype.__typeof__ = function ()
 {
     return "object";
+};
+
+Object.create = function (obj)
+{
+    return obj.__new__();
+};
+
+Object.prototype.hasOwnProperty = function (p)
+{
+    return false;
 }
+
+Object.prototype.__itr__ = function ()
+{
+    return {
+        _obj:this,
+        _visited:{},
+        _idx:-1,
+        init:function ()
+        {
+            this.next();
+            return this;
+        },
+        valid:function ()
+        {
+            return (this._obj !== undefined && this._obj !== null);
+        },
+        get:function ()
+        {
+            var map = this._obj[@-1];
+            var r = map[@3+4*this._idx];    
+            this.next();
+            return r;
+        },
+        next:function ()
+        {
+            this._idx++;
+            var r = null;
+
+            while (r === null && this.valid())
+            {
+                var map = this._obj[@-1];
+
+                if (this._idx < map[@1])
+                {
+                    var p = map[@3+4*this._idx];    
+
+                    if (this._visited[p] === undefined)
+                    {
+                        r = p;
+                        this._visited[p] = true;
+                    } else
+                    {
+                        this._idx++;
+                    }
+                } else
+                {
+                    this._obj = this._obj[@-2];
+                    this._idx = 0;
+                }
+            }
+        }
+    }.init();
+};
 
 /**
 15.4.2 Array constructor function.
@@ -172,6 +235,11 @@ Function.prototype.apply = function ()
     return f.call();
 }
 
+Function.prototype.toString = function ()
+{
+    return "function";
+}
+
 /**
 @class 15.5.2 String constructor
 new String(value)
@@ -231,7 +299,12 @@ String.prototype.__get__ = function (i)
     {
         throw "Invalid constant";
     }
-}
+};
+
+@{["ref", photon.constant]}@.__itr__ = function ()
+{
+    return {valid:function () { return false; }, next:function () { return null; }};
+};
 
 @{["ref", photon.fixnum]}@.__typeof__ = function ()
 {
@@ -240,7 +313,6 @@ String.prototype.__get__ = function (i)
 
 function print(s)
 {
-
     s.__print__();
     return undefined;
 }
@@ -248,4 +320,13 @@ function print(s)
 function isGlobalObj(o)
 {
     return o === this;
+}
+
+photon = {};
+photon.object = @{["ref", photon.object]}@;
+photon.array  = @{["ref", photon.array]}@;
+photon.send   = function (obj, msg)
+{
+    // Written this way because C functions do not support the apply message
+    return Function.prototype.apply.call(obj[msg], obj, arguments.slice(2));
 }

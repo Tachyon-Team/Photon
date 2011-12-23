@@ -127,8 +127,10 @@ struct object *register_function(struct object *f)
 }
 
 //--------------------------------- Inner Object Layouts -----------------------
+#define COUNT_BIT_NB 16
 struct header {
     struct object     *values[0];
+    struct object     *values_size;
     struct object     *extension;
     struct object     *flags;
     struct object     *payload_size;
@@ -302,7 +304,8 @@ inline ssize_t object_prelude_size(struct object *self)
 
 inline ssize_t object_values_count(struct object *self)
 {
-    return fx(self->_hd[-1].flags) & 255;
+    //return fx(self->_hd[-1].flags) & 255;
+    return fx(self->_hd[-1].flags) & ((1<<COUNT_BIT_NB) - 1);
 }
 
 inline void object_values_count_dec(struct object *self)
@@ -312,25 +315,29 @@ inline void object_values_count_dec(struct object *self)
 
 inline void object_values_count_inc(struct object *self)
 {
+    assert(object_values_count(self) < (1<<COUNT_BIT_NB)); 
     self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) + 1);
 }
 
 inline void object_values_count_set(struct object *self, size_t count)
 {
-    self->_hd[-1].flags = ref((fx(self->_hd[-1].flags) & -256) | (count & 255));
+    //self->_hd[-1].flags = ref((fx(self->_hd[-1].flags) & -256) | (count & 255));
+    self->_hd[-1].flags = ref((fx(self->_hd[-1].flags) & -(1<<COUNT_BIT_NB)) | count & ((1<<COUNT_BIT_NB)-1));
 }
 
 inline ssize_t object_values_size(struct object *self)
 {
-    return (fx(self->_hd[-1].flags) & 0xFF00) >> 8;
+    //return (fx(self->_hd[-1].flags) & 0xFF00) >> 8;
+    return fx(self->_hd[-1].values_size);
 }
 
 inline void object_values_size_set(struct object *self, size_t size)
 {
-    assert(size < 256); 
+    //assert(size < 256); 
 
-    self->_hd[-1].flags = ref((fx(self->_hd[-1].flags) & (-65281)) | 
-        ((size & 255) << 8));
+    //self->_hd[-1].flags = ref((fx(self->_hd[-1].flags) & (-65281)) | 
+    //    ((size & 255) << 8));
+    self->_hd[-1].values_size = ref(size);
 }
 
 inline struct object *ref(ssize_t i)
@@ -380,7 +387,7 @@ bind_t g_super_bind = 0;
     if (m == UNDEFINED) \
     {\
         printf("Message not understood '%s'\n", (char *)(MSG));\
-        exit(1);\
+        assert(0);\
     }\
     ((method_t)m)(0, r, m);\
 })
@@ -391,7 +398,7 @@ bind_t g_super_bind = 0;
     if (m == UNDEFINED) \
     {\
         printf("Message not understood '%s'\n", (char *)(MSG));\
-        exit(1);\
+        assert(0);\
     }\
     ((method_t)m)(PHOTON_PP_NARG(ARGS), r, m, ##ARGS);\
 })
@@ -402,7 +409,7 @@ bind_t g_super_bind = 0;
     if (m == UNDEFINED) \
     {\
         printf("Message not understood %s\n", (char *)(MSG));\
-        exit(1);\
+        assert(0);\
     }\
     ((method_t)m)(PHOTON_PP_NARG(ARGS), r, m, ##ARGS);\
 })
@@ -1181,7 +1188,6 @@ struct object *object_init(
     po->_hd[-1].payload_size  = payload_size;
     po->_hd[-1].extension     = po;
 
-    assert(fx(values_size) < 256); 
     object_values_size_set(po, fx(values_size));
     object_values_count_set(po, 0);
 
@@ -1208,7 +1214,6 @@ struct object *object_init_static(
     po->_hd[-1].payload_size  = payload_size;
     po->_hd[-1].extension     = po;
 
-    assert(fx(values_size) < 256); 
     object_values_size_set(po, fx(values_size));
     object_values_count_set(po, 0);
 
@@ -1811,11 +1816,13 @@ extern void bootstrap()
     );
     empty_map->type = SYMBOL_TYPE;
 
-    for (ssize_t i = 0; i < fx(((struct array *)symbols)->count); ++i)
+    ssize_t l = fx(send(symbols, s_get, s_length));
+    struct object *s = 0;
+    for (ssize_t i = 0; i < l; ++i)
     {
-        ((struct array *)symbols)->indexed_values[i]->_hd[-1].map = empty_map;
-        ((struct array *)symbols)->indexed_values[i]->_hd[-1].prototype = 
-            root_symbol;
+        s = send(symbols, s_get, ref(i));
+        s->_hd[-1].map       = empty_map;
+        s->_hd[-1].prototype = root_symbol;
     }
 
     log("Add primitive methods on Root Symbol\n");

@@ -75,12 +75,33 @@ var f = _compile(readFile("photon-stdlib.js"), arguments[1] === "-v" ? print : u
 log("Initializing standard library");
 photon.send({f:f}, "f");
 
-["stdlib/array.js", "stdlib/string.js"].forEach(function (s)
+["stdlib/array.js", 
+ "stdlib/string.js", 
+ "utility/debug.js", 
+ "utility/num.js", 
+ "utility/misc.js",
+ "utility/iterators.js", 
+ "utility/arrays.js", 
+ "backend/asm.js", 
+ "backend/x86/asm.js", 
+ "deps/ometa-js/lib.js",
+ "deps/ometa-js/ometa-base.js",
+ "deps/ometa-js/parser.js",
+ "ometa/photon-compiler.js",
+ "photon-lib.js"
+].forEach(function (s)
 {
-    log("Compiling '" + s + "'");
-    var f = _compile(readFile(s), verbose ? print : undefined);
-    log("Executing '" + s + "'");
-    photon.send({f:f}, "f");
+    try
+    {
+        log("Compiling '" + s + "'");
+        var f = _compile(readFile(s), verbose ? print : undefined);
+        log("Executing '" + s + "'");
+        photon.send({f:f}, "f");
+    } catch(e)
+    {
+        print(e.stackTrace);
+        throw e;
+    }
 });
 
 log("Compilation");
