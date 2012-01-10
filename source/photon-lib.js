@@ -1043,25 +1043,28 @@ PhotonCompiler.context = {
         }
 
         a.
-        jne(FAST).
-        mov(_$(0), _ECX).
-        call(_ECX).
-        //jmp(CONT).
+        jne(FAST);
+
+        a.codeBlock.extend(this.gen_throw(this.gen_symbol("Fixnum test failed")));
+
+        a.
         label(FAST);
 
         return a.codeBlock.code;
 
     },
 
-    gen_ovf_check:function ()
+    gen_ovf_check:function (op)
     {
         var a = new (x86.Assembler)(x86.target.x86);
         var NO_OVF = _label("NO_OVF");
 
         a.
-        jno(NO_OVF).
-        mov(_$(0), _ECX).
-        call(_ECX).
+        jno(NO_OVF);
+
+        a.codeBlock.extend(this.gen_throw(this.gen_symbol(op + " overflow")));
+
+        a.
         label(NO_OVF);
 
         return a.codeBlock.code;
@@ -1083,7 +1086,7 @@ PhotonCompiler.context = {
             code.push(this.gen_type_check(2));
         }
 
-        f(a);
+        f.call(this, a);
 
         code.push(a.codeBlock.code);
 
@@ -1150,9 +1153,11 @@ PhotonCompiler.context = {
             var NO_OVF = _label("NO_OVF");
 
             a.
-            jno(NO_OVF).
-            mov(_$(0), _ECX).
-            call(_ECX).
+            jno(NO_OVF);
+
+            a.codeBlock.extend(this.gen_throw(this.gen_symbol("'" + op + "' arithmetic overflow")));
+
+            a.
             label(NO_OVF).
             mov(_ECX, _EAX);
 
@@ -1167,7 +1172,7 @@ PhotonCompiler.context = {
             this.gen_type_check(1),
             _op("mov", _EAX, _ECX),
             _op(op, cste, _ECX),
-            this.gen_ovf_check(),
+            this.gen_ovf_check("'" + op + "' with constant"),
             _op("mov", _ECX, _EAX)
         ];
     },
@@ -1183,7 +1188,7 @@ PhotonCompiler.context = {
             _op("dec", _EAX),
             _op("cdq"),
             _op("idiv", _ECX),
-            this.gen_ovf_check()
+            this.gen_ovf_check(isMod ? "modulo" : "division")
         ];
 
         if (isMod)
@@ -1208,7 +1213,7 @@ PhotonCompiler.context = {
             _op("mov", _mem(0, _ESP), _ECX),
             _op("dec", _ECX), 
             _op("imul", _ECX), 
-            this.gen_ovf_check(),
+            this.gen_ovf_check("multiplication"),
             _op("inc", _EAX)
         ];
     },

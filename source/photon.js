@@ -83,9 +83,9 @@ photon.send({f:f}, "f");
  "stdlib/string.js", 
  "stdlib/math.js",
  "utility/debug.js", 
- "utility/num.js",/* 
+ "utility/num.js",
  "utility/misc.js",
- "utility/iterators.js", 
+ "utility/iterators.js", /*
  "utility/arrays.js", 
  "backend/asm.js", 
  "backend/x86/asm.js", 
