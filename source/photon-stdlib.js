@@ -45,6 +45,7 @@ Object.create = function (obj)
 
 Object.prototype.hasOwnProperty = function (p)
 {
+    // TODO: implement!
     return false;
 }
 
@@ -100,6 +101,11 @@ Object.prototype.__itr__ = function ()
         }
     }.init();
 };
+
+Object.prototype.toString = function ()
+{
+    return "[object Object]";
+}
 
 /**
 15.4.2 Array constructor function.
@@ -284,6 +290,16 @@ String.prototype.__get__ = function (i)
     }
 }
 
+String.prototype.toString = function ()
+{
+    return this;
+};
+
+String.prototype.__add__ = function (x)
+{
+    return this.toString().concat(x.toString());
+};
+
 @{["ref", photon.constant]}@.__typeof__ = function ()
 {
     if (this === undefined)
@@ -301,15 +317,53 @@ String.prototype.__get__ = function (i)
     }
 };
 
+@{["ref", photon.constant]}@.__instanceof__ = function () { return false; };
+
 @{["ref", photon.constant]}@.__itr__ = function ()
 {
-    return {valid:function () { return false; }, next:function () { return null; }};
+    return {valid:function () { return false; }};
 };
+
+@{["ref", photon.constant]}@.toString = function ()
+{
+    if (this === undefined)
+    {
+        return "undefined";
+    } else if (this === null)
+    {
+        return "null";
+    } else if (this === true)
+    {
+        return "true";
+    } else if (this === false)
+    {
+        return "false";
+    } else
+    {
+        throw "Invalid constant";
+    }
+};
+
+@{["ref", photon.constant]}@.__get__ = function ()
+{
+    throw "Invalid __get__ operation on '" + this.toString() + "'";
+}
+
+// Note: Should be the last method added since it prevents 
+// further modifications
+@{["ref", photon.constant]}@.__set__ = function ()
+{
+    throw "Invalid __set__ operation on '" + this.toString() + "'";
+}
 
 @{["ref", photon.fixnum]}@.__typeof__ = function ()
 {
     return "number";
 }
+
+@{["ref", photon.fixnum]}@.__instanceof__ = function () { return false; }
+
+@{["ref", photon.fixnum]}@.toString = function () { return num_to_string(this); };
 
 function print(s)
 {

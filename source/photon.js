@@ -55,6 +55,7 @@ function _compile(s, print)
     return f; 
 }
 
+
 function log(s)
 {
     print(s);
@@ -67,6 +68,9 @@ photon.bind = _compile(readFile("_bind.js")).functions["bind"];
 photon.send(_bind, "__intern__", 
             clean(_op("mov", _mref(photon.bind), _EAX).concat(_op("jmp", _EAX))));
 
+photon.add_handler = _compile("function add_handler(b,a) { var r = String.prototype.__add__.call(a,b); print(r); return r; }", print).functions["add_handler"];
+
+
 log("Creating super_bind function");
 photon.super_bind = _compile(readFile("super_bind.js")).functions["super_bind"];
 
@@ -77,8 +81,9 @@ photon.send({f:f}, "f");
 
 ["stdlib/array.js", 
  "stdlib/string.js", 
+ "stdlib/math.js",
  "utility/debug.js", 
- "utility/num.js", 
+ "utility/num.js",/* 
  "utility/misc.js",
  "utility/iterators.js", 
  "utility/arrays.js", 
@@ -88,7 +93,8 @@ photon.send({f:f}, "f");
  "deps/ometa-js/ometa-base.js",
  "deps/ometa-js/parser.js",
  "ometa/photon-compiler.js",
- "photon-lib.js"
+ "photon-lib.js"*/,
+ arguments[0]
 ].forEach(function (s)
 {
     try
@@ -103,8 +109,3 @@ photon.send({f:f}, "f");
         throw e;
     }
 });
-
-log("Compilation");
-var f = _compile(readFile(arguments[0]), verbose ? print : undefined);
-log("Execution");
-photon.send({f:f}, "f");

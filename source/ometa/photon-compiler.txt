@@ -942,8 +942,8 @@ ometa PhotonCompiler {
                               _op("mov", _$(_FALSE), _ECX),
                               _op("cmovz", _ECX, _EAX)]):op 
              trans:x                                          -> [x, op],
-  binop    ( '+'          -> [self.context.gen_arith("add", true), _op("dec", _EAX)]     
-           | '-'          -> [self.context.gen_arith("sub", false), _op("inc", _EAX)]    
+  binop      '+' push(1):x trans:y pop(1) align(5):nb pop(nb) -> [x, _op("push", _EAX), y, self.context.gen_add(nb)],
+  binop    ( '-'          -> [self.context.gen_arith("sub", false), _op("inc", _EAX)]    
            | '*'          -> self.context.gen_arith_mul()    
            | '/'          -> self.context.gen_arith_div(false)
            | '%'          -> self.context.gen_arith_div(true)

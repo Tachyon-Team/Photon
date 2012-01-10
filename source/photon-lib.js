@@ -1091,6 +1091,45 @@ PhotonCompiler.context = {
         return code;
     },
 
+    gen_add:function (nb)
+    {
+
+        var a = new (x86.Assembler)(x86.target.x86);
+        var FAST   = _label("FAST");
+        var END    = _label("END");
+        var NO_OVF = _label("NO_OVF");
+    
+        a.
+        mov(_EAX, _ECX).
+        and(_$(1), _ECX).
+        and(_mem(0, _ESP), _ECX).
+        jne(FAST).
+
+        pop(_ECX);
+        a.codeBlock.extend(this.gen_call(
+            nb, 
+            _op("mov", this.gen_mref(photon.add_handler), _EAX),
+            [[], _op("mov", _ECX, _EAX)]));
+        a.
+        jmp(END).
+
+        label(FAST).
+        mov(_EAX, _ECX).
+        dec(_ECX).
+        add(_mem(0, _ESP), _ECX).
+        jno(NO_OVF);
+
+        a.codeBlock.extend(this.gen_throw(this.gen_symbol("Addition overflow")));
+
+        a.
+        label(NO_OVF).
+        mov(_ECX, _EAX).
+        add(_$(this.sizeof_ref), _ESP).
+        label(END);
+
+        return a.codeBlock.code;
+    },
+
     gen_arith:function (op, commut)
     {
         function f(a)
@@ -1304,6 +1343,7 @@ PhotonCompiler.context = {
     {
         var loc = -(this.stack_location_nb + nb) * this.sizeof_ref + this.bias;
         var that = this;
+
         return [
             _op("sub", _$(nb*this.sizeof_ref), _ESP),
             args.map(function (a, i) 
