@@ -40,19 +40,19 @@ function bind(msg, n, rcv, closure)
 {
     if (ref_is_fixnum(rcv))
     {
-        var l_rcv = @{["ref", photon.fixnum]}@;
+        var l_rcv = @{["ref", photon.fixnum]}@[@-5];
         var l_offset = dynamic_lookup(l_rcv[@-1], msg);
         //var l_offset = static_lookup(l_rcv[@-1], msg);
         //return (l_offset === undefined) ? undefined : 
         return ref_is_fixnum(l_offset) ? l_rcv[@l_offset - header_size()] : l_offset;
     } else if (ref_is_constant(rcv))
     {
-        var l_rcv = @{["ref", photon.constant]}@;
+        var l_rcv = @{["ref", photon.constant]}@[@-5];
         var l_offset = dynamic_lookup(l_rcv[@-1], msg);
         return ref_is_fixnum(l_offset) ? l_rcv[@l_offset - header_size()] : l_offset;
     } else if (msg === "__lookup__" && rcv === rcv[@-1])
     {
-        var l_rcv    = @{["ref", photon.map]}@;
+        var l_rcv    = @{["ref", photon.map]}@[@-5];
         var l_offset = 
             @{["ccall",
                   ["ref",    photon.send(photon.map, "__get__", "__lookup__")],
