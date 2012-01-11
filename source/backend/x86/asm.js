@@ -1015,18 +1015,18 @@ x86.instrFormatGNU = function (mnemonic, suffix, dest, src)
 {
     var opnds = "";
 
-    if (dest && src)
+    if (dest !== undefined && src !== undefined)
     {
         opnds = x86.opndFormatGNU(src) + "," + x86.opndFormatGNU(dest);
-    } else  if (dest)
+    } else  if (dest !== undefined)
     {
         opnds = x86.opndFormatGNU(dest);
     }
 
-    if (suffix)
+    if (suffix !== undefined && suffix !== null)
     {
         return mnemonic + suffix + " " + opnds; // 1 or 2 generic instruction
-    } else if (dest && !src &&
+    } else if (dest !== undefined && src === undefined &&
                (dest.type === x86.type.REG ||
                 dest.type === x86.type.MEM))
     {
@@ -1308,6 +1308,7 @@ x86.Assembler.prototype.opndModRMSIB = function (field, opnd)
         default:
             error("unkown operand " + opnd);
     }
+
     return this;
 };
 
@@ -1443,6 +1444,7 @@ x86.Assembler.prototype.opImm = function (op, mnemonic, src, dest, width)
             that.
             gen8(0x83).            // opcode = sign extended 8 bit imm
             opndModRMSIB(op,dest); // ModR/M
+
             listing(width, that.genImmNum(k,8));
         } else
         {
@@ -1474,6 +1476,7 @@ x86.Assembler.prototype.opImm = function (op, mnemonic, src, dest, width)
     {
         general(width);
     }
+
     return that;
 };
 

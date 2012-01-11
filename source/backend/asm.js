@@ -461,7 +461,7 @@ asm.CodeBlock.prototype.listingString = function (fromIndex, toIndex)
     /** @ignore */
     function spaces(n) 
     {
-        return new Array(n+1).join(" ");
+        return (new Array(n+1)).join(" ");
     };
 
     /** @ignore */
@@ -480,6 +480,9 @@ asm.CodeBlock.prototype.listingString = function (fromIndex, toIndex)
     if (toIndex === undefined)
         toIndex = this.code.length;
 
+    if (fromIndex === undefined)
+        fromIndex = 0;
+    
     for (var i=0; i<toIndex; i++)
     {
         if (typeof this.code[i] === "number" && i < fromIndex)
@@ -507,7 +510,6 @@ asm.CodeBlock.prototype.listingString = function (fromIndex, toIndex)
             // do nothing 
         } else if (this.code[i].type === asm.type.LST)
         {
-
             // Print the position again if we are at the beginning
             // of a line
             if (col === 0) 
@@ -529,7 +531,7 @@ asm.CodeBlock.prototype.listingString = function (fromIndex, toIndex)
             //       we will just ignore them
         }
     }
-   
+    
     // Close the last line 
     if (col > 0) { s[index++] = newline(); } 
 
