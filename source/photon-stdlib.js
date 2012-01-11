@@ -45,8 +45,7 @@ Object.create = function (obj)
 
 Object.prototype.hasOwnProperty = function (p)
 {
-    // TODO: implement!
-    return false;
+    return this[@-1].__lookup__(p) !== undefined;
 }
 
 Object.prototype.__itr__ = function ()
@@ -105,7 +104,24 @@ Object.prototype.__itr__ = function ()
 Object.prototype.toString = function ()
 {
     return "[object Object]";
-}
+};
+
+Object.prototype.isPrototypeOf = function (x)
+{
+    var o = x;
+
+    while (o !== null)
+    {
+        if (o === this)
+        {
+            return true;
+        }
+
+        o = o[@-2];
+    }
+
+    return false;
+};
 
 /**
 15.4.2 Array constructor function.
@@ -257,13 +273,9 @@ function String(value)
     if (isGlobalObj(this) === false)
     {
         throw "String: object strings not supported";
-    }
-    else if (typeof value !== "string")
-    {
-        throw "String: object conversion to string not supported";
     } else
     {
-        return value;
+        return value.toString();
     }
 }
 
@@ -328,7 +340,7 @@ String.prototype.__add__ = function (x)
 {
     if (this === undefined)
     {
-        return "undefined";
+        return "";
     } else if (this === null)
     {
         return "null";

@@ -575,13 +575,16 @@ ometa PhotonDesugar <: PhotonASTCopy {
                                                                             [#begin, 
                                                                                 [#set, [#get, name], [#send, "get",  [#get, it]]]]
                                                                                 .concat([body])]]]},
-  new      trans:fn trans*:args                               -> {var o = gensym(); var r = gensym();
+  new      trans:fn trans*:args                               -> {var o = gensym(); var r = gensym(); var f = gensym();
                                                                   [#let, _new_context(),
                                                                       [#begin, 
-                                                                          [#var, o, [#send, "__new__", [#ref, photon.object]]],
-                                                                          [#var, r, [#get, #undefined]]],
+                                                                          [#var, o, [#get, #undefined]],
+                                                                          [#var, r, [#get, #undefined]],
+                                                                          [#var, f, fn]],
                                                                       [#begin,
-                                                                          [#set, [#get, r], [#send, "call", fn, [#get, o]].concat(args)],
+                                                                          [#set, [#get, o], [#send, "__new__", [#ref, photon.object]]],
+                                                                          [#set, ["gets", ["get", o], ["number", -2]], [#send, "__get__", [#get, f], [#string, "prototype"]]],
+                                                                          [#set, [#get, r], [#send, "call", [#get, f], [#get, o]].concat(args)],
                                                                           [#condExpr,
                                                                               [#binop, "===", 
                                                                                   [#send, "__typeof__",  [#get, r]],

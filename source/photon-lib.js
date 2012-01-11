@@ -1021,11 +1021,16 @@ PhotonCompiler.context = {
         return a.codeBlock.code;
     },
 
-    gen_type_check:function (n)
+    gen_type_check:function (n, op)
     {
         if (n === undefined)
         {
             n = 2;
+        }
+
+        if (op === undefined)
+        {
+            op = "";
         }
 
         var a = new (x86.Assembler)(x86.target.x86);
@@ -1045,7 +1050,7 @@ PhotonCompiler.context = {
         a.
         jne(FAST);
 
-        a.codeBlock.extend(this.gen_throw(this.gen_symbol("Fixnum test failed")));
+        a.codeBlock.extend(this.gen_throw(this.gen_symbol("Fixnum test failed for '" + op + "'")));
 
         a.
         label(FAST);
@@ -1070,7 +1075,7 @@ PhotonCompiler.context = {
         return a.codeBlock.code;
     },
 
-    gen_binop:function (f, type_check)
+    gen_binop:function (f, type_check, op)
     {
         if (type_check === undefined)
             type_check = false;
@@ -1083,7 +1088,7 @@ PhotonCompiler.context = {
 
         if (type_check === true)
         {
-            code.push(this.gen_type_check(2));
+            code.push(this.gen_type_check(2, op));
         }
 
         f.call(this, a);
@@ -1163,13 +1168,13 @@ PhotonCompiler.context = {
 
         }
 
-        return this.gen_binop(f, true);
+        return this.gen_binop(f, true, op);
     },
 
     gen_arith_cste:function (op, cste)
     {
         return [
-            this.gen_type_check(1),
+            this.gen_type_check(1, op),
             _op("mov", _EAX, _ECX),
             _op(op, cste, _ECX),
             this.gen_ovf_check("'" + op + "' with constant"),
@@ -1181,7 +1186,7 @@ PhotonCompiler.context = {
     {
         var code = 
         [
-            this.gen_type_check(2),
+            this.gen_type_check(2, isMod ? "modulo" : "division"),
             _op("mov", _EAX, _ECX),
             _op("dec", _ECX),
             _op("mov", _mem(0, _ESP), _EAX),
@@ -1207,7 +1212,7 @@ PhotonCompiler.context = {
     gen_arith_mul:function ()
     {
         return [
-            this.gen_type_check(2), 
+            this.gen_type_check(2, "multiplication"), 
             _op("mov", _EAX, _ECX), 
             _op("sar", _$(1), _EAX), 
             _op("mov", _mem(0, _ESP), _ECX),
@@ -1229,7 +1234,7 @@ PhotonCompiler.context = {
             [op](_ECX, _EAX);
         }
 
-        return this.gen_binop(f, type_check);
+        return this.gen_binop(f, type_check, op);
     },
 
     gen_logic:function (op)
@@ -1243,7 +1248,7 @@ PhotonCompiler.context = {
             cmovnz(_ECX, _EAX);
         }
 
-        return this.gen_binop(f);
+        return this.gen_binop(f, undefined, op);
     },
 
     gen_shiftop:function (op)
@@ -1260,7 +1265,7 @@ PhotonCompiler.context = {
             inc(_EAX);
         }
 
-        return this.gen_binop(f, true);
+        return this.gen_binop(f, true, op);
     },
 
     gen_bitwise:function (op)
@@ -1277,7 +1282,7 @@ PhotonCompiler.context = {
             inc(_EAX);
         }
 
-        return this.gen_binop(f, true);
+        return this.gen_binop(f, true, op);
     },
 
     gen_mref:function (m)
