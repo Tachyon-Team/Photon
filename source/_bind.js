@@ -83,8 +83,7 @@ function bind(msg, n, rcv, closure)
         l_rcv = l_rcv[@-2];
     }
 
-    print("send message not understood: ");
-    print(msg);
+    throw "send message not understood: '".concat(msg).concat("'");
 
     return undefined;
 }
