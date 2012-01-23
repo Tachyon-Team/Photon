@@ -718,7 +718,11 @@ PhotonCompiler.context = {
         }
 
         this.previous_blocks.push(this.block);
-        this.block = {"continue":(isSwitch ? this.block["continue"] : _label()), "break":_label(), "try_lvl":this.try_lvl};
+        this.block = {"continue":(isSwitch ? this.block["continue"] : _label()), 
+                      "break":_label(), 
+                      "try_lvl":this.try_lvl, 
+                      "stack_location_nb":this.stack_location_nb,
+                      "bias":this.bias};
     },
 
     pop_block:function ()
@@ -941,7 +945,7 @@ PhotonCompiler.context = {
         ];
 
         var f = this.new_function_object(code, this.ref_ctxt(), 0);
-        photon.send(f, "__set__", "prototype", {});
+        photon.send(f, "__set__", "length", args.length);
         
         // Remember globally defined functions for direct access
         if (name !== undefined && this.previous_scopes.length === 2)
@@ -1021,16 +1025,16 @@ PhotonCompiler.context = {
         return a.codeBlock.code;
     },
 
-    gen_type_check:function (n, op)
+    gen_type_check:function (n, name, nb, end)
     {
         if (n === undefined)
         {
             n = 2;
         }
 
-        if (op === undefined)
+        if (name === undefined)
         {
-            op = "";
+            name = "";
         }
 
         var a = new (x86.Assembler)(x86.target.x86);
@@ -1050,7 +1054,20 @@ PhotonCompiler.context = {
         a.
         jne(FAST);
 
-        a.codeBlock.extend(this.gen_throw(this.gen_symbol("Fixnum test failed for '" + op + "'")));
+        if (photon.handlers[name] !== undefined)
+        {
+            a.
+            pop(_ECX).
+            codeBlock.extend(this.gen_call(
+                nb, 
+                _op("mov", this.gen_mref(photon.handlers[name]), _EAX),
+                [[], _op("mov", _ECX, _EAX)]));
+            a.
+            jmp(end);
+        } else
+        {
+            a.codeBlock.extend(this.gen_throw(this.gen_symbol("Fixnum test failed for '" + name + "', no handler defined")));
+        }
 
         a.
         label(FAST);
@@ -1075,28 +1092,11 @@ PhotonCompiler.context = {
         return a.codeBlock.code;
     },
 
-    gen_binop:function (f, type_check, op)
+    gen_binop:function (f)
     {
-        if (type_check === undefined)
-            type_check = false;
-
         var a = new (x86.Assembler)(x86.target.x86);
-        var FAST = _label("FAST");
-        var CONT = _label("CONT");
-
-        var code = [];
-
-        if (type_check === true)
-        {
-            code.push(this.gen_type_check(2, op));
-        }
-
         f.call(this, a);
-
-        code.push(a.codeBlock.code);
-
-
-        return code;
+        return a.codeBlock.code;
     },
 
     gen_add:function (nb)
@@ -1116,7 +1116,7 @@ PhotonCompiler.context = {
         pop(_ECX);
         a.codeBlock.extend(this.gen_call(
             nb, 
-            _op("mov", this.gen_mref(photon.add_handler), _EAX),
+            _op("mov", this.gen_mref(photon.handlers.add), _EAX),
             [[], _op("mov", _ECX, _EAX)]));
         a.
         jmp(END).
@@ -1168,32 +1168,21 @@ PhotonCompiler.context = {
 
         }
 
-        return this.gen_binop(f, true, op);
-    },
 
-    gen_arith_cste:function (op, cste)
-    {
-        return [
-            this.gen_type_check(1, op),
-            _op("mov", _EAX, _ECX),
-            _op(op, cste, _ECX),
-            this.gen_ovf_check("'" + op + "' with constant"),
-            _op("mov", _ECX, _EAX)
-        ];
+        return this.gen_binop(f);
     },
 
     gen_arith_div:function (isMod)
     {
         var code = 
         [
-            this.gen_type_check(2, isMod ? "modulo" : "division"),
             _op("mov", _EAX, _ECX),
             _op("dec", _ECX),
             _op("mov", _mem(0, _ESP), _EAX),
             _op("dec", _EAX),
             _op("cdq"),
             _op("idiv", _ECX),
-            this.gen_ovf_check(isMod ? "modulo" : "division")
+            this.gen_ovf_check(isMod ? "mod" : "div")
         ];
 
         if (isMod)
@@ -1212,18 +1201,17 @@ PhotonCompiler.context = {
     gen_arith_mul:function ()
     {
         return [
-            this.gen_type_check(2, "multiplication"), 
             _op("mov", _EAX, _ECX), 
             _op("sar", _$(1), _EAX), 
             _op("mov", _mem(0, _ESP), _ECX),
             _op("dec", _ECX), 
             _op("imul", _ECX), 
-            this.gen_ovf_check("multiplication"),
+            this.gen_ovf_check("mul"),
             _op("inc", _EAX)
         ];
     },
 
-    gen_rel:function (op, type_check)
+    gen_rel:function (op)
     {
         function f(a)
         {
@@ -1234,7 +1222,7 @@ PhotonCompiler.context = {
             [op](_ECX, _EAX);
         }
 
-        return this.gen_binop(f, type_check, op);
+        return this.gen_binop(f);
     },
 
     gen_logic:function (op)
@@ -1248,7 +1236,7 @@ PhotonCompiler.context = {
             cmovnz(_ECX, _EAX);
         }
 
-        return this.gen_binop(f, undefined, op);
+        return this.gen_binop(f);
     },
 
     gen_shiftop:function (op)
@@ -1265,7 +1253,7 @@ PhotonCompiler.context = {
             inc(_EAX);
         }
 
-        return this.gen_binop(f, true, op);
+        return this.gen_binop(f);
     },
 
     gen_bitwise:function (op)
@@ -1282,7 +1270,7 @@ PhotonCompiler.context = {
             inc(_EAX);
         }
 
-        return this.gen_binop(f, true, op);
+        return this.gen_binop(f);
     },
 
     gen_mref:function (m)
@@ -1445,6 +1433,7 @@ PhotonCompiler.context = {
         var code = [];
         if (this.try_lvl > this.block["try_lvl"])
         {
+            print("try_lvl > this.block.try_lvl");
             for (var i = this.block["try_lvl"] + 1; i < this.try_lvl; ++i)
             {
                 code.push(_op("mov", _mem(0, _EBP), _EBP));    
@@ -1459,12 +1448,26 @@ PhotonCompiler.context = {
 
     gen_break:function ()
     {
-        return [this.gen_pop_try_frames(), _op("jmp", this.break_lbl())];
+        var bias         = this.bias - this.block.bias;
+        var stack_offset = (this.stack_location_nb - 
+                            this.block.stack_location_nb) * this.sizeof_ref;
+        return [
+            _op("add", _$(bias), _EBP), 
+            _op("add", _$(stack_offset), _ESP), 
+            _op("jmp", this.break_lbl())
+        ];
     },
     
     gen_continue:function ()
     {
-        return [this.gen_pop_try_frames(), _op("jmp", this.cont_lbl())];
+        var bias         = this.bias - this.block.bias;
+        var stack_offset = (this.stack_location_nb - 
+                            this.block.stack_location_nb) * this.sizeof_ref;
+        return [
+            _op("add", _$(bias), _EBP), 
+            _op("add", _$(stack_offset), _ESP), 
+            _op("jmp", this.cont_lbl())
+        ];
     },
 
     enter_let_init:function (scope)

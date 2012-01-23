@@ -2,7 +2,6 @@ photon.init();
 photon.array.pp    = function () { return "photon.array"; };
 photon.object.pp   = function () { return "photon.object"; };
 photon.function.pp = function () { return "photon.function"; };
-photon.global      = photon.send(photon.object, "__new__");
 photon.global.pp   = function () { return "photon.global"; };
 photon.cell.pp     = function () { return "photon.cell"; };
 photon.map.pp      = function () { return "photon.map"; };
@@ -61,6 +60,10 @@ function log(s)
     //if (verbose) 
         print(s);
 }
+photon.handlers = {};
+
+try
+{
 
 log("Creating bind function");
 photon.bind = photon.send(photon.function, "__new__", 10, 0);
@@ -69,11 +72,17 @@ photon.bind = _compile(readFile("_bind.js")).functions["bind"];
 photon.send(_bind, "__intern__", 
             clean(_op("mov", _mref(photon.bind), _EAX).concat(_op("jmp", _EAX))));
 
-photon.add_handler = _compile("function add_handler(b,a) { return String.prototype.__add__.call(a,b);}").functions["add_handler"];
-
+log("Creating handlers");
+photon.handlers = _compile(readFile("handlers.js")).functions;
 
 log("Creating super_bind function");
 photon.super_bind = _compile(readFile("super_bind.js")).functions["super_bind"];
+
+} catch (e)
+{
+    print(e.stack);
+    throw e;
+}
 
 log("Installing standard library");
 var f = _compile(readFile("photon-stdlib.js"), arguments[1] === "-v" ? print : undefined);
@@ -88,15 +97,18 @@ photon.send({f:f}, "f");
  "utility/misc.js",
  "utility/iterators.js",
  "utility/arrays.js", 
+ /*
  "backend/asm.js", 
  "backend/x86/asm.js", 
- /*
+ */
  "deps/ometa-js/lib.js",
  "deps/ometa-js/ometa-base.js",
  "deps/ometa-js/parser.js",
+ /*
  "ometa/photon-compiler.js",
  "photon-lib.js",
  */
+ "ometa/simple-parser.js",
  arguments[0]
 ].forEach(function (s)
 {

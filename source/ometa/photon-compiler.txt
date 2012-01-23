@@ -225,7 +225,7 @@ ometa PhotonParser <: Parser {
   nameRest     = nameFirst | digit,
   iName        = firstAndRest(#nameFirst, #nameRest):r                               -> r.join(''),
   isKeyword :x = ?self._isKeyword(x),
-  name         = iName:n ~isKeyword(n)                                               -> [#name, n=='self' ? '$elf' : n],
+  name         = iName:n ~isKeyword(n)                                               -> [#name, n === 'self' ? '$elf' : n],
   keyword      = iName:k isKeyword(k)                                                -> [k, k],
   hexDigit     = char:x {this.hexDigits.indexOf(x.toLowerCase())}:v ?(v >= 0)        -> v,
   hexLit       = hexLit:n hexDigit:d                                                 -> (n * 16 + d)
@@ -248,7 +248,7 @@ ometa PhotonParser <: Parser {
                  | '.'   | '!'    | '|'    | '&'     | '^'    | '~'              ):s -> [s, s],
   tok          = spaces (ceval | name | keyword | number | str | special),
   toks         = token*:ts spaces end                                                -> ts,
-  token :tt    = tok:t ?(t[0] == tt)                                                 -> t[1],
+  token :tt    = tok:t ?(t[0] === tt)                                                -> t[1],
   spacesNoNl   = (~'\n' space)*,
   expr         = orExpr:e ( "?"   expr:t   ":" expr:f                                -> [#condExpr, e, t, f]
                           | "="   expr:rhs                                           -> [#set, e, rhs]
@@ -751,7 +751,7 @@ ometa PhotonVarScopeBinding <: PhotonASTCopy {
                                                                        [#begin, [#var, f, [#send, "__clone__", [#func, args, ctxt, body]]]],
                                                                        [#begin]
                                                                        .concat(self.context.gen_cell_capture(cs, os, f))
-                                                                       .concat([[#get, f]])]},
+                                                                       .concat([[#send, "__set__", [#get, f], [#string, "length"], [#number, args.length]], [#get, f]])]},
   try :ctxt trans:x :name 
             {self.context.enter_let_scope(ctxt.scope)} 
             {self.context.scope._escaping}:es
@@ -945,26 +945,33 @@ ometa PhotonCompiler {
                               _op("mov", _$(_FALSE), _ECX),
                               _op("cmovz", _ECX, _EAX)]):op 
              trans:x                                          -> [x, op],
+
   binop      '+' push(1):x trans:y pop(1) align(5):nb pop(nb) -> [x, _op("push", _EAX), y, self.context.gen_add(nb)],
-  binop    ( '-'          -> [self.context.gen_arith("sub", false), _op("inc", _EAX)]    
-           | '*'          -> self.context.gen_arith_mul()    
-           | '/'          -> self.context.gen_arith_div(false)
-           | '%'          -> self.context.gen_arith_div(true)
-           | '<'          -> self.context.gen_rel("cmovl", true)                         
-           | '<='         -> self.context.gen_rel("cmovle", true)                       
-           | '>'          -> self.context.gen_rel("cmovnle", true)                       
-           | '>='         -> self.context.gen_rel("cmovnl", true)                        
-           | '=='         -> []                                          
-           | '!='         -> []                                          
-           | '==='        -> self.context.gen_rel("cmovz", false)                        
-           | '!=='        -> self.context.gen_rel("cmovnz", false)                       
-           | '>>'         -> self.context.gen_shiftop("sar")                             
-           | '>>>'        -> self.context.gen_shiftop("shr")                             
-           | '<<'         -> self.context.gen_shiftop("sal")                             
-           | '^'          -> self.context.gen_bitwise("xor")                                         
-           | '&'          -> self.context.gen_bitwise("and")                                          
-           | '|'          -> self.context.gen_bitwise("or")):op                                          
+  binop    ( '-'   ({"sub"}):name -> [self.context.gen_arith("sub", false), _op("inc", _EAX)]    
+           | '*'   ({"mul"}):name -> self.context.gen_arith_mul()    
+           | '/'   ({"div"}):name -> self.context.gen_arith_div(false)
+           | '%'   ({"mod"}):name -> self.context.gen_arith_div(true)
+           | '<'   ({"lt"}):name  -> self.context.gen_rel("cmovl")
+           | '<='  ({"le"}):name  -> self.context.gen_rel("cmovle")
+           | '>'   ({"gt"}):name  -> self.context.gen_rel("cmovnle")
+           | '>='  ({"ge"}):name  -> self.context.gen_rel("cmovnl")
+           | '>>'  ({"sar"}):name -> self.context.gen_shiftop("sar")
+           | '>>>' ({"shr"}):name -> self.context.gen_shiftop("shr")
+           | '<<'  ({"sal"}):name -> self.context.gen_shiftop("sal")
+           | '^'   ({"xor"}):name -> self.context.gen_bitwise("xor")
+           | '&'   ({"and"}):name -> self.context.gen_bitwise("and")
+           | '|'   ({"or"}):name  -> self.context.gen_bitwise("or")                                          
+           ):op
+           push(1):x trans:y pop(1) ({_label("END")}):END align(5):nb pop(nb)
+                                                              -> {[x, _op("push", _EAX), y, self.context.gen_type_check(2, name, nb, END),
+                                                                   op, _op("add", _$(4), _ESP), END]},
+
+  binop    ( '=='         -> error("Unimplemented ==")                                          
+           | '!='         -> error("Unimplemented !=")                    
+           | '==='        -> self.context.gen_rel("cmovz")
+           | '!=='        -> self.context.gen_rel("cmovnz")):op
            push(1):x trans:y pop(1)                           -> [x, _op("push", _EAX), y, op, _op("add", _$(4), _ESP)],
+
   binop    ( '||' (empty -> _TRUE):skip  -> self.context.gen_logic("or")
            | '&&' (empty -> _FALSE):skip -> self.context.gen_logic("and")):op  
            push(1):x trans:y pop(1)                           -> {var END = _label();

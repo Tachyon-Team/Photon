@@ -51,17 +51,25 @@ inline ssize_t ref_is_object(struct object *obj);
 char *start = 0;
 char *next  = 0;
 char *end   = 0;
-size_t mem_allocated = 0; // in KB
+unsigned long long mem_allocated = 0;      // in Bytes
+unsigned long long exec_mem_allocated = 0; // in Bytes
 
 #define MB *1000000
-#define HEAP_SIZE (1 MB)
+#define HEAP_SIZE (10 MB)
 
 extern void newHeap()
 {
-    start = (char *)calloc(1, HEAP_SIZE);
-    mem_allocated += HEAP_SIZE / 1000;
+    //start = (char *)calloc(1, HEAP_SIZE);
+    start = (char *)mmap(
+        0,
+        HEAP_SIZE,
+        PROT_READ | PROT_WRITE | PROT_EXEC,
+        MAP_PRIVATE | MAP_ANON,
+        -1,
+        0
+    );
 
-    assert(start != 0);
+    assert(start != MAP_FAILED);
 
     next = start;
     end = start + HEAP_SIZE;
@@ -72,12 +80,12 @@ inline char *raw_calloc(size_t nb, size_t size)
 {
     size_t obj_size = nb * size;
     char *new_ptr = 0;
+    mem_allocated += obj_size;
 
     if ((next + obj_size) > end)
     {
         if (obj_size > HEAP_SIZE)
         {
-            mem_allocated += obj_size / 1000;
             new_ptr = (char *)calloc(1, obj_size);
             assert(new_ptr != 0);
             return new_ptr;
@@ -98,7 +106,9 @@ inline char *raw_calloc(size_t nb, size_t size)
 // Allocate executable memory
 inline char *ealloc(size_t size)
 {
-    return (char *)mmap(
+    exec_mem_allocated += size;
+    /*
+    char *p = (char *)mmap(
         0,
         size,
         PROT_READ | PROT_WRITE | PROT_EXEC,
@@ -106,6 +116,11 @@ inline char *ealloc(size_t size)
         -1,
         0
     );
+
+    assert(p != MAP_FAILED);
+    */
+    return raw_calloc(1, size);
+
 }
 
 struct object *method_min = (struct object *)-1;
@@ -125,6 +140,13 @@ struct object *register_function(struct object *f)
 
     return f;
 }
+
+#define inc_mem_counter(COUNTER, props, payload)\
+(                                               \
+    COUNTER += props*sizeof(struct object *) +  \
+               sizeof(struct header)         +  \
+               payload                          \
+)                                                
 
 //--------------------------------- Inner Object Layouts -----------------------
 #define COUNT_BIT_NB 16
@@ -180,6 +202,7 @@ struct map {
     struct object     *type;
     struct object     *count;
     struct object     *next_offset;
+    struct object     *cache;
     struct property    properties[0];
 };
 
@@ -193,6 +216,7 @@ struct symbol {
 };
 
 //--------------------------------- Root Objects ------------------------------
+struct object *global_object      = (struct object *)0;
 struct object *roots              = (struct object *)0;
 struct object *roots_names        = (struct object *)0;
 struct object *root_arguments     = (struct object *)0;
@@ -206,6 +230,15 @@ struct object *root_map           = (struct object *)0;
 struct object *root_object        = (struct object *)0;
 struct object *root_symbol        = (struct object *)0;
 struct object *symbol_table       = (struct object *)0;
+
+size_t mem_arguments              = 0;
+size_t mem_array                  = 0;
+size_t mem_cell                   = 0;
+size_t mem_frame                  = 0;
+size_t mem_function               = 0;
+size_t mem_map                    = 0;
+size_t mem_object                 = 0;
+size_t mem_symbol                 = 0;
 
 struct object *RESERVED      = (struct object *)10;
 struct object *FALSE         = (struct object *)4;
@@ -524,6 +557,8 @@ struct object *arguments_new(size_t n, struct array *self, struct function *clos
         ref(5), 
         ref(fx(size)*sizeof(struct object *) + sizeof(struct array))
     );
+    inc_mem_counter(mem_arguments, 5, fx(size)*sizeof(struct object *) + sizeof(struct array));
+
 
     new_args->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
     new_args->_hd[-1].map->type = ARRAY_TYPE;
@@ -602,6 +637,7 @@ struct array *array_extend(struct array *orig, ssize_t size)
         object_values_size(self),
         ref(sizeof(struct array) + size * sizeof(struct object *))
     );
+    inc_mem_counter(mem_array, object_values_size(self), sizeof(struct array) + size * sizeof(struct object *));
 
     copy->_hd[-1].map       = self->_hd[-1].map;
     copy->_hd[-1].prototype = self->_hd[-1].prototype;
@@ -653,6 +689,7 @@ struct object *array_new(size_t n, struct array *self, struct function *closure,
         ref(0), 
         ref(fx(size)*sizeof(struct object *) + sizeof(struct array))
     );
+    inc_mem_counter(mem_array, 0, fx(size)*sizeof(struct object *) + sizeof(struct array));
 
     new_array->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
     new_array->_hd[-1].map->type = ARRAY_TYPE;
@@ -731,7 +768,8 @@ struct object *array_set(
 
 struct object *cell_new(size_t n, struct cell *self, struct function *closure, struct object *val)
 {
-    struct cell *new_cell = (struct cell *)send(self, s_init, ref(0), ref(sizeof(struct object *)));
+    struct cell *new_cell = (struct cell *)send(self, s_init, ref(0), ref(sizeof(struct cell)));
+    inc_mem_counter(mem_cell, 0, sizeof(struct cell));
 
     new_cell->value = val;
 
@@ -782,8 +820,6 @@ struct object *function_allocate(
         fx(prelude_size) + fx(payload_size) + sizeof(ssize_t)
     );
 
-    assert(ptr != MAP_FAILED);
-
     *((ssize_t *)(ptr + fx(prelude_size) + fx(payload_size))) = fx(payload_size);
     struct object *po = (struct object *)(ptr + fx(prelude_size));
 
@@ -806,6 +842,7 @@ struct object *frame_new(
         ref(0), 
         ref(f_n*sizeof(struct object *) + sizeof(struct frame))
     );
+    inc_mem_counter(mem_frame, 0, f_n*sizeof(struct object *) + sizeof(struct frame));
 
     f->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
     f->_hd[-1].map->type = FRAME_TYPE;
@@ -841,6 +878,10 @@ struct object *function_clone(size_t n, struct function *self, struct function *
         ref(object_values_size((struct object *)self)), 
         self->_hd[-1].payload_size
     );
+    inc_mem_counter(mem_function, 
+                    object_values_size((struct object *)self), 
+                    fx(self->_hd[-1].payload_size));
+
     clone->_hd[-1].map          = self->_hd[-1].map;
     clone->_hd[-1].prototype    = self->_hd[-1].prototype;
 
@@ -849,10 +890,29 @@ struct object *function_clone(size_t n, struct function *self, struct function *
         clone->code[i] = self->code[i]; 
     }
     
-    struct object *prototype = send0(root_object, s_new);
-    send(clone, s_set, s_prototype, prototype);
-
     return (struct object *)clone;
+}
+
+struct object *function_get(
+    size_t n, 
+    struct function *self, 
+    struct function *closure,
+    struct object    *name
+)
+{
+
+    struct function *orig = self;
+    self = (struct function *)self->_hd[-1].extension;
+
+    if (name == s_prototype && send(self->_hd[-1].map, s_lookup, s_prototype) == UNDEFINED)
+    {
+        // Lazy creation of the prototype object
+        struct object *prototype = send0(root_object, s_new);
+        return send(orig, s_set, s_prototype, prototype);
+    } else
+    {
+        return super_send(orig, s_get, name);
+    }
 }
 
 struct object *function_intern(size_t n, struct function *self, struct function *closure, struct array *code)
@@ -877,6 +937,9 @@ struct object *function_new(
 )
 {
     struct object *new_fct = send(self, s_init, ref(fx(cell_nb) + 1), payload_size);
+    inc_mem_counter(mem_function, 
+                    fx(cell_nb) + 1, 
+                    fx(payload_size));
 
     new_fct->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
     new_fct->_hd[-1].prototype = (struct object *)self;
@@ -894,10 +957,99 @@ struct object *function_new(
     return new_fct;
 }
 
+
 struct object *function_print(size_t n, struct function *self)
 {
     printf("[Function]\n");
     return UNDEFINED;
+}
+
+struct object *global_readFile(size_t n, struct object *self, struct function *closure, struct object *name)
+{
+    char *fileName = (char *)name;
+    FILE* inFile = fopen(fileName, "r");
+    if (inFile == NULL)
+    {
+        printf("Error in readFile -- can't open file \"%s\"\n", fileName);
+        exit(1);
+    }
+
+    char buffer[255];
+
+    char* outStr = NULL;
+    size_t strLen = 0;
+
+    while (!feof(inFile))
+    {
+        int numRead = fread(buffer, 1, sizeof(buffer), inFile);
+
+        if (ferror(inFile))
+        {
+            printf("Error in readFile -- failed to read file");
+            exit(1);        
+        }
+
+        outStr = (char*)realloc(outStr, strLen + numRead + 1);
+        memcpy(outStr + strLen, buffer, numRead);
+        strLen += numRead;
+    }
+
+    outStr[strLen] = '\0';
+
+    fclose(inFile);
+
+    struct object *content = send(root_symbol, s_intern, outStr);
+
+    free(outStr);
+
+    return content;
+}
+
+struct object *global_memStats(size_t n, struct object *self, struct function *closure)
+{
+    struct object *s = send0(root_object, s_new);
+
+    struct object *name = send(root_symbol, s_intern, "executable");
+    send(s, s_set, name, ref(exec_mem_allocated/1000));
+
+    name = send(root_symbol, s_intern, "regular");
+    send(s, s_set, name, ref(mem_allocated/1000));
+
+    name = send(root_symbol, s_intern, "arguments");
+    send(s, s_set, name, ref(mem_arguments));
+
+    name = send(root_symbol, s_intern, "array");
+    send(s, s_set, name, ref(mem_array));
+
+    name = send(root_symbol, s_intern, "cell");
+    send(s, s_set, name, ref(mem_cell));
+
+    name = send(root_symbol, s_intern, "frame");
+    send(s, s_set, name, ref(mem_frame));
+
+    name = send(root_symbol, s_intern, "function");
+    send(s, s_set, name, ref(mem_function));
+
+    name = send(root_symbol, s_intern, "map");
+    send(s, s_set, name, ref(mem_map));
+
+    name = send(root_symbol, s_intern, "object");
+    send(s, s_set, name, ref(mem_object));
+
+    name = send(root_symbol, s_intern, "symbol");
+    send(s, s_set, name, ref(mem_symbol));
+
+    return s;    
+}
+
+struct object *global_memAllocatedKBs(size_t n, struct object *self, struct function *closure)
+{
+    return ref(mem_allocated/1000);
+}
+
+struct object *map_base_size(size_t n, struct object* self, struct function *closure)
+{
+    return ref(sizeof(struct map));
 }
 
 struct object *map_clone(size_t n, struct map *self, struct function *closure, struct object *payload_size)
@@ -981,14 +1133,21 @@ struct object *map_new(size_t n, struct map *self, struct function *closure)
         ref(4), 
         ref(4*sizeof(struct property) + sizeof(struct map))
     );
+    inc_mem_counter(mem_map, 4, 4*sizeof(struct property) + sizeof(struct map));
 
     new_map->_hd[-1].map       = self->_hd[-1].map;
     new_map->_hd[-1].prototype = (struct object *)self;
     new_map->count             = ref(0);
     new_map->next_offset       = ref(-1);
     new_map->type              = MAP_TYPE;
+    new_map->cache             = NIL;
 
     return (struct object *)new_map;
+}
+
+struct object *map_property_size(size_t n, struct object* self, struct function *closure)
+{
+    return ref(sizeof(struct property));
 }
 
 struct object *map_print(size_t n, struct map *self, struct function *closure)
@@ -1069,6 +1228,7 @@ struct object *map_set(size_t n, struct map *self, struct function *closure, str
     } 
 }
 
+
 struct object *object_allocate(
     size_t n,
     struct object *self, 
@@ -1111,6 +1271,7 @@ struct object *object_clone(size_t n, struct object *self, struct function *clos
         ref(object_values_size(self)),
         payload_size
     );
+    inc_mem_counter(mem_object, object_values_size(self), fx(payload_size));
 
     for (i=1; i <= object_values_size(self); ++i)
     {
@@ -1224,6 +1385,7 @@ struct object *object_new(size_t n, struct object *self, struct function *closur
 {
     struct map    *new_map   = (struct map *)send0(self->_hd[-1].map, s_new);
     struct object *child     = send(self, s_init, ref(4), ref(0));
+    inc_mem_counter(mem_object, 4, 0);
     new_map->type            = OBJECT_TYPE;
     child->_hd[-1].map       = new_map;
     child->_hd[-1].prototype = self;
@@ -1256,6 +1418,7 @@ struct object *object_set(size_t n, struct object *self, struct function *closur
         {
             ssize_t size = object_values_size(self) == 0 ? 2 : 2*object_values_size(self);
             copy = send(self, s_init, ref(size), self->_hd[-1].payload_size);
+            inc_mem_counter(mem_object, size, fx(self->_hd[-1].payload_size));
             copy->_hd[-1].map       = self->_hd[-1].map;
             copy->_hd[-1].prototype = self->_hd[-1].prototype;
 
@@ -1299,6 +1462,7 @@ struct object *symbol_new(size_t n, struct object *self, struct function *closur
         ref(0), 
         ref(fx(size) + 1)
     );
+    inc_mem_counter(mem_symbol, 0, fx(size) + 1);
     new_symbol->_hd[-1].map = (struct map *)send0(self->_hd[-1].map, s_new);
     new_symbol->_hd[-1].prototype = self;
     new_symbol->_hd[-1].map->type = SYMBOL_TYPE;
@@ -1838,6 +2002,7 @@ extern void bootstrap()
     send(root_function, s_set, s_clone,    register_function((struct object *)function_clone));
     send(root_function, s_set, s_intern,   register_function((struct object *)function_intern));
     send(root_function, s_set, s_new,      register_function((struct object *)function_new));
+    send(root_function, s_set, s_get,      register_function((struct object *)function_get));
 
     log("Create Root Fixnum object\n");
     root_fixnum = send0(root_object, s_new);
@@ -1867,9 +2032,23 @@ extern void bootstrap()
     log("Add primitive methods on Root Frame object \n");
     send(root_frame, s_set, s_new, register_function((struct object *)frame_new));
 
+    log("Creating global object\n");
+    global_object = send0(root_object, s_new);
+
+    log("Adding global methods\n");
+    struct object *name = send(root_symbol, s_intern, "readFile");
+    send(global_object, s_set, name, global_readFile);
+
+    name = send(root_symbol, s_intern, "memStats");
+    send(global_object, s_set, name, global_memStats);
+
+    name = send(root_symbol, s_intern, "memAllocatedKBs");
+    send(global_object, s_set, name, global_memAllocatedKBs);
+
     log("Registering roots\n");
     roots = send(root_array, s_new, ref(20));
 
+    send(roots, s_push, global_object); 
     send(roots, s_push, root_arguments); 
     send(roots, s_push, root_array); 
     send(roots, s_push, root_cell);
@@ -1884,7 +2063,9 @@ extern void bootstrap()
 
     roots_names = send(root_array, s_new, ref(20));
 
-    struct object *name = send(root_symbol, s_intern, "arguments");
+    name = send(root_symbol, s_intern, "global");
+    send(roots_names, s_push, name); 
+    name = send(root_symbol, s_intern, "arguments");
     send(roots_names, s_push, name); 
     name = send(root_symbol, s_intern, "array");
     send(roots_names, s_push, name); 
@@ -1924,6 +2105,10 @@ extern void bootstrap()
     send(root_object, s_set, name, register_function((struct object *)object_header_size));
     name = send(root_symbol, s_intern, "__ref_size__");
     send(root_object, s_set, name, register_function((struct object *)object_ref_size));
+    name = send(root_symbol, s_intern, "__base_size__");
+    send(root_map, s_set, name, register_function((struct object *)map_base_size));
+    name = send(root_symbol, s_intern, "__property_size__");
+    send(root_map, s_set, name, register_function((struct object *)map_property_size));
 
     log("Bootstrap done\n");
 }

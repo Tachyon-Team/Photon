@@ -1,3 +1,61 @@
+macro map_property_size()
+{
+    return @{["number", photon.send(photon.map, "__property_size__") /
+                        photon.send(photon.object, "__ref_size__")]}@;
+}
+
+macro map_base_size()
+{
+    return @{["number", photon.send(photon.map, "__base_size__") /
+                        photon.send(photon.object, "__ref_size__")]}@;
+}
+
+macro map_count_offset()
+{
+    return 1;
+}
+
+macro object_prototype_offset()
+{
+    return -2;
+}
+
+macro object_map_offset()
+{
+    return -1;
+}
+
+macro object_extension_offset()
+{
+    return -5;
+}
+
+macro object_map(o)
+{
+    return o[@object_map_offset()];
+}
+
+macro object_extension(o)
+{
+    return o[@object_extension_offset()];
+}
+
+macro object_prototype(o)
+{
+    return o[@object_prototype_offset()];
+}
+
+macro map_property_name(m, idx)
+{
+    return m[@map_base_size() + idx*map_property_size()];
+}
+
+macro map_count(m)
+{
+    return m[@map_count_offset()];
+}
+
+
 function Empty()
 {
     return this;
@@ -45,7 +103,7 @@ Object.create = function (obj)
 
 Object.prototype.hasOwnProperty = function (p)
 {
-    return this[@-1].__lookup__(p) !== undefined;
+    return this[@-5][@-1].__lookup__(p) !== undefined;
 }
 
 Object.prototype.__itr__ = function ()
@@ -65,8 +123,8 @@ Object.prototype.__itr__ = function ()
         },
         get:function ()
         {
-            var map = this._obj[@-1];
-            var r = map[@3+4*this._idx];    
+            var map = object_map(object_extension(this._obj));
+            var r = map_property_name(map, this._idx);
             this.next();
             return r;
         },
@@ -77,11 +135,11 @@ Object.prototype.__itr__ = function ()
 
             while (r === null && this.valid())
             {
-                var map = this._obj[@-1];
+                var map = object_map(object_extension(this._obj));
 
-                if (this._idx < map[@1])
+                if (this._idx < map_count(map))
                 {
-                    var p = map[@3+4*this._idx];    
+                    var p = map_property_name(map, this._idx);
 
                     if (this._visited[p] === undefined)
                     {
@@ -93,7 +151,7 @@ Object.prototype.__itr__ = function ()
                     }
                 } else
                 {
-                    this._obj = this._obj[@-2];
+                    this._obj = object_prototype(object_extension(this._obj));
                     this._idx = 0;
                 }
             }
@@ -104,6 +162,11 @@ Object.prototype.__itr__ = function ()
 Object.prototype.toString = function ()
 {
     return "[object Object]";
+};
+
+Object.prototype.valueOf = function ()
+{
+    return this;    
 };
 
 Object.prototype.isPrototypeOf = function (x)
@@ -262,6 +325,8 @@ Function.prototype.toString = function ()
     return "function";
 }
 
+Function.prototype.length = 0;
+
 /**
 @class 15.5.2 String constructor
 new String(value)
@@ -310,6 +375,81 @@ String.prototype.toString = function ()
 String.prototype.__add__ = function (x)
 {
     return this.toString().concat(x.toString());
+};
+
+String.prototype.__lt__ = function (x)
+{
+    var i = 0, j = 0;
+
+    var l1 = this.length;
+    var l2 = x.length;
+
+    var a = this;
+    var b = x;
+
+    while (i < l1 && j < l2)
+    {
+        var c1 = a.charCodeAt(i);
+        var c2 = b.charCodeAt(j);
+
+        if (c1 === c2)
+        {
+            ++i;
+            ++j;
+        } else
+        {
+            return c1 < c2;
+        }
+    }
+
+    return j < l2;
+};
+
+String.prototype.__le__ = function (x)
+{
+    if (this === x) 
+    {
+        return true;
+    }
+    else
+    {
+        return this.__lt__(x);
+    }
+};
+
+String.prototype.__gt__ = function (x)
+{
+    return !this.__le__(x);
+};
+
+String.prototype.__ge__ = function (x)
+{
+    return !this.__lt__(x);
+};
+
+function Number()
+{
+    throw "Unimplemented Number constructor";
+};
+
+Number.prototype.__lt__ = function (x)
+{
+    throw "Unimplemented Number.prototype.__lt__";
+};
+
+Number.prototype.__le__ = function (x)
+{
+    throw "Unimplemented Number.prototype.__le__";
+};
+
+Number.prototype.__gt__ = function (x)
+{
+    throw "Unimplemented Number.prototype.__gt__";
+};
+
+Number.prototype.__ge__ = function (x)
+{
+    throw "Unimplemented Number.prototype.__ge__";
 };
 
 @{["ref", photon.constant]}@.__typeof__ = function ()
