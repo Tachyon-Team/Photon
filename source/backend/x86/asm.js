@@ -3259,7 +3259,7 @@ x86.Assembler.prototype.fld = function (i)
 
 x86.Assembler.prototype.fldMem = function (opnd, width)
 {
-    assert(([32, 64, 80].indexOf(width) != -1),
+    assert(([32, 64, 80].indexOf(width) !== -1),
            "width must be 32, 64 or 80");
     
     switch (width)
@@ -3290,7 +3290,7 @@ x86.Assembler.prototype.fstMem = function (opnd, width, pop)
 {
     if (pop)
     {
-        assert(([32, 64, 80].indexOf(width) != -1),
+        assert(([32, 64, 80].indexOf(width) !== -1),
                "width must be 32, 64 or 80");
         switch (width)
         {
@@ -3306,7 +3306,7 @@ x86.Assembler.prototype.fstMem = function (opnd, width, pop)
     }
     else
     {
-        assert(([32, 64].indexOf(width) != -1),
+        assert(([32, 64].indexOf(width) !== -1),
                "width must be 32 or 64");
         switch (width)
         {
