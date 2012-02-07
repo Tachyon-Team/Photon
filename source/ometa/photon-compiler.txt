@@ -69,17 +69,17 @@ ometa PhotonASTCopy {
   this end                                      -> [#this],    
   break end                                     -> [#break],
   continue end                                  -> [#continue],
-  number   :n                                   -> [#number, _deep_copy(n)],
-  string   :s                                   -> [#string, _deep_copy(s)],
+  number   :n                                   -> [#number, n],
+  string   :s                                   -> [#string, s],
   arr      trans*:xs                            -> [#arr].concat(xs),
-  unop     :op trans:x                          -> [#unop, _deep_copy(op), x],
+  unop     :op trans:x                          -> [#unop, op, x],
   getp     trans:x trans:fd                     -> [#getp, x, fd],
-  get      :x                                   -> [#get, _deep_copy(x)],
+  get      :x                                   -> [#get, x],
   set      trans:lhs trans:rhs                  -> [#set, lhs, rhs],
-  mset     trans:lhs :op trans:rhs              -> [#mset, lhs, _deep_copy(op), rhs],
-  binop    :op trans:x trans:y                  -> [#binop, _deep_copy(op), x, y],
-  preop    :op trans:x                          -> [#preop, _deep_copy(op), x],
-  postop   :op trans:x                          -> [#postop, _deep_copy(op), x],
+  mset     trans:lhs :op trans:rhs              -> [#mset, lhs, op, rhs],
+  binop    :op trans:x trans:y                  -> [#binop, op, x, y],
+  preop    :op trans:x                          -> [#preop, op, x],
+  postop   :op trans:x                          -> [#postop, op, x],
   return   trans:x                              -> [#return, x],
   with     trans:x trans:s                      -> [#with, x, s],
   if       trans:cond trans:t trans:e           -> [#if, cond, t, e],
@@ -94,11 +94,11 @@ ometa PhotonASTCopy {
   func     :args :ctxt trans:body               -> [#func, _deep_copy(args), _deep_copy(ctxt), body],  
   call     trans:fn trans*:args                 -> [#call, fn].concat(args),
   ccall    trans:fn trans*:args                 -> [#ccall, fn].concat(args),
-  send     :msg trans:recv trans*:args          -> [#send, _deep_copy(msg), recv].concat(args),
+  send     :msg trans:recv trans*:args          -> [#send, msg, recv].concat(args),
   new      trans:fn trans*:args                 -> [#new, fn].concat(args),
-  var      :name trans:val                      -> [#var, _deep_copy(name), val],
+  var      :name trans:val                      -> [#var, name, val],
   throw    trans:x                              -> [#throw, x],
-  try      :ctxt trans:x :name trans:c trans:f  -> [#try, _deep_copy(ctxt), x, _deep_copy(name), c, f],
+  try      :ctxt trans:x :name trans:c trans:f  -> [#try, _deep_copy(ctxt), x, name, c, f],
   json     trans*:props                         -> [#json].concat(props),
   binding  trans:name trans:val                 -> [#binding, name, val],
   switch   trans:x trans*:cases                 -> [#switch, x].concat(cases),
@@ -110,10 +110,10 @@ ometa PhotonASTCopy {
   mreturn  trans:x trans:y                      -> [#mreturn, x, y],
   code     :c                                   -> [#code, c],
   super    trans:e                              -> [#super, e],
-  macro    :n :args :ctxt trans:body            -> [#macro, _deep_copy(n), _deep_copy(args), _deep_copy(ctxt), body],
+  macro    :n :args :ctxt trans:body            -> [#macro, n, _deep_copy(args), _deep_copy(ctxt), body],
   letvar   [#var :name trans:val]               -> [#var, name, val],
   let      :ctxt [#begin letvar*:vs] trans:body -> [#let, _deep_copy(ctxt), [#begin].concat(vs), body],
-  super_send :msg trans:rcv trans*:args         -> [#super_send, _deep_copy(msg), rcv].concat(args),
+  super_send :msg trans:rcv trans*:args         -> [#super_send, msg, rcv].concat(args),
   closure end                                   -> [#closure],
   arguments trans:i                             -> [#arguments, i],
   arguments_length end                          -> [#arguments_length]
@@ -144,14 +144,14 @@ ometa PhotonPrettyPrinter
   number   :n                                                      -> String(n),
   string   :s                                                      -> s.toProgramString(),
   arr      trans*:xs                                               -> ("[" +  xs.join(",") +  "]"),
-  unop     :op trans:x                                             -> (op +  x),
+  unop     :op trans:x                                             -> ("(" + op + " " +  x + ")"),
   getp     trans:x trans:fd                                        -> (x +  "[" +  fd +  "]"),
   get      :x                                                      -> x,
   set      trans:lhs trans:rhs                                     -> (lhs +  " = " +  rhs),
   mset     trans:lhs :op trans:rhs                                 -> (lhs +  " " +  op +  "=" +  rhs),
-  binop    :op trans:x trans:y                                     -> (x +  " " +  op +  " " +  y),
-  preop    :op trans:x                                             -> (op + x),
-  postop   :op trans:x                                             -> (x + op),
+  binop    :op trans:x trans:y                                     -> ("(" + x +  " " +  op +  " " +  y + ")"),
+  preop    :op trans:x                                             -> ("(" + op + x + ")"),
+  postop   :op trans:x                                             -> ("(" + x + op + ")"),
   return   trans:x                                                 -> ("return " +  x),
   with     trans:x block:s                                         -> ("with (" +  x +  ")\n" +  s),
   if       trans:cond block:t block:e                              -> ("if (" +  cond +  ")\n" + t + " else\n" + e),
@@ -168,7 +168,7 @@ ometa PhotonPrettyPrinter
   var      :name ( [#get #undefined] -> ""
                  | trans:val         -> (" = " + val)):v           -> ("var " + name + v),
   throw    trans:x                                                 -> ("throw " +  x),
-  try      :ctxt block:x :name block:c block:f                     -> ("try\n" + x + " catch (" + name + ")\n" + c + " finally \n" +  f),
+  try      :ctxt block:x :name block:c block:f                     -> ("try\n" + x + " catch (" + name + ")\n" + c ),
   json     inc trans*:props dec                                    -> ("{\n" +  props.join(",\n") +  "\n" + self.ilvl() + "}"),
   binding  trans:name trans:val                                    -> (self.ilvl() + name +  ":" +  val),
   switch   trans:x inc trans*:cases dec                            -> ("switch (" +  x +  ")\n" +  self.ilvl() +  "{\n" +  cases.join("\n") +  self.ilvl() +  "}"),
@@ -230,9 +230,14 @@ ometa PhotonParser <: Parser {
   hexDigit     = char:x {this.hexDigits.indexOf(x.toLowerCase())}:v ?(v >= 0)        -> v,
   hexLit       = hexLit:n hexDigit:d                                                 -> (n * 16 + d)
                | hexDigit,
+  intDigit     = char:x {this.hexDigits.indexOf(x.toLowerCase())}:v ?(v >= 0)        -> v,
+  intLit       = intLit:n intDigit:d                                                 -> (n * 10 + d)
+               | intDigit,
   number       = ``0x'' hexLit:n                                                     -> [#number, n]
-               | digit+:ws ('.' digit+ | empty -> []):fs                             -> [#number, parseFloat(ws.join('') + '.' +
-                                                                                                             fs.join(''))],
+               | intLit:n                                                            -> [#number, n],
+  // TODO: Add support for floating point numbers
+  //           | digit+:ws ('.' digit+ | empty -> []):fs                             -> [#number, parseFloat(ws.join('') + '.' +
+  //                                                                                                         fs.join(''))],
   escapeChar   = '\\' char:c                                                         -> unescape('\\' + c),
   str          = seq('"""')  (escapeChar | ~seq('"""') char)*:cs seq('"""')          -> [#string, cs.join('')]
                | '\'' (escapeChar | ~'\'' char)*:cs '\''                             -> [#string, cs.join('')]
@@ -408,6 +413,8 @@ PhotonParser.initialize = function ()
     this._isKeyword = function(k) { return this.keywords.hasOwnProperty(k) }
 };
 
+// To allow the Parser to be tested without loading photon-lib.js
+function _new_context() { return {}; }
 
 // ----------------------------------------------------------------------------
 //
@@ -727,7 +734,7 @@ ometa PhotonVarScopeBinding <: PhotonASTCopy {
          trans:r {self.context.leave_function_scope(ctxt.scope)} -> [#global, ctxt, r], 
 
   get       (#true | #false | #undefined | #null | #arguments):c -> [#get, c],
-  get (:id -> {self.context.scope.lookup(id)}):x 
+  get (:id -> {var x = self.context.scope.lookup(id); if (x === undefined) throw "Undefined variable '" + id + "'"; x}):x 
                                        ( isGlobal(x)             -> [#send, "__get__", [#ref, photon.global], [#string, id]]
                                        | isLocal(x)              -> [#get, id]
                                        | isEscaping(x)           -> [#gets, [#get, id], [#number, 0]]
@@ -1027,7 +1034,7 @@ ometa PhotonCompiler {
                                                               -> self.context.gen_try_catch(x, c, ctxt.scope),
   switch   (empty -> self.context.push_block(true)) 
            push(1):x trans*:cases pop(1)                      -> {var BREAK = self.context.break_lbl(); self.context.pop_block();
-                                                                  [x, _op("push", _EAX), cases, BREAK, _op("add", _$(4), _ESP)]},
+                                                                  [x, _op("push", _EAX), cases, _op("add", _$(4), _ESP), BREAK]},
   case     trans:x trans:y                                    -> {var END = _label();
                                                                  [x, _op("cmp", _mem(0, _ESP), _EAX), _op("jne", END), y, END]},
   default          trans:y                                    -> [y],

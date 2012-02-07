@@ -52,6 +52,12 @@ compiler: ometa/photon-compiler.txt ometa/ast-copy.txt ometa/ast-freqs.txt
 run:
 	./compiler.sh
 
+serialize: serialize.js
+	./photon serialize.js > main.s
+
+bs-photon: 
+	 gcc -m32 -g -Wl,-no_pie -segprot __TEXT rwx rwx bootstrap/photon.c main.s -o photon2
+
 .PHONY: deps
 deps:
 	git clone git://github.com/elavoie/ometa-js.git deps/ometa-js

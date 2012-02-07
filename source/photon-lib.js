@@ -109,7 +109,7 @@ function _fx(n)
 function _mref(m)
 {
     assert((typeof m) === "object" && m.__addr__ !== undefined)
-    return _$(addr_to_num(m.__addr__));
+    return _$(addr_to_num(m.__addr_bytes__()));
 }
 
 function _deep_copy(o)
@@ -898,11 +898,16 @@ PhotonCompiler.context = {
         return this.refs;
     },
 
-    new_function_object:function (code, ref_labels, cell_nb)
+    new_function_object:function (code, ref_labels, cell_nb, print)
     {
         if (cell_nb === undefined)
         {
             cell_nb = 0;
+        }
+
+        if (print === undefined)
+        {
+            print = function () {};
         }
 
         //print("Code AST");
@@ -916,6 +921,11 @@ PhotonCompiler.context = {
         //print(codeBlock.code);
         //print("listing");
         //print(codeBlock.listingString());
+
+        ref_labels.sort(function (a, b)
+        {
+            return b.getPos() - a.getPos();
+        });
 
         // Add positions of refs as tagged integers
         ref_labels.forEach(function (l)
@@ -943,7 +953,6 @@ PhotonCompiler.context = {
             _op("mov", _$(_UNDEFINED), _EAX),
             this.gen_epilogue(args.length)
         ];
-
         var f = this.new_function_object(code, this.ref_ctxt(), 0);
         photon.send(f, "__set__", "length", args.length);
         
@@ -969,9 +978,10 @@ PhotonCompiler.context = {
         ref_labels = [label];
             
         var c = this.new_function_object([
-            _op("mov", _$(addr_to_num(f.__addr__), label), _EAX),
+            _op("mov", _$(addr_to_num(f.__addr_bytes__()), label), _EAX),
             _op("jmp", _EAX)
         ], ref_labels, cell_nb);
+
         return _op("mov", this.gen_mref(c), _EAX); 
     },
 
@@ -1279,7 +1289,15 @@ PhotonCompiler.context = {
         this.ref_ctxt().push(label);
 
         assert((typeof m) === "object" && m.__addr__ !== undefined, "Invalid reference");
-        return _$(addr_to_num(m.__addr__), label);
+
+        if (typeof m.__addr_bytes__ !== "function")
+        {
+            var bytes = mirror_addr_bytes.call(m);
+        } else
+        {
+            var bytes = m.__addr_bytes__();
+        }
+        return _$(addr_to_num(bytes), label);
     },
 
     gen_arg:function (a)
@@ -1328,8 +1346,6 @@ PhotonCompiler.context = {
             _op("mov", this.gen_mref(bind_helper), _EAX),
             _op("call", _EAX),
             _op("add", _$(16), _ESP),
-
-            // TODO: Handle undefined case where no method has been found
 
             _op("mov", _EAX, _mem(loc + 2 * this.sizeof_ref, _EBP)), // SET CLOSURE
             _op("call", _EAX),

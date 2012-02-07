@@ -353,6 +353,8 @@ String.prototype.__typeof__ = function ()
     return "string";
 }
 
+String.prototype.__instanceof__ = function () { return false; };
+
 String.prototype.__get__ = function (i)
 {
     if (i === "length")
@@ -496,9 +498,9 @@ Number.prototype.__ge__ = function (x)
     }
 };
 
-@{["ref", photon.constant]}@.__get__ = function ()
+@{["ref", photon.constant]}@.__get__ = function (x)
 {
-    throw "Invalid __get__ operation on '" + this.toString() + "'";
+    throw "Invalid __get__(" + x + ") operation on '" + this.toString() + "'";
 }
 
 // Note: Should be the last method added since it prevents 
@@ -528,11 +530,87 @@ function isGlobalObj(o)
     return o === this;
 }
 
+function mirror(o)
+{
+    return {
+        __obj__:o,
+        __addr__:true,
+        __addr_bytes__:function () { return this.__obj__.__addr_bytes__(); }
+    }
+}
+
 photon = {};
-photon.object = @{["ref", photon.object]}@;
-photon.array  = @{["ref", photon.array]}@;
+photon.object      = mirror(@{["ref", photon.object]}@)
+photon.array       = mirror(@{["ref", photon.array]}@);
+photon["function"] = mirror(@{["ref", photon.function]}@);
+photon.global      = mirror(@{["ref", photon.global]}@);
+photon.cell        = mirror(@{["ref", photon.cell]}@);
+photon.map         = mirror(@{["ref", photon.map]}@);
+photon.symbol      = mirror(@{["ref", photon.symbol]}@);
+photon.fixnum      = mirror(@{["ref", photon.fixnum]}@); 
+
+photon.bind       = mirror(@{["ref", photon.bind]}@);
+photon.super_bind = mirror(@{["ref", photon.super_bind]}@);
+
+photon.variadic_enter = mirror(@{["ref", photon.variadic_enter]}@);
+photon.variadic_exit  = mirror(@{["ref", photon.variadic_exit]}@);
+
+photon.handlers = {};
+for (n in _handlers)
+{
+    photon.handlers[n] = mirror(_handlers[n]);
+}
+
+photon.array.pp    = function () { return "photon.array"; };
+photon.object.pp   = function () { return "photon.object"; };
+photon.function.pp = function () { return "photon.function"; };
+photon.global.pp   = function () { return "photon.global"; };
+photon.cell.pp     = function () { return "photon.cell"; };
+photon.map.pp      = function () { return "photon.map"; };
+photon.symbol.pp   = function () { return "photon.symbol"; };
+photon.fixnum.pp   = function () { return "photon.fixnum"; };
+
 photon.send   = function (obj, msg)
 {
+    // Extracting mirror
+    if (obj.__obj__ !== undefined)
+        obj = obj.__obj__;
+
     // Written this way because C functions do not support the apply message
-    return Function.prototype.apply.call(obj[msg], obj, arguments.slice(2));
+    var r =  Function.prototype.apply.call(obj[msg], obj, arguments.slice(2));
+
+    if (typeof r === "object" || typeof r === "string" || typeof r === "function")
+    {
+        return mirror(r);
+    } else
+    {
+        return r;
+    }
 }
+
+function eval(s)
+{
+    function failer (m, idx, f) 
+    { 
+        print("Matched failed at index " + idx + " on input " + m.input.hd); 
+        error(f);
+    };
+    print("// eval: Parsing");
+    var ast = PhotonParser.matchAll(s, "topLevel");
+    print("// eval: Macro Expansion");
+    ast = PhotonMacroExp.match(ast, "trans", undefined, failer);
+    print("// eval: Desugaring");
+    ast = PhotonDesugar.match(ast, "trans", undefined, failer);
+    print("// eval: Variable scope analysis");
+    PhotonVarAnalysis.match(ast, "trans", undefined, failer);
+    print("// eval: Variable scope binding");
+    ast = PhotonVarScopeBinding.match(ast, "trans", undefined, failer);
+    print("// eval: Code Generation");
+    var comp = PhotonCompiler.createInstance();
+    code = comp.match(ast, "trans", undefined, failer);
+    print("// eval: Function construction");
+    var f = comp.context.new_function_object(code, comp.context.refs, 0, print);
+    print("// eval: Executing generated code");
+    return photon.send(f, "call");
+}
+

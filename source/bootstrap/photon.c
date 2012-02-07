@@ -1,9 +1,13 @@
 /**  Copyright Erick Lavoie **/
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <assert.h>
+
+#ifndef _PHOTON_H
+#define _PHOTON_H
 
 /*
  * The PP_NARG macro evaluates to the number of arguments that have been
@@ -189,7 +193,7 @@ struct frame {
 
 struct function {
     struct header      _hd[0];
-    char               code[0];
+    unsigned char      code[0];
 };
 
 struct lookup {
@@ -212,7 +216,7 @@ struct object {
 
 struct symbol {
     struct header      _hd[0];
-    char               string[0];
+    unsigned char      string[0];
 };
 
 //--------------------------------- Root Objects ------------------------------
@@ -223,6 +227,7 @@ struct object *root_arguments     = (struct object *)0;
 struct object *root_array         = (struct object *)0;
 struct object *root_cell          = (struct object *)0;
 struct object *root_constant      = (struct object *)0;
+struct object *root_cwrapper      = (struct object *)0;
 struct object *root_fixnum        = (struct object *)0;
 struct object *root_frame         = (struct object *)0;
 struct object *root_function      = (struct object *)0;
@@ -230,6 +235,13 @@ struct object *root_map           = (struct object *)0;
 struct object *root_object        = (struct object *)0;
 struct object *root_symbol        = (struct object *)0;
 struct object *symbol_table       = (struct object *)0;
+
+struct object *array_base_map     = (struct object *)0;
+struct object *arguments_base_map = (struct object *)0;
+struct object *cell_base_map      = (struct object *)0;
+struct object *frame_base_map     = (struct object *)0;
+struct object *object_base_map    = (struct object *)0;
+struct object *symbol_base_map    = (struct object *)0;
 
 size_t mem_arguments              = 0;
 size_t mem_array                  = 0;
@@ -335,6 +347,16 @@ inline ssize_t object_prelude_size(struct object *self)
     return sizeof(struct header) + object_values_size(self)*sizeof(struct object *);
 }
 
+inline ssize_t object_tagged(struct object *self)
+{
+    return fx(self->_hd[-1].flags) & (1<<(COUNT_BIT_NB + 2));
+}
+
+inline void object_tag(struct object *self)
+{
+    self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) | (1<<(COUNT_BIT_NB + 2)));
+}
+
 inline ssize_t object_values_count(struct object *self)
 {
     //return fx(self->_hd[-1].flags) & 255;
@@ -398,6 +420,11 @@ inline ssize_t ref_to_fixnum(struct object *obj)
     return ((ssize_t)obj - 1) / 2;
 }
 
+inline char byte(ssize_t i, struct object *obj)
+{
+    return (char)(((size_t)obj >> i*8) & 0xff);
+}
+
 //--------------------------------- Object Model Primitives --------------------
 struct object *map_lookup(size_t n, struct map *self, struct function *closure, struct object *name);
 
@@ -414,37 +441,40 @@ typedef struct object *(*bind_t)(
 bind_t g_bind       = 0;
 bind_t g_super_bind = 0;
 
+struct object *bind(struct object *null_n, struct object *null_rcv, struct object *null_closure, struct object *msg, struct object *n, struct object *rcv);
+struct object *super_bind(struct object *null_n, struct object *null_rcv, struct object *null_closure, struct object *msg, struct object *n, struct object *rcv);
+
 #define send0(RCV, MSG) ({                                                     \
-    struct object *r      = (struct object *)(RCV);		                       \
-    struct object *m      = g_bind(0, 0, 0, (MSG), 0, r);                      \
-    if (m == UNDEFINED) \
+    struct object *r_send0      = (struct object *)(RCV);		               \
+    struct object *m_send0      = bind(0, 0, 0, (MSG), 0, r_send0);            \
+    if (m_send0 == UNDEFINED) \
     {\
         printf("Message not understood '%s'\n", (char *)(MSG));\
         assert(0);\
     }\
-    ((method_t)m)(0, r, m);\
+    ((method_t)m_send0)(0, r_send0, m_send0);\
 })
 
 #define send(RCV, MSG, ARGS...) ({                                             \
-    struct object *r      = (struct object *)(RCV);		                       \
-    struct object *m      = g_bind(0, 0, 0, (MSG), 0, r);                      \
-    if (m == UNDEFINED) \
+    struct object *r_send      = (struct object *)(RCV);		               \
+    struct object *m_send      = bind(0, 0, 0, (MSG), 0, r_send);              \
+    if (m_send == UNDEFINED) \
     {\
         printf("Message not understood '%s'\n", (char *)(MSG));\
         assert(0);\
     }\
-    ((method_t)m)(PHOTON_PP_NARG(ARGS), r, m, ##ARGS);\
+    ((method_t)m_send)(PHOTON_PP_NARG(ARGS), r_send, m_send, ##ARGS);\
 })
 
 #define super_send(RCV, MSG, ARGS...) ({                                       \
-    struct object *r      = (struct object *)(RCV);		                       \
-    struct object *m      = g_super_bind(0, 0, 0, (MSG), 0, r);                \
-    if (m == UNDEFINED) \
+    struct object *r_send      = (struct object *)(RCV);		               \
+    struct object *m_send      = super_bind(0, 0, 0, (MSG), 0, r_send);        \
+    if (m_send == UNDEFINED) \
     {\
         printf("Message not understood %s\n", (char *)(MSG));\
         assert(0);\
     }\
-    ((method_t)m)(PHOTON_PP_NARG(ARGS), r, m, ##ARGS);\
+    ((method_t)m_send)(PHOTON_PP_NARG(ARGS), r_send, m_send, ##ARGS);\
 })
 
 struct lookup _bind(struct object *rcv, struct object *msg)
@@ -520,6 +550,16 @@ struct object *super_bind(struct object *null_n, struct object *null_rcv, struct
 
 struct object *object_get(size_t n, struct object *self, struct function *closure, struct object *name);
 struct object *object_set(size_t n, struct object *self, struct function *closure, struct object *name, struct object *value);
+void object_serialize_ref(struct object *obj, struct object *stack);
+struct object *function_new(
+    size_t n, 
+    struct function *self, 
+    struct function *closure,
+    struct object *payload_size,
+    struct object *cell_nb
+);
+void serialize();
+
 struct object *arguments_get(size_t n, struct array *self, struct function *closure, struct object *name)
 {
     if (ref_is_fixnum(name) && fx(name) >= 0)
@@ -548,6 +588,7 @@ struct object *arguments_get_cell(size_t n, struct array *self, struct function 
 
 struct object *arguments_new(size_t n, struct array *self, struct function *closure, struct object *size)
 {
+    ssize_t i;
     assert(ref_is_fixnum(size));
     assert(fx(size) >= 0);
 
@@ -559,14 +600,20 @@ struct object *arguments_new(size_t n, struct array *self, struct function *clos
     );
     inc_mem_counter(mem_arguments, 5, fx(size)*sizeof(struct object *) + sizeof(struct array));
 
+    if (arguments_base_map != UNDEFINED)
+    {
+        new_args->_hd[-1].map = (struct map *)arguments_base_map;
+    } else
+    {
+        new_args->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
+        new_args->_hd[-1].map->type = ARRAY_TYPE;
+    }
 
-    new_args->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
-    new_args->_hd[-1].map->type = ARRAY_TYPE;
     new_args->_hd[-1].prototype = (struct object *)self;
     
     new_args->count = size;
 
-    for (ssize_t i = 0; i < fx(size); ++i)
+    for (i = 0; i < fx(size); ++i)
     {
         new_args->indexed_values[i] = send(root_cell, s_new, UNDEFINED);
     }
@@ -628,6 +675,7 @@ struct object *array_delete(size_t n, struct array *self, struct function *closu
 
 struct array *array_extend(struct array *orig, ssize_t size)
 {
+    ssize_t i;
 
     struct object *self = orig->_hd[-1].extension;
 
@@ -642,7 +690,7 @@ struct array *array_extend(struct array *orig, ssize_t size)
     copy->_hd[-1].map       = self->_hd[-1].map;
     copy->_hd[-1].prototype = self->_hd[-1].prototype;
 
-    for (ssize_t i = 1; i <= object_values_count(self); ++i)
+    for (i = 1; i <= object_values_count(self); ++i)
     {
         copy->_hd[-1].values[-i] = self->_hd[-1].values[-i];
     }
@@ -691,8 +739,15 @@ struct object *array_new(size_t n, struct array *self, struct function *closure,
     );
     inc_mem_counter(mem_array, 0, fx(size)*sizeof(struct object *) + sizeof(struct array));
 
-    new_array->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
-    new_array->_hd[-1].map->type = ARRAY_TYPE;
+    if (array_base_map != UNDEFINED)
+    {
+        new_array->_hd[-1].map = (struct map *)array_base_map;
+    } else
+    {
+        new_array->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
+        new_array->_hd[-1].map->type = ARRAY_TYPE;
+    }
+
     new_array->_hd[-1].prototype = (struct object *)self;
     
     ((struct array *)new_array)->count = ref(0);
@@ -709,6 +764,21 @@ struct object *array_print(size_t n, struct array *self, struct function *closur
 struct object *array_push(size_t n, struct array *self, struct function *closure, struct object *value)
 {
     return send(self, s_set, ((struct array *)self->_hd[-1].extension)->count, value);
+}
+
+struct object *array_pop(size_t n, struct array *self, struct function *closure)
+{
+    struct object *length = send(self, s_get, s_length);
+
+    if (fx(length) > 0)
+    {
+        struct object *value  = send(self, s_get, ref(fx(length) - 1));
+        send(self, s_set, s_length, ref(fx(length) - 1));
+        return value;
+    } else
+    {
+        return UNDEFINED;
+    }
 }
 
 struct object *array_set(
@@ -773,8 +843,15 @@ struct object *cell_new(size_t n, struct cell *self, struct function *closure, s
 
     new_cell->value = val;
 
-    new_cell->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
-    new_cell->_hd[-1].map->type = CELL_TYPE;
+    if (cell_base_map != UNDEFINED)
+    {
+        new_cell->_hd[-1].map = (struct map *)cell_base_map;
+    } else
+    {
+        new_cell->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
+        new_cell->_hd[-1].map->type = CELL_TYPE;
+    }
+
     new_cell->_hd[-1].prototype = (struct object *)self;
 
     return (struct object *)new_cell;
@@ -803,12 +880,121 @@ struct object *constant_print(size_t n, struct object *self, struct function *cl
     return self;
 }
 
+struct object *cwrapper_new(
+    size_t n,
+    struct function *self,
+    struct function *closure,
+    struct object   *f,
+    struct object   *name)
+{
+    struct function *w = (struct function *)function_new(2, self, closure, ref(7), ref(0));
+
+    // mov f, %eax
+    w->code[0] = 0xb8;
+    w->code[1] = byte(0, f);
+    w->code[2] = byte(1, f);
+    w->code[3] = byte(2, f);
+    w->code[4] = byte(3, f);
+
+
+    // jmp %eax
+    w->code[5] = 0xff;
+    w->code[6] = 0xe0;
+
+    struct object *s_extern = send(root_symbol, s_intern, "__extern__");
+    send(w, s_set, s_extern, name); 
+
+    return (struct object *)w;
+}
+
+struct object *cwrapper_serialize(
+    size_t n,
+    struct object *self,
+    struct function *closure,
+    struct object *stack)
+{
+    struct object *orig = self;
+    self = self->_hd[-1].extension;
+    ssize_t i = -(object_values_size(self) + sizeof(struct header) / sizeof(struct object *));
+    struct object **s = (struct object **)self;
+
+    printf(".align 4\n");
+    printf(".globl _L%zd\n", (size_t)self);
+    for (; i < 0; ++i)
+    {
+        object_serialize_ref(s[i], stack);
+    }
+    printf("_L%zd:\n",       (size_t)self);
+    printf("    .byte 0xb8\n");
+
+    struct object *s_extern = send(root_symbol, s_intern, "__extern__");
+    printf("    .long _%s\n", (char *)send(self, s_get, s_extern));
+    printf("    .byte 0xff\n");
+    printf("    .byte 0xe0\n");
+    printf("    .byte 0\n");
+
+    object_tag(orig);
+    object_tag(self);
+    return self;
+}
+
 struct object *fixnum_print(size_t n, struct object *self)
 {
     printf("%zd\n", fx(self));
     return UNDEFINED;
 }
 
+struct object *frame_new(
+    size_t n, 
+    struct frame    *self, 
+    struct function *closure, 
+    struct object   *arguments, 
+    struct object   *rcv,
+    struct function *fn
+){
+    ssize_t i;
+    ssize_t f_n = fx(send(arguments, s_get, s_length));
+
+    struct frame *f = (struct frame *)send(
+        self, 
+        s_init, 
+        ref(0), 
+        ref(f_n*sizeof(struct object *) + sizeof(struct frame))
+    );
+    inc_mem_counter(mem_frame, 0, f_n*sizeof(struct object *) + sizeof(struct frame));
+
+    if (frame_base_map != UNDEFINED)
+    {
+        f->_hd[-1].map = (struct map *)frame_base_map;
+    } else
+    {
+        f->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
+        f->_hd[-1].map->type = FRAME_TYPE;
+    }
+
+    f->_hd[-1].prototype = (struct object *)self;
+
+    f->n       = f_n;
+    f->self    = rcv;
+    f->closure = fn;
+
+    for (i = 0; i < f_n; ++i)
+    {
+        f->arguments[i] = send(arguments, s_get, ref(i));
+    }
+
+    return (struct object *)f;
+}
+
+struct object *frame_print(
+    size_t n, 
+    struct frame    *self, 
+    struct function *closure)
+{
+    printf("frame n:%zd, self:%p, closure:%p\n", self->n, self->self, self->closure); 
+    
+    return UNDEFINED;
+}
 struct object *function_allocate(
     size_t n,
     struct function *self,
@@ -826,52 +1012,9 @@ struct object *function_allocate(
     return po;
 }
 
-struct object *frame_new(
-    size_t n, 
-    struct frame    *self, 
-    struct function *closure, 
-    struct object   *arguments, 
-    struct object   *rcv,
-    struct function *fn
-){
-    size_t f_n = fx(send(arguments, s_get, s_length));
-
-    struct frame *f = (struct frame *)send(
-        self, 
-        s_init, 
-        ref(0), 
-        ref(f_n*sizeof(struct object *) + sizeof(struct frame))
-    );
-    inc_mem_counter(mem_frame, 0, f_n*sizeof(struct object *) + sizeof(struct frame));
-
-    f->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
-    f->_hd[-1].map->type = FRAME_TYPE;
-    f->_hd[-1].prototype = (struct object *)self;
-
-    f->n       = f_n;
-    f->self    = rcv;
-    f->closure = fn;
-
-    for (size_t i = 0; i < f_n; ++i)
-    {
-        f->arguments[i] = send(arguments, s_get, ref(i));
-    }
-
-    return (struct object *)f;
-}
-
-struct object *frame_print(
-    size_t n, 
-    struct frame    *self, 
-    struct function *closure)
-{
-    printf("frame n:%zd, self:%p, closure:%p\n", self->n, self->self, self->closure); 
-    
-    return UNDEFINED;
-}
-
 struct object *function_clone(size_t n, struct function *self, struct function *closure)
 {
+    ssize_t i;
     struct function *clone = (struct function *)send(
         self, 
         s_init, 
@@ -885,12 +1028,25 @@ struct object *function_clone(size_t n, struct function *self, struct function *
     clone->_hd[-1].map          = self->_hd[-1].map;
     clone->_hd[-1].prototype    = self->_hd[-1].prototype;
 
-    for (ssize_t i = 0; i < fx(clone->_hd[-1].payload_size); ++i)
+    for (i = 0; i < fx(clone->_hd[-1].payload_size); ++i)
     {
         clone->code[i] = self->code[i]; 
     }
     
     return (struct object *)clone;
+}
+
+struct object *function_extract(size_t n, struct function *self, struct function *closure)
+{
+    ssize_t i;
+    struct object *code = send(root_array, s_new, self->_hd[-1].payload_size);
+
+    for(i = 0; i < fx(self->_hd[-1].payload_size); ++i)
+    {
+        send(code, s_push, ref((uint8_t)self->code[i]));
+    }
+
+    return code;
 }
 
 struct object *function_get(
@@ -917,12 +1073,14 @@ struct object *function_get(
 
 struct object *function_intern(size_t n, struct function *self, struct function *closure, struct array *code)
 {
-    assert(fx(self->_hd[-1].payload_size) >= array_indexed_values_size(code));
     ssize_t i;
+    ssize_t l = fx(send(code, s_get, s_length));
 
-    for(i = 0; i < array_indexed_values_size(code); ++i)
+    assert(fx(self->_hd[-1].payload_size) >= l);
+
+    for(i = 0; i < l; ++i)
     {
-        self->code[i] = fx(code->indexed_values[i]) & 255;
+        self->code[i] = fx(send(code, s_get, ref(i))) & 255;
     }
 
     return (struct object *)self;
@@ -963,6 +1121,53 @@ struct object *function_print(size_t n, struct function *self)
     printf("[Function]\n");
     return UNDEFINED;
 }
+
+struct object *function_serialize(size_t n, struct object *self, struct function *closure, struct object *stack)
+{
+    struct object *orig = self;
+    self = self->_hd[-1].extension;
+    ssize_t i = -(object_values_size(self) + sizeof(struct header) / sizeof(struct object *));
+    ssize_t j = fx(self->_hd[-1].payload_size);
+    struct object **s = (struct object **)self;
+
+    printf(".align 4\n");
+    printf(".globl _L%zd\n", (size_t)self);
+    for (; i < 0; ++i)
+    {
+        object_serialize_ref(s[i], stack);
+    }
+
+    printf("_L%zd:\n", (size_t)self);
+
+    s = (struct object **)((ssize_t)s + j - 4);
+
+    // Number of references in function code
+    ssize_t k    = fx(*s);
+    ssize_t next = fx(*(--s));
+
+    for (i=0; i < j; ++i)
+    {
+        if (i == next)
+        {
+            object_serialize_ref(*((struct object **)((ssize_t)self + i)), stack);
+
+            if (k > 0)
+            {
+                k--;
+                next = fx(*(--s));
+            }
+            i = i + 3;
+        } else
+        {
+            printf("    .byte 0x%x\n", ((struct function *)self)->code[i]);
+        }
+    }
+
+    object_tag(orig);
+    object_tag(self);
+    return self;
+}
+
 
 struct object *global_readFile(size_t n, struct object *self, struct function *closure, struct object *name)
 {
@@ -1047,6 +1252,12 @@ struct object *global_memAllocatedKBs(size_t n, struct object *self, struct func
     return ref(mem_allocated/1000);
 }
 
+struct object *global_serialize(size_t n, struct object *self, struct function *closure)
+{
+    serialize();
+    return self;
+}
+
 struct object *map_base_size(size_t n, struct object* self, struct function *closure)
 {
     return ref(sizeof(struct map));
@@ -1062,6 +1273,7 @@ struct object *map_clone(size_t n, struct map *self, struct function *closure, s
     new_map->count = self->count;
     new_map->next_offset = self->next_offset; 
     new_map->type  = self->type;
+    new_map->cache = NIL;
 
     for (i=0; i < fx(self->count); ++i)
     {
@@ -1079,6 +1291,25 @@ struct object *map_clone(size_t n, struct map *self, struct function *closure, s
 
 struct object *map_create(size_t n, struct map *self, struct function *closure, struct object *name)
 {
+    ssize_t i;
+
+    if (self->cache != NIL)
+    {
+        struct object *l = send(self->cache, s_get, s_length);
+        assert(l != UNDEFINED);
+
+        for (i = 0; i < fx(l); i += 2)
+        {
+            struct object *n = send(self->cache, s_get, ref(i));
+
+            if (n == name)
+            {   struct object *r = send(self->cache, s_get, ref(i+1));
+                //printf("Found %s in map cache returning %p\n", (char*)name, r);
+                return r; 
+            }
+        }
+    }
+
     struct object *payload_size;
 
     if (fx(self->count) == map_properties_size(self))
@@ -1101,6 +1332,14 @@ struct object *map_create(size_t n, struct map *self, struct function *closure, 
 
     new_map->count       = ref(fx(new_map->count) + 1);
     new_map->next_offset = ref(fx(new_map->next_offset) - 1);
+    new_map->cache       = NIL;
+
+    if (self->cache != NIL)
+    {
+        send(self->cache, s_push, name);
+        send(self->cache, s_push, new_map);
+        new_map->cache = send(root_array, s_new, ref(0));
+    } 
 
     return (struct object *)new_map;
 }
@@ -1168,6 +1407,7 @@ struct object *map_remove(size_t n, struct map *self, struct function *closure, 
 
     new_map->count       = ref(fx(self->count) - 1);
     new_map->next_offset = ref(fx(self->next_offset) + 1);
+    new_map->cache       = NIL;    
 
     for (i=0; i < fx(new_map->count); ++i)
     {
@@ -1228,6 +1468,20 @@ struct object *map_set(size_t n, struct map *self, struct function *closure, str
     } 
 }
 
+struct object *object_addr_bytes(size_t n, struct object *self, struct function *closure)
+{
+    ssize_t i;
+
+    struct object *arr = send(root_array, s_new, ref(sizeof(struct object *)));
+
+    for (i = 0; i < (ssize_t)sizeof(struct object *); ++i) 
+    {
+        uint8_t* bytePtr = ((uint8_t*)&self) + i;
+        send(arr, s_push, ref(((ssize_t)*bytePtr)));
+    }
+
+    return arr;
+}
 
 struct object *object_allocate(
     size_t n,
@@ -1237,6 +1491,8 @@ struct object *object_allocate(
     struct object *payload_size
 )
 {
+    ssize_t i;
+
     // Align payload_size to sizeof(struct object *) bytes
     payload_size = ref((fx(payload_size) + sizeof(struct object *) - 1) & -sizeof(struct object *));
 
@@ -1246,7 +1502,7 @@ struct object *object_allocate(
     );
 
     // Initialize all values to 0
-    for (ssize_t i = 0; i < (fx(prelude_size) + fx(payload_size) + (ssize_t)sizeof(ssize_t)); ++i)
+    for (i = 0; i < (fx(prelude_size) + fx(payload_size) + (ssize_t)sizeof(ssize_t)); ++i)
     {
         ptr[i] = (char)0;
     }
@@ -1383,10 +1639,19 @@ struct object *object_init_static(
 
 struct object *object_new(size_t n, struct object *self, struct function *closure)
 {
-    struct map    *new_map   = (struct map *)send0(self->_hd[-1].map, s_new);
+    struct map *new_map;
+
+    if (object_base_map != UNDEFINED)
+    {
+        new_map = (struct map *)object_base_map;
+    } else
+    {
+        new_map       = (struct map *)send0(self->_hd[-1].map, s_new);
+        new_map->type = OBJECT_TYPE;
+    }
+
     struct object *child     = send(self, s_init, ref(4), ref(0));
     inc_mem_counter(mem_object, 4, 0);
-    new_map->type            = OBJECT_TYPE;
     child->_hd[-1].map       = new_map;
     child->_hd[-1].prototype = self;
     return child;
@@ -1405,6 +1670,7 @@ struct object *object_ref_size(size_t n, struct object* self, struct function *c
 
 struct object *object_set(size_t n, struct object *self, struct function *closure, struct object *name, struct object *value)
 {
+    ssize_t i;
     struct object *orig = self;
     struct object *copy;
     self = self->_hd[-1].extension;
@@ -1422,7 +1688,7 @@ struct object *object_set(size_t n, struct object *self, struct function *closur
             copy->_hd[-1].map       = self->_hd[-1].map;
             copy->_hd[-1].prototype = self->_hd[-1].prototype;
 
-            for (ssize_t i = 1; i <= object_values_count(self); ++i)
+            for (i = 1; i <= object_values_count(self); ++i)
             {
                 copy->_hd[-1].values[-i] = self->_hd[-1].values[-i];
             }
@@ -1434,7 +1700,7 @@ struct object *object_set(size_t n, struct object *self, struct function *closur
             self = copy;
         }
 
-        ssize_t i = fx(self->_hd[-1].map->next_offset);
+        i = fx(self->_hd[-1].map->next_offset);
         
         new_map = (struct map *)send(self->_hd[-1].map, s_create, name);
         self->_hd[-1].map = new_map;  
@@ -1447,6 +1713,50 @@ struct object *object_set(size_t n, struct object *self, struct function *closur
     } 
 }
 
+void object_serialize_ref(struct object *obj, struct object *stack)
+{
+    if (ref_is_fixnum(obj) || ref_is_constant(obj))
+    {
+        printf("    .long %zd\n",   (size_t)obj);
+    } else
+    {
+        struct object *ext = obj->_hd[-1].extension;
+        printf("    .long _L%zd\n", (size_t)(ext));
+
+        if (!object_tagged(ext))
+        {
+            send(stack, s_push, ext);
+        }
+    }
+}
+
+struct object *structured_serialize(size_t n, struct object *self, struct function *closure, struct object *stack)
+{
+    struct object *orig = self;
+    self = self->_hd[-1].extension;
+    ssize_t i = -(object_values_size(self) + sizeof(struct header) / sizeof(struct object *));
+    ssize_t j = fx(self->_hd[-1].payload_size) / sizeof(struct object *);
+    struct object **s = (struct object **)self;
+
+    printf(".align 4\n");
+    printf(".globl _L%zd\n", (size_t)self);
+    for (; i < 0; ++i)
+    {
+        object_serialize_ref(s[i], stack);
+    }
+
+    printf("_L%zd:\n", (size_t)self);
+
+    for (; i < j; ++i)
+    {
+        object_serialize_ref(s[i], stack);
+    }
+
+    object_tag(orig);
+    object_tag(self);
+    return self;
+}
+
 struct object *symbol_intern(size_t n, struct object *self, struct function *closure, char *string)
 {
     return send(symbol_table, s_intern, (struct object *)string);
@@ -1454,6 +1764,7 @@ struct object *symbol_intern(size_t n, struct object *self, struct function *clo
 
 struct object *symbol_new(size_t n, struct object *self, struct function *closure, struct object *data)
 {
+    ssize_t i;
     struct object *size = ref_is_fixnum(data) ? data : send(data, s_get, s_length);
 
     struct symbol *new_symbol = (struct symbol *)send(
@@ -1463,15 +1774,23 @@ struct object *symbol_new(size_t n, struct object *self, struct function *closur
         ref(fx(size) + 1)
     );
     inc_mem_counter(mem_symbol, 0, fx(size) + 1);
-    new_symbol->_hd[-1].map = (struct map *)send0(self->_hd[-1].map, s_new);
+
+    if (symbol_base_map != UNDEFINED)
+    {
+        new_symbol->_hd[-1].map = (struct map *)symbol_base_map;
+    } else
+    {
+        new_symbol->_hd[-1].map = (struct map *)send0(self->_hd[-1].map, s_new);
+        new_symbol->_hd[-1].map->type = SYMBOL_TYPE;
+    }
+
     new_symbol->_hd[-1].prototype = self;
-    new_symbol->_hd[-1].map->type = SYMBOL_TYPE;
     new_symbol->string[0]        = '\0';
     new_symbol->string[fx(size)] = '\0';
 
     if (!ref_is_fixnum(data))
     {
-        for (ssize_t i = 0; i < fx(size); ++i)
+        for (i = 0; i < fx(size); ++i)
         {
             struct object *c = send(data, s_get, ref(i));
             assert(ref_is_fixnum(c));
@@ -1488,6 +1807,34 @@ struct object *symbol_print(size_t n, struct object *self, struct function *clos
 {
     printf("%s\n", (char*)self);
     return UNDEFINED;
+}
+
+struct object *binary_serialize(size_t n, struct object *self, struct function *closure, struct object *stack)
+{
+    struct object *orig = self;
+    self = self->_hd[-1].extension;
+    ssize_t i = -(object_values_size(self) + sizeof(struct header) / sizeof(struct object *));
+
+    struct object **s = (struct object **)self;
+
+    printf(".align 4\n");
+    printf(".globl _L%zd\n", (size_t)self);
+    for (; i < 0; ++i)
+    {
+        object_serialize_ref(s[i], stack);
+    }
+    printf("_L%zd:\n",       (size_t)self);
+
+    ssize_t j = fx(self->_hd[-1].payload_size);
+    struct symbol *symbol = (struct symbol *)self;
+    for (; i < j; ++i)
+    {
+        printf("    .byte %d\n", symbol->string[i]);
+    }
+
+    object_tag(orig);
+    object_tag(self);
+    return self;
 }
 
 struct object *symbol_table_intern(size_t n, struct object *self, struct function *closure, char *string)
@@ -1512,7 +1859,7 @@ struct object *symbol_table_intern(size_t n, struct object *self, struct functio
 }
 
 
-void log(const char* s)
+void _log(const char* s)
 {
     //printf("%s", s); 
 }
@@ -1564,11 +1911,12 @@ struct object *forward(struct object *self)
 
 struct object *array_inner_forward(size_t n, struct array *self, struct function *closure)
 {
+    ssize_t i;
     struct object **a = (struct object **)self;
     ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
     ssize_t payload_length = fx(self->count) + sizeof(struct array) / sizeof(struct object *);
 
-    for (ssize_t i = -prelude_length; i < payload_length; ++i)
+    for (i = -prelude_length; i < payload_length; ++i)
     {
         a[i] = forward(a[i]);
     }
@@ -1578,11 +1926,12 @@ struct object *array_inner_forward(size_t n, struct array *self, struct function
 
 struct object *cell_inner_forward(size_t n, struct cell *self, struct function *closure)
 {
+    ssize_t i;
     struct object **a = (struct object **)self;
     ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
     ssize_t payload_length = sizeof(struct cell) / sizeof(struct object *);
 
-    for (ssize_t i = -prelude_length; i < payload_length; ++i)
+    for (i = -prelude_length; i < payload_length; ++i)
     {
         a[i] = forward(a[i]);
     }
@@ -1597,11 +1946,12 @@ struct object *fixnum_inner_forward(size_t n, struct object *self, struct functi
 
 struct object *function_inner_forward(size_t n, struct function *self, struct function *closure)
 {
+    ssize_t i;
     struct object **a = (struct object **)self;
     ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
     ssize_t payload_length = sizeof(struct function) / sizeof(struct object *);
 
-    for (ssize_t i = -prelude_length; i < payload_length; ++i)
+    for (i = -prelude_length; i < payload_length; ++i)
     {
         a[i] = forward(a[i]);
     }
@@ -1613,12 +1963,13 @@ struct object *function_inner_forward(size_t n, struct function *self, struct fu
 
 struct object *map_inner_forward(size_t n, struct map *self, struct function *closure)
 {
+    ssize_t i;
     struct object **a = (struct object **)self;
     ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
     ssize_t payload_length = (fx(self->count) * sizeof(struct property) + sizeof(struct map)) 
                              / sizeof(struct object *);
 
-    for (ssize_t i = -prelude_length; i < payload_length; ++i)
+    for (i = -prelude_length; i < payload_length; ++i)
     {
         a[i] = forward(a[i]);
     }
@@ -1628,11 +1979,12 @@ struct object *map_inner_forward(size_t n, struct map *self, struct function *cl
 
 struct object *object_inner_forward(size_t n, struct object *self, struct function *closure)
 {
+    ssize_t i;
     struct object **a = (struct object **)self;
     ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
     ssize_t payload_length = 0;
 
-    for (ssize_t i = -prelude_length; i < payload_length; ++i)
+    for (i = -prelude_length; i < payload_length; ++i)
     {
         a[i] = forward(a[i]);
     }
@@ -1667,6 +2019,8 @@ struct object *object_scan(struct object *self)
 // TODO: Make sure values are always initialized to UNDEFINED for object fields
 void mm_test()
 {
+    ssize_t i;
+
     from_start = start;
     from_end   = end;
 
@@ -1695,10 +2049,10 @@ void mm_test()
     // Create a new memory location for forwarded objects
     newHeap();
 
-    log("Forwarding roots\n");
+    _log("Forwarding roots\n");
     char *scan = next;
 
-    for (ssize_t i = 0; i < 4; ++i)
+    for (i = 0; i < 4; ++i)
     {
         roots[i] = forward(roots[i]);
     }
@@ -1733,7 +2087,7 @@ void mm_test()
     s_symbols   = forward(s_symbols);
 
 
-    log("Beginning scan\n");
+    _log("Beginning scan\n");
     while (scan < end && scan < next)
     {
         // Ajust for prelude size
@@ -1749,7 +2103,7 @@ void mm_test()
         scan = (char *)((ssize_t)scan + size);
     }
 
-    log("Erasing initial memory page\n");
+    _log("Erasing initial memory page\n");
     scan = from_start;
     while (scan < from_end)
     {
@@ -1757,7 +2111,7 @@ void mm_test()
         scan += 1;
     }
 
-    log("Testing object model\n");
+    _log("Testing object model\n");
     assert(scan < end);
     assert(send(roots[0], s_get, roots[1]) == ref(42)); 
     assert(send(roots[0], s_get, roots[2]) == roots[3]);
@@ -1767,7 +2121,7 @@ void mm_test()
     assert(send(root_symbol, s_intern, (struct object *)"foo") == roots[1]);
     assert(send(root_symbol, s_intern, (struct object *)"bar") == roots[2]);
 
-    log("Memory management test succeeded\n");
+    _log("Memory management test succeeded\n");
 
 }
 
@@ -1794,8 +2148,15 @@ struct object *bt_map_set(size_t n, struct map *self, struct function *closure, 
     return value;
 }
 
-extern void bootstrap()
+struct object *wrap(method_t m, const char *name)
 {
+    struct object *s_name = send(root_symbol, s_intern, name);
+    return send(root_cwrapper, s_new, m, s_name);
+}
+
+void bootstrap()
+{
+    ssize_t i;
     g_bind       = (bind_t)bind;
     g_super_bind = (bind_t)super_bind;
 
@@ -1810,7 +2171,7 @@ extern void bootstrap()
     OBJECT_TYPE    = ref(6);
     SYMBOL_TYPE    = ref(7);
 
-    log("Create Root Map\n");
+    _log("Create Root Map\n");
     root_map = object_init_static(
         2,
         NIL, 
@@ -1823,14 +2184,15 @@ extern void bootstrap()
     ((struct map *)root_map)->count       = ref(0);
     ((struct map *)root_map)->next_offset = ref(-1);
     ((struct map *)root_map)->type        = MAP_TYPE;
+    ((struct map *)root_map)->cache       = NIL;
 
-    log("Initializing Root Map\n");
+    _log("Initializing Root Map\n");
     s_lookup      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
     bt_map_set(2, (struct map *)root_map, NULL_CLOSURE, s_lookup, register_function((struct object *)map_lookup));
     s_set         = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(8));
     bt_map_set(2, (struct map *)root_map, NULL_CLOSURE, s_set, register_function((struct object *)map_set));
 
-    log("Create implementation symbols\n");
+    _log("Create implementation symbols\n");
     s_add         = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(8));
     s_allocate    = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(13));
     s_clone       = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(10));
@@ -1867,19 +2229,19 @@ extern void bootstrap()
     strcpy((char*)s_set_cell,  "__set_cell__");
     strcpy((char*)s_symbols,   "__symbols__");
 
-    log("Add primitive methods on Root Map\n");
+    _log("Add primitive methods on Root Map\n");
     send(root_map, s_set, s_clone,    register_function((struct object *)map_clone));
     send(root_map, s_set, s_create,   register_function((struct object *)map_create));
     send(root_map, s_set, s_delete,   register_function((struct object *)map_delete));
     send(root_map, s_set, s_new,      register_function((struct object *)map_new));
     send(root_map, s_set, s_remove,   register_function((struct object *)map_remove));
 
-    log("Create Root Object\n");
+    _log("Create Root Object\n");
     root_object = object_init_static(2, NIL, NULL_CLOSURE, ref(30), ref(0)); 
     root_object->_hd[-1].prototype = NIL;
     root_map->_hd[-1].prototype = root_object;
 
-    log("Create Root Object Map\n");
+    _log("Create Root Object Map\n");
     root_object->_hd[-1].map = (struct map *)object_init_static(
         2,
         NIL, 
@@ -1905,10 +2267,11 @@ extern void bootstrap()
     root_object->_hd[-1].map->count       = ref(4);
     root_object->_hd[-1].map->next_offset = ref(-5);
     root_object->_hd[-1].map->type        = OBJECT_TYPE;
+    root_object->_hd[-1].map->cache       = NIL;
 
     object_values_count_set(root_object, 4);
 
-    log("Create Root Object Map's Map\n");
+    _log("Create Root Object Map's Map\n");
     struct map *root_object_map_map = (struct map *)object_init_static(
         2,
         NIL, 
@@ -1916,20 +2279,21 @@ extern void bootstrap()
         ref(0), 
         ref(sizeof(struct map))
     );
-    root_object_map_map->_hd[-1].prototype = (struct object *)root_object_map_map;
+    root_object_map_map->_hd[-1].prototype = (struct object *)root_object;
     root_object_map_map->_hd[-1].map = root_object_map_map;
     root_object_map_map->count       = ref(0);
     root_object_map_map->next_offset = ref(-1);
     root_object_map_map->type        = MAP_TYPE;
+    root_object_map_map->cache       = NIL;
     map_values_set_immutable(root_object_map_map);
 
     root_object->_hd[-1].map->_hd[-1].map = root_object_map_map;
 
 
-    log("Add primitive methods on Root Object\n");
+    _log("Add primitive methods on Root Object\n");
     object_set(2, root_object, NULL_CLOSURE, s_set, register_function((struct object *)object_set));
 
-    log("Add remaining methods\n");
+    _log("Add remaining methods\n");
     send(root_object, s_set, s_allocate, register_function((struct object *)object_allocate));
     send(root_object, s_set, s_clone,    register_function((struct object *)object_clone));
     send(root_object, s_set, s_init,     register_function((struct object *)object_init));
@@ -1937,21 +2301,21 @@ extern void bootstrap()
     send(root_object, s_set, s_get,      register_function((struct object *)object_get));
     send(root_object, s_set, s_new,      register_function((struct object *)object_new));
 
-    log("Create Root Array Object\n");
+    _log("Create Root Array Object\n");
     root_array = send0(root_object, s_new);
 
-    log("Add primitive methods on Root Array\n");
+    _log("Add primitive methods on Root Array\n");
     send(root_array,  s_set, s_delete,   register_function((struct object *)array_delete));
     send(root_array,  s_set, s_get,      register_function((struct object *)array_get));
     send(root_array,  s_set, s_new,      register_function((struct object *)array_new));
     send(root_array,  s_set, s_set,      register_function((struct object *)array_set));
     send(root_array,  s_set, s_push,     register_function((struct object *)array_push));
 
-    log("Create Root Symbol\n");
+    _log("Create Root Symbol\n");
     symbol_table = send0(root_object, s_new);
     root_symbol  = send0(root_object, s_new);
 
-    log("Add string values to symbols\n");
+    _log("Add string values to symbols\n");
     struct object *symbols = send(root_array, s_new, ref(0));
     send(symbol_table, s_set, s_symbols, symbols); 
     
@@ -1982,70 +2346,121 @@ extern void bootstrap()
 
     ssize_t l = fx(send(symbols, s_get, s_length));
     struct object *s = 0;
-    for (ssize_t i = 0; i < l; ++i)
+    for (i = 0; i < l; ++i)
     {
         s = send(symbols, s_get, ref(i));
         s->_hd[-1].map       = empty_map;
         s->_hd[-1].prototype = root_symbol;
     }
 
-    log("Add primitive methods on Root Symbol\n");
+    _log("Add primitive methods on Root Symbol\n");
     send(symbol_table, s_set, s_intern, register_function((struct object *)symbol_table_intern));
     send(root_symbol,  s_set, s_new,    register_function((struct object *)symbol_new));
     send(root_symbol,  s_set, s_intern, register_function((struct object *)symbol_intern));
 
-    log("Create Root Function object\n");
+    struct object *name;
+
+    _log("Create Root Function object\n");
     root_function = send0(root_object, s_new);
 
-    log("Add primitive methods on Root Function object\n");
-    send(root_function, s_set, s_allocate, register_function((struct object *)function_allocate));
-    send(root_function, s_set, s_clone,    register_function((struct object *)function_clone));
-    send(root_function, s_set, s_intern,   register_function((struct object *)function_intern));
-    send(root_function, s_set, s_new,      register_function((struct object *)function_new));
-    send(root_function, s_set, s_get,      register_function((struct object *)function_get));
+    _log("Add primitive methods on Root Function object\n");
+    send(root_function, s_set, s_allocate,  register_function((struct object *)function_allocate));
+    send(root_function, s_set, s_clone,     register_function((struct object *)function_clone));
+    send(root_function, s_set, s_intern,    register_function((struct object *)function_intern));
+    send(root_function, s_set, s_new,       register_function((struct object *)function_new));
+    send(root_function, s_set, s_get,       register_function((struct object *)function_get));
 
-    log("Create Root Fixnum object\n");
+    _log("Create CWrapper object\n");
+    root_cwrapper = send(root_function, s_new, ref(7), ref(0));
+    send(root_cwrapper, s_set, s_new, register_function((struct object *)cwrapper_new));
+    struct object *s_extern = send(root_symbol, s_intern, "__extern__");
+    name = send(root_symbol, s_intern, "cwrapper_new");
+    send(root_cwrapper, s_set, s_extern, name); 
+
+
+    _log("Rewrapping C core functions\n");
+    send(root_cwrapper, s_set, s_new, wrap((method_t)cwrapper_new, "cwrapper_new"));
+
+    send(root_map, s_set, s_clone,  wrap((method_t)map_clone,  "map_clone"));
+    send(root_map, s_set, s_create, wrap((method_t)map_create, "map_create"));
+    send(root_map, s_set, s_delete, wrap((method_t)map_delete, "map_delete"));
+    send(root_map, s_set, s_lookup, wrap((method_t)map_lookup, "map_lookup"));
+    send(root_map, s_set, s_new,    wrap((method_t)map_new,    "map_new"));
+    send(root_map, s_set, s_remove, wrap((method_t)map_remove, "map_remove"));
+    send(root_map, s_set, s_set,    wrap((method_t)map_set,    "map_set"));
+
+    send(root_object, s_set, s_allocate, wrap((method_t)object_allocate, "object_allocate"));
+    send(root_object, s_set, s_clone,    wrap((method_t)object_clone, "object_clone"));
+    send(root_object, s_set, s_init,     wrap((method_t)object_init, "object_init"));
+    send(root_object, s_set, s_delete,   wrap((method_t)object_delete, "object_delete"));
+    send(root_object, s_set, s_get,      wrap((method_t)object_get, "object_get"));
+    send(root_object, s_set, s_new,      wrap((method_t)object_new, "object_new"));
+    send(root_object, s_set, s_set,      wrap((method_t)object_set, "object_set"));
+
+    send(root_array,  s_set, s_delete,   wrap((method_t)array_delete, "array_delete"));
+    send(root_array,  s_set, s_get,      wrap((method_t)array_get, "array_get"));
+    send(root_array,  s_set, s_new,      wrap((method_t)array_new, "array_new"));
+    send(root_array,  s_set, s_set,      wrap((method_t)array_set, "array_set"));
+    send(root_array,  s_set, s_push,     wrap((method_t)array_push, "array_push"));
+
+    send(symbol_table, s_set, s_intern, wrap((method_t)symbol_table_intern, "symbol_table_intern"));
+    send(root_symbol,  s_set, s_new,    wrap((method_t)symbol_new, "symbol_new"));
+    send(root_symbol,  s_set, s_intern, wrap((method_t)symbol_intern, "symbol_intern"));
+
+    send(root_function, s_set, s_allocate, wrap((method_t)function_allocate, "function_allocate"));
+    send(root_function, s_set, s_clone,    wrap((method_t)function_clone, "function_clone"));
+    send(root_function, s_set, s_intern,   wrap((method_t)function_intern, "function_intern"));
+    send(root_function, s_set, s_new,      wrap((method_t)function_new, "function_new"));
+    send(root_function, s_set, s_get,      wrap((method_t)function_get, "function_get"));
+
+    name = send(root_symbol, s_intern, "__extract__");
+    send(root_function, s_set, name,       wrap((method_t)function_extract, "function_extract"));
+
+    _log("Create Root Fixnum object\n");
     root_fixnum = send0(root_object, s_new);
 
-    log("Create Root Constant object\n");
+    _log("Create Root Constant object\n");
     root_constant = send0(root_object, s_new);
 
-    log("Create Root Cell object\n");
+    _log("Create Root Cell object\n");
     root_cell = send0(root_object, s_new);
 
-    log("Add primitive methods on Root Cell object\n");
-    send(root_cell, s_set, s_new, register_function((struct object *)cell_new));
+    _log("Add primitive methods on Root Cell object\n");
+    send(root_cell, s_set, s_new, wrap((method_t)cell_new, "cell_new"));
 
-    log("Create Root Arguments object\n");
+    _log("Create Root Arguments object\n");
     root_arguments = send(root_array, s_new, ref(0));
 
-    log("Add primitive methods on Root Arguments object \n");
-    send(root_arguments, s_set, s_get,      register_function((struct object *)arguments_get));
-    send(root_arguments, s_set, s_get_cell, register_function((struct object *)arguments_get_cell));
-    send(root_arguments, s_set, s_new,      register_function((struct object *)arguments_new));
-    send(root_arguments, s_set, s_set,      register_function((struct object *)arguments_set));
-    send(root_arguments, s_set, s_set_cell, register_function((struct object *)arguments_set_cell));
+    _log("Add primitive methods on Root Arguments object \n");
+    send(root_arguments, s_set, s_get,      wrap((method_t)arguments_get, "arguments_get"));
+    send(root_arguments, s_set, s_get_cell, wrap((method_t)arguments_get_cell, "arguments_get_cell"));
+    send(root_arguments, s_set, s_new,      wrap((method_t)arguments_new, "arguments_new"));
+    send(root_arguments, s_set, s_set,      wrap((method_t)arguments_set, "arguments_set"));
+    send(root_arguments, s_set, s_set_cell, wrap((method_t)arguments_set_cell, "arguments_set_cell"));
 
-    log("Create Root Frame object\n");
+    _log("Create Root Frame object\n");
     root_frame = send0(root_object, s_new);
 
-    log("Add primitive methods on Root Frame object \n");
-    send(root_frame, s_set, s_new, register_function((struct object *)frame_new));
+    _log("Add primitive methods on Root Frame object \n");
+    send(root_frame, s_set, s_new, wrap((method_t)frame_new, "frame_new"));
 
-    log("Creating global object\n");
+    _log("Creating global object\n");
     global_object = send0(root_object, s_new);
 
-    log("Adding global methods\n");
-    struct object *name = send(root_symbol, s_intern, "readFile");
-    send(global_object, s_set, name, global_readFile);
+    _log("Adding global methods\n");
+    name = send(root_symbol, s_intern, "readFile");
+    send(global_object, s_set, name, wrap((method_t)global_readFile, "global_readFile"));
 
     name = send(root_symbol, s_intern, "memStats");
-    send(global_object, s_set, name, global_memStats);
+    send(global_object, s_set, name, wrap((method_t)global_memStats, "global_memStats"));
 
     name = send(root_symbol, s_intern, "memAllocatedKBs");
-    send(global_object, s_set, name, global_memAllocatedKBs);
+    send(global_object, s_set, name, wrap((method_t)global_memAllocatedKBs,"global_memAllocatedKBs"));
 
-    log("Registering roots\n");
+    name = send(root_symbol, s_intern, "serialize");
+    send(global_object, s_set, name, wrap((method_t)global_serialize, "global_serialize"));
+
+    _log("Registering roots\n");
     roots = send(root_array, s_new, ref(20));
 
     send(roots, s_push, global_object); 
@@ -2089,36 +2504,159 @@ extern void bootstrap()
     send(roots_names, s_push, name); 
 
     // Debugging support
-    log("Adding print method on objects\n");
+    _log("Adding print method on objects\n");
     name = send(root_symbol, s_intern, "__print__");
-    send(root_arguments, s_set, name, register_function((struct object *)arguments_print));
-    send(root_array,     s_set, name, register_function((struct object *)array_print));
-    send(root_constant,  s_set, name, register_function((struct object *)constant_print));
-    send(root_fixnum,    s_set, name, register_function((struct object *)fixnum_print));
-    send(root_frame,     s_set, name, register_function((struct object *)frame_print));
-    send(root_map,       s_set, name, register_function((struct object *)map_print));
-    send(root_object,    s_set, name, register_function((struct object *)object_print));
-    send(root_symbol,    s_set, name, register_function((struct object *)symbol_print));
+    send(root_arguments, s_set, name, wrap((method_t)arguments_print, "arguments_print"));
+    send(root_array,     s_set, name, wrap((method_t)array_print, "array_print"));
+    send(root_constant,  s_set, name, wrap((method_t)constant_print, "constant_print"));
+    send(root_fixnum,    s_set, name, wrap((method_t)fixnum_print, "fixnum_print"));
+    send(root_frame,     s_set, name, wrap((method_t)frame_print, "frame_print"));
+    send(root_map,       s_set, name, wrap((method_t)map_print, "map_print"));
+    send(root_object,    s_set, name, wrap((method_t)object_print, "object_print"));
+    send(root_symbol,    s_set, name, wrap((method_t)symbol_print, "symbol_print"));
     
-    log("Adding object model meta-information\n");
+    _log("Adding object model meta-information\n");
     name = send(root_symbol, s_intern, "__header_size__");
-    send(root_object, s_set, name, register_function((struct object *)object_header_size));
+    send(root_object, s_set, name, wrap((method_t)object_header_size, "object_header_size"));
     name = send(root_symbol, s_intern, "__ref_size__");
-    send(root_object, s_set, name, register_function((struct object *)object_ref_size));
+    send(root_object, s_set, name, wrap((method_t)object_ref_size, "object_ref_size"));
+    name = send(root_symbol, s_intern, "__addr_bytes__");
+    send(root_object, s_set, name, wrap((method_t)object_addr_bytes, "object_addr_bytes"));
+
     name = send(root_symbol, s_intern, "__base_size__");
-    send(root_map, s_set, name, register_function((struct object *)map_base_size));
+    send(root_map, s_set, name, wrap((method_t)map_base_size, "map_base_size"));
     name = send(root_symbol, s_intern, "__property_size__");
-    send(root_map, s_set, name, register_function((struct object *)map_property_size));
+    send(root_map, s_set, name, wrap((method_t)map_property_size, "map_property_size"));
 
-    log("Bootstrap done\n");
+    _log("Optimizing map creation\n");
+    object_base_map                          = send0(root_object->_hd[-1].map, s_new);
+    ((struct map *)object_base_map)->type    = OBJECT_TYPE;
+    struct object *a = send(root_array, s_new, ref(4));
+    ((struct map *)object_base_map)->cache   = a;
+
+    array_base_map                           = send0(root_array->_hd[-1].map, s_new);
+    ((struct map *)array_base_map)->type     = ARRAY_TYPE;
+
+    arguments_base_map                       = send0(root_arguments->_hd[-1].map, s_new);
+    ((struct map *)arguments_base_map)->type = ARRAY_TYPE; 
+
+    cell_base_map                            = send0(root_cell->_hd[-1].map, s_new);
+    ((struct map *)cell_base_map)->type      = CELL_TYPE;
+
+    frame_base_map                           = send0(root_frame->_hd[-1].map, s_new);
+    ((struct map *)frame_base_map)->type     = FRAME_TYPE;
+
+    symbol_base_map                          = send0(root_symbol->_hd[-1].map, s_new);
+    ((struct map *)symbol_base_map)->type    = SYMBOL_TYPE;
+
+    _log("Serialization methods\n");
+    struct object *s_serialize = send(root_symbol, s_intern, "__serialize__");
+    send(root_object,   s_set, s_serialize, wrap((method_t)structured_serialize,   "structured_serialize")); 
+    send(root_cwrapper, s_set, s_serialize, wrap((method_t)cwrapper_serialize,     "cwrapper_serialize"));
+    send(root_symbol,   s_set, s_serialize, wrap((method_t)binary_serialize,       "binary_serialize"));
+    send(root_function, s_set, s_serialize, wrap((method_t)function_serialize,     "function_serialize"));
+
+    struct object *s_pop       = send(root_symbol,  s_intern, "__pop__");
+    send(root_array, s_set, s_pop, wrap((method_t)array_pop, "array_pop"));
+
+    _log("Bootstrap done\n");
 }
 
-/*
-int main()
+void serialize()
 {
-    newHeap();
-    bootstrap();
-    //mm_test();
-    return 0;
+    struct object *s_serialize = send(root_symbol,  s_intern, "__serialize__");
+    struct object *s_pop       = send(root_symbol,  s_intern, "__pop__");
+    struct object *stack       = send(root_array,   s_new,    ref(10));
+
+    send(stack, s_push, roots);
+    send(stack, s_push, object_base_map);
+    send(stack, s_push, array_base_map);
+    send(stack, s_push, arguments_base_map);
+    send(stack, s_push, cell_base_map);
+    send(stack, s_push, frame_base_map);
+    send(stack, s_push, symbol_base_map);
+
+    while (fx(send(stack, s_get, s_length)) > 0)
+    {
+        struct object *obj = send0(stack, s_pop);
+        if (!object_tagged(obj))
+        {
+            send(obj, s_serialize, stack);
+        }
+    }
+
+    // Generate initialization code for globals
+#define SELF_ASSIGN(self_assign_x) ({\
+    printf("    mov     $_L%zd, %%eax\n", (size_t)(self_assign_x->_hd[-1].extension));\
+    printf("    mov     %%eax, _%s\n", #self_assign_x);\
+})
+    
+    printf("_init_globals:\n");
+    SELF_ASSIGN(global_object);    
+    SELF_ASSIGN(roots);
+    SELF_ASSIGN(root_arguments);
+    SELF_ASSIGN(root_array);
+    SELF_ASSIGN(root_cell);
+    SELF_ASSIGN(root_constant);
+    SELF_ASSIGN(root_cwrapper);
+    SELF_ASSIGN(root_fixnum);
+    SELF_ASSIGN(root_frame);
+    SELF_ASSIGN(root_function);
+    SELF_ASSIGN(root_map);
+    SELF_ASSIGN(root_object);
+    SELF_ASSIGN(root_symbol);
+    SELF_ASSIGN(symbol_table);
+
+    SELF_ASSIGN(array_base_map);
+    SELF_ASSIGN(arguments_base_map);
+    SELF_ASSIGN(cell_base_map);
+    SELF_ASSIGN(frame_base_map);
+    SELF_ASSIGN(object_base_map);
+    SELF_ASSIGN(symbol_base_map);
+
+    SELF_ASSIGN(s_add);
+    SELF_ASSIGN(s_allocate);
+    SELF_ASSIGN(s_clone);
+    SELF_ASSIGN(s_create);
+    SELF_ASSIGN(s_delete);
+    SELF_ASSIGN(s_get);
+    SELF_ASSIGN(s_get_cell);
+    SELF_ASSIGN(s_init);
+    SELF_ASSIGN(s_intern);
+    SELF_ASSIGN(s_length);
+    SELF_ASSIGN(s_lookup);
+    SELF_ASSIGN(s_new);
+    SELF_ASSIGN(s_prototype);
+    SELF_ASSIGN(s_push);
+    SELF_ASSIGN(s_remove);
+    SELF_ASSIGN(s_set);
+    SELF_ASSIGN(s_set_cell);
+    SELF_ASSIGN(s_symbols);
+    printf("    ret\n");
+
+    // Generate main
+    printf(".globl _main\n");
+    printf("_main:\n");
+    printf("    pushl %%ebp\n");
+    printf("    movl  %%esp, %%ebp\n");
+    printf("    sub   $8, %%esp\n");
+    printf("    call _newHeap\n");
+    printf("    call _init_globals\n");
+    printf("    call _init\n");
+    printf("    add   $8, %%esp\n");
+    printf("    mov $0, %%eax\n");
+    printf("    popl %%ebp\n");
+    printf("    ret\n");
 }
-*/
+
+void init()
+{
+    struct object *s_init = send(root_symbol, s_intern, "init");
+    //printf("init res = %zd\n", fx(send0(global_object, s_init)));
+
+    //printf("fib(10) = %zd\n", fx(((method_t)fib)(1, fib, fib, ref(10))));
+    //printf("fib(40) = %zd\n", fx(send(global_object, s_fib, ref(40))));
+    printf("//init res = %p\n", send0(global_object, s_init));
+}
+
+#endif // #ifndef _PHOTON_H

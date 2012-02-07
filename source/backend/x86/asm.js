@@ -1458,7 +1458,7 @@ x86.Assembler.prototype.opImm = function (op, mnemonic, src, dest, width)
 
     assert (
         (dest.type === x86.type.REG) ?
-        (!width || (dest.width() === width)) : width,
+        (width === undefined || (dest.width() === width)) : width !== undefined,
         "missing or inconsistent operand width " + width
     );
 
@@ -1487,7 +1487,6 @@ x86.Assembler.prototype.opImm = function (op, mnemonic, src, dest, width)
 */
 x86.Assembler.prototype.movImm = function (dest, src, width)
 {
-
     const that = this;
     const isLink = src.type === x86.type.LINK;
     const k = (isLink) ? src : src.value;
@@ -1560,12 +1559,11 @@ x86.Assembler.prototype.movImm = function (dest, src, width)
         that.
         gen8((width === 8) ? 0xc6 : 0xc7).  // opcode
         opndModRMSIB(0,dest); // ModR/M
-
         cstValue(width, true);
     }
 
     assert((dest.type === x86.type.REG) ?
-        (!width || (dest.width() === width)) : width,
+        (width === undefined || (dest.width() === width)) : width !== undefined,
         "missing or inconsistent operand width '" + width + "'"
     );
 
@@ -1611,7 +1609,7 @@ x86.Assembler.prototype.op = function (op, mnemonic, dest, src, width)
     /** @ignore generate the instruction */
     function genOp(reg, opnd, isSwapped)
     {
-        assert(!width || (reg.width() === width),
+        assert(width === undefined || (reg.width() === width),
                "inconsistent operand width '" + width +
                "' and register width '" + reg.width() + "'");
 
@@ -1803,7 +1801,7 @@ x86.Assembler.prototype.incDec = function (opnd, isInc, width)
     }
 
     assert((opnd.type === x86.type.REG) ?
-            (!width || (opnd.width() === width)) : width,
+            (width === undefined || (opnd.width() === width)) : width !== undefined,
             "missing or inconsistent operand width '" + width + "'");
 
     if (opnd.type === x86.type.REG)
@@ -2197,8 +2195,8 @@ x86.Assembler.prototype.movxx = function (src, dst, signExt, width)
         'src must be reg or mem, dst must be reg'
     );
 
-    var srcWidth = src.width ? src.width() : width;
-    var dstWidth = dst.width ? dst.width() : width;
+    var srcWidth = src.width !== undefined ? src.width() : width;
+    var dstWidth = dst.width !== undefined ? dst.width() : width;
 
     assert(
         srcWidth < dstWidth,
@@ -2776,7 +2774,7 @@ function (opcodeExt, mnemonic, src, dest, width)
 
     assert(
         (dest.type === x86.type.REG) ?
-        (!width || (dest.width() === width)) : width,
+        (width === undefined || (dest.width() === width)) : width !== undefined,
         "missing or inconsistent operand width " + width
     );
 
@@ -2853,7 +2851,7 @@ function (opcode, opcodeExt, mnemonic, dest, width)
 {
     assert(
         (dest.type === x86.type.REG) ?
-        (!width || (dest.width() === width)) : width,
+        (width === undefined || (dest.width() === width)) : width !== undefined,
         "missing or inconsistent operand width " + width
     );
 
@@ -3035,10 +3033,10 @@ x86.Assembler.prototype.idiv = function (src, width)
 /** Can be chained */
 x86.Assembler.prototype.xchg = function (src, dst, width)
 {
-    width = src.width ? src.width() : (dst.width ? dst.width() : width);
+    width = src.width !== undefined ? src.width() : (dst.width !== undefined ? dst.width() : width);
 
     assert (
-        width && (width === 32 || width === 64),
+        width !== undefined && (width === 32 || width === 64),
         'only 32 and 64 bit encodings supported'
     );
 
