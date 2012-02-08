@@ -105,7 +105,7 @@ ometa PhotonASTCopy {
   case     trans:x trans:y                      -> [#case, x, y],
   default          trans:y                      -> [#default, y],
 
-  ref      :s                                   -> [#ref, _deep_copy(s)],
+  ref      :s                                   -> [#ref, s],
   gets     trans:x trans:fd                     -> [#gets, x, fd],
   mreturn  trans:x trans:y                      -> [#mreturn, x, y],
   code     :c                                   -> [#code, c],

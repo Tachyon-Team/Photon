@@ -636,5 +636,29 @@ function eval(s)
     print("// eval: Function construction");
     var f = comp.context.new_function_object(code, comp.context.refs, 0, print);
     print("// eval: Executing generated code");
-    return photon.send(f, "call");
+    return f.__obj__();
+}
+
+function pp(s)
+{
+    function failer (m, idx, f) 
+    { 
+        print("Matched failed at index " + idx + " on input " + m.input.hd); 
+        error(f);
+    };
+    print("pp: Parsing");
+    var ast = PhotonParser.matchAll(s, "topLevel");
+    print("pp: Macro Expansion");
+    ast = PhotonMacroExp.match(ast, "trans", undefined, failer);
+    print("pp: Desugaring");
+    ast = PhotonDesugar.match(ast, "trans", undefined, failer);
+
+    print("pp: Variable scope analysis");
+    PhotonVarAnalysis.match(ast, "trans", undefined, failer);
+
+    print(PhotonPrettyPrinter.match(ast, "trans"));
+
+    print("pp: Variable scope binding");
+    ast = PhotonVarScopeBinding.match(ast, "trans", undefined, failer);
+    print(PhotonPrettyPrinter.match(ast, "trans"));
 }
