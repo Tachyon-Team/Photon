@@ -2642,21 +2642,34 @@ void serialize()
     printf("    sub   $8, %%esp\n");
     printf("    call _newHeap\n");
     printf("    call _init_globals\n");
+    printf("    pushl $0\n");
+    printf("    pushl $0\n");
+    printf("    movl  12(%%ebp), %%eax\n");
+    printf("    pushl %%eax\n");
+    printf("    movl  8(%%ebp), %%eax\n");
+    printf("    pushl %%eax\n");
     printf("    call _init\n");
-    printf("    add   $8, %%esp\n");
+    printf("    add   $24, %%esp\n");
     printf("    mov $0, %%eax\n");
     printf("    popl %%ebp\n");
     printf("    ret\n");
 }
 
-void init()
+void init(ssize_t argc, char *argv[])
 {
-    struct object *s_init = send(root_symbol, s_intern, "init");
-    //printf("init res = %zd\n", fx(send0(global_object, s_init)));
+    struct object *arguments   = send(root_array, s_new, ref(argc));
 
-    //printf("fib(10) = %zd\n", fx(((method_t)fib)(1, fib, fib, ref(10))));
-    //printf("fib(40) = %zd\n", fx(send(global_object, s_fib, ref(40))));
-    printf("//init res = %p\n", send0(global_object, s_init));
+    ssize_t i;
+    for (i=0; i < argc; ++i)
+    {
+        struct object *arg = send(root_symbol, s_intern, argv[i]);
+        send(arguments, s_push, arg);
+    }
+
+    struct object *s_init      = send(root_symbol, s_intern, "init");
+    struct object *s_arguments = send(root_symbol, s_intern, "arguments");
+    send(global_object, s_set, s_arguments, arguments);
+    send0(global_object, s_init);
 }
 
 #endif // #ifndef _PHOTON_H
