@@ -429,9 +429,34 @@ String.prototype.__ge__ = function (x)
     return !this.__lt__(x);
 };
 
-function Number()
+function Number(v)
 {
-    throw "Unimplemented Number constructor";
+    if (typeof v === "string")
+    {
+        var n = 0;
+        var s = s.toCharCodeArray(s);
+        var l = s.length;
+
+        // Lazily define digits char codes
+        if (Number.digits === undefined)
+        {
+            Number.digits = bignum_digits.toCharCodeArray();
+        }
+        var digits = Number.digits;
+
+        for (var i = 0; i < l; ++i)
+        {
+            var d = digits.indexOf(s[i]);
+            n = 10*n + d;
+        }
+        return n;
+    } else if (typeof v === "number")
+    {
+        return v;
+    } else
+    {
+        throw "Unsupported argument type for '" + (typeof v) + "'";
+    }
 };
 
 Number.prototype.__lt__ = function (x)
@@ -613,4 +638,3 @@ function eval(s)
     print("// eval: Executing generated code");
     return photon.send(f, "call");
 }
-

@@ -668,6 +668,9 @@ String.prototype.toLocaleUpperCase = string_toLocaleUpperCase;
 String.prototype.internal_isWhiteSpace = string_internal_isWhiteSpace;
 String.prototype.trim = string_trim;
 
+// Extension
+String.prototype.toCharCodeArray = function () { return string_internal_toCharCodeArray(this); };
+
 })();
 //-----------------------------------------------------------------------------
 
