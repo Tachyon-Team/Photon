@@ -2912,13 +2912,13 @@ x86.Assembler.prototype.imul = function (src, dst, imm, width)
 
         // Generate the opcode
         that.gen8(opb1);
-        if (opb2) that.gen8(opb2);
+        if (opb2 !== undefined) that.gen8(opb2);
 
         // For /r:
         that.opndModRMSIBRegOpnd(dst, src);
 
         // Generate the immediate value
-        if (imm)
+        if (imm !== undefined)
             genConst();
 
         if (that.useListing)
@@ -2931,16 +2931,16 @@ x86.Assembler.prototype.imul = function (src, dst, imm, width)
                     dst
                 )
                 +
-                (imm? (',' + x86.opndFormatGNU(imm)):'')
+                (imm !== undefined ? (',' + x86.opndFormatGNU(imm)):'')
             );
         }
     }
 
     // If both a source and destination were specified
-    if (src && dst)
+    if (src !== undefined && dst !== undefined)
     {
         // If an immediate value was specified
-        if (imm)
+        if (imm !== undefined)
         {
             assert (
                 imm.type === x86.type.IMM_VAL,
@@ -2982,7 +2982,7 @@ x86.Assembler.prototype.imul = function (src, dst, imm, width)
     else
     {
         assert (
-            src,
+            src !== undefined,
             'imul requires a source operand'
         );
 
