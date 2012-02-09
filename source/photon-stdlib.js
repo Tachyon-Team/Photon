@@ -434,15 +434,9 @@ function Number(v)
     if (typeof v === "string")
     {
         var n = 0;
-        var s = s.toCharCodeArray(s);
+        var s = v.toCharCodeArray();
         var l = s.length;
-
-        // Lazily define digits char codes
-        if (Number.digits === undefined)
-        {
-            Number.digits = bignum_digits.toCharCodeArray();
-        }
-        var digits = Number.digits;
+        var digits = bignum_digits.toCharCodeArray();
 
         for (var i = 0; i < l; ++i)
         {

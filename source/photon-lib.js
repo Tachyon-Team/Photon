@@ -91,7 +91,7 @@ const _UNDEFINED = 0;
 function _op(op)
 {
     var a = new (x86.Assembler)(x86.target.x86);
-    var args = Array.prototype.slice.apply(arguments, [1]);
+    var args = Array.prototype.slice.call(arguments, 1);
     a[op].apply(a, args);
     return a.codeBlock.code;
 }
