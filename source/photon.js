@@ -114,6 +114,21 @@ log("Initializing standard library");
 photon.send({f:f}, "f");
 
 
+function init_client(s)
+{
+    try
+    {
+        log("Compiling '" + s + "'");
+        var f = _compile(readFile(s), verbose ? print : undefined);
+        log("Executing '" + s + "'");
+        photon.send({f:f}, "f");
+    } catch(e)
+    {
+        print(e.stackTrace);
+        throw e;
+    }
+}
+
 [
  "stdlib/array.js", 
  "stdlib/string.js", 
@@ -129,19 +144,8 @@ photon.send({f:f}, "f");
  "deps/ometa-js/ometa-base.js",
  "deps/ometa-js/parser.js",
  "ometa/photon-compiler.js",
- "photon-lib.js",
- arguments[0]
-].forEach(function (s)
-{
-    try
-    {
-        log("Compiling '" + s + "'");
-        var f = _compile(readFile(s), verbose ? print : undefined);
-        log("Executing '" + s + "'");
-        photon.send({f:f}, "f");
-    } catch(e)
-    {
-        print(e.stackTrace);
-        throw e;
-    }
-});
+ "photon-lib.js"
+].forEach(init_client);
+
+//eval(readFile("inline.js"));
+Array.prototype.slice.call(arguments, 0).forEach(init_client);

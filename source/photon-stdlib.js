@@ -449,7 +449,7 @@ function Number(v)
         return v;
     } else
     {
-        throw "Unsupported argument type for '" + (typeof v) + "'";
+        throw "Number: unsupported argument type '" + (typeof v) + "'";
     }
 };
 
@@ -516,6 +516,8 @@ Number.prototype.__ge__ = function (x)
         throw "Invalid constant";
     }
 };
+
+@{["ref", photon.constant]}@.__addr_bytes__ = Object.prototype.__addr_bytes__;
 
 @{["ref", photon.constant]}@.__get__ = function (x)
 {

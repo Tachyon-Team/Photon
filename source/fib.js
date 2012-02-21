@@ -5,5 +5,7 @@ function fib(n)
     return fib(n-1) + fib(n-2);
 }
 
-print("fib(10):");
-print(fib(10));
+var n = Number(arguments[0]);
+print("fib(" + n + "):");
+print(fib(n));
+

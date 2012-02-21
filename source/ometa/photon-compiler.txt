@@ -733,12 +733,16 @@ ometa PhotonVarScopeBinding <: PhotonASTCopy {
   global :ctxt   {self.context.enter_function_scope(ctxt.scope)} 
          trans:r {self.context.leave_function_scope(ctxt.scope)} -> [#global, ctxt, r], 
 
-  get       (#true | #false | #undefined | #null | #arguments):c -> [#get, c],
+  get       (#true | #false | #undefined | #null | ?{self.context.is_local_scope()} #arguments):c -> [#get, c],
   get (:id -> {var x = self.context.scope.lookup(id); if (x === undefined) throw "Undefined variable '" + id + "'"; x}):x 
                                        ( isGlobal(x)             -> [#send, "__get__", [#ref, photon.global], [#string, id]]
                                        | isLocal(x)              -> [#get, id]
                                        | isEscaping(x)           -> [#gets, [#get, id], [#number, 0]]
                                        | isCaptured(x)           -> [#gets, [#gets, [#closure], [#number, self.context.closure_offsets[id]]], [#number, 0]]),
+
+  call ( [#get :id] ({self.context.scope.lookup(id);}):x ?{x.is_global()} 
+         trans*:args                                             -> [#send, id, [#ref, photon.global]].concat(args)
+       | ^call),
 
   set       ([#get :id] ({self.context.scope.lookup(id)}):x 
             isGlobal(x) trans:val                                -> [#send, "__set__", [#ref, photon.global], [#string, id], val]
@@ -888,6 +892,10 @@ PhotonVarScopeBinding.context =
         {
             return [];
         }
+    },
+    is_local_scope:function ()
+    {
+        return this.previous_scopes.length !== 1;    
     }
 };
 
@@ -1023,7 +1031,7 @@ ometa PhotonCompiler {
            trans:body                                         -> {var f = self.context.new_js_function_object(ctxt.name, args, body); 
                                                                   self.context.leave_function_scope(); self.context.pop_ref_ctxt();
                                                                   self.context.gen_closure(f, ctxt.scope)},
-  send     :msg align(2):nb trans:rcv trans*:args restore(nb) -> self.context.gen_send(nb, rcv, self.context.gen_symbol(msg), args, photon.bind),
+  send     :msg align(2):nb trans:rcv trans*:args restore(nb) -> self.context.gen_send(nb, rcv, msg, args, photon.bind),
   call     align(2):nb trans:fn trans*:args restore(nb)       -> self.context.gen_call(nb, fn, args),
   var      :name trans:val                                    -> self.context.gen_set_local(name, val),
   throw    trans:x                                            -> self.context.gen_throw(x),
@@ -1041,7 +1049,7 @@ ometa PhotonCompiler {
 
   // Extensions
 
-  super_send :msg align(2):nb trans:rcv trans*:args restore(nb) -> self.context.gen_send(nb, rcv, self.context.gen_symbol(msg), args, photon.super_bind),
+  super_send :msg align(2):nb trans:rcv trans*:args restore(nb) -> self.context.gen_send(nb, rcv, msg, args, photon.super_bind),
 
   // align(-1) because 'fn' is not part of the arguments that are pushed on the stack
   ccall    align(-1):nb trans:fn trans*:args restore(nb)      -> self.context.gen_ccall(nb, fn, args),

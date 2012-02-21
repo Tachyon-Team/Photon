@@ -287,6 +287,7 @@ struct object *MAP_TYPE      = (struct object *)0;
 struct object *OBJECT_TYPE   = (struct object *)0;
 struct object *SYMBOL_TYPE   = (struct object *)0;
 
+ssize_t BOOTSTRAP = 0;
 
 //--------------------------------- Helper Functions ---------------------------
 inline ssize_t fx(struct object *obj);
@@ -546,6 +547,44 @@ struct object *super_bind(struct object *null_n, struct object *null_rcv, struct
 
 }
 
+struct object **cache_offset(struct object **ptr, ssize_t offset)
+{
+    return (struct object **)((char *)ptr + offset);
+}
+
+void flush_inline_cache(struct object *symbol)
+{
+    if (BOOTSTRAP || ref_is_fixnum(symbol) || ref_is_constant(symbol))
+        return;
+
+    //printf("// flushing inline cache for symbol %p\n", symbol);
+    //printf("// flushing inline cache for symbol %s\n", (char*)symbol);
+
+    // Invalidate caches
+    //
+    // -38: cached map
+    // -33: cached method
+    //   0: next cache
+    struct object **iter = (struct object **)symbol->_hd[-1].extension->_hd[-1].values[-1];
+    struct object **next = (struct object **)NIL;
+
+    if (iter != (struct object **)NIL)
+        symbol->_hd[-1].extension->_hd[-1].values[-1] = NIL;
+
+    while (iter != (struct object **)NIL)
+    {
+        printf("// iter = %p\n", iter);
+
+        next  = (struct object **)*iter;    
+        *iter = UNDEFINED;
+        *cache_offset(iter, -33) = UNDEFINED;
+        *cache_offset(iter, -38) = UNDEFINED;
+        iter  = next;
+    }
+
+    //printf("// flushed inline cache for symbol %s\n", (char*)symbol);
+}
+
 //--------------------------------- Object Primitives --------------------------
 
 struct object *object_get(size_t n, struct object *self, struct function *closure, struct object *name);
@@ -711,7 +750,7 @@ struct object *array_get(size_t n, struct array *self, struct function *closure,
     if (ref_is_fixnum(name) && fx(name) >= 0)
     {
         ssize_t i = fx(name);
-        if (i > fx(self->count))
+        if (i >= fx(self->count))
         {
             return UNDEFINED;
         } else
@@ -1105,6 +1144,8 @@ struct object *function_new(
     new_fct->_hd[-1].map->next_offset = ref(-fx(cell_nb) - 1);
     new_fct->_hd[-1].map->type        = FUNCTION_TYPE;
 
+    object_values_count_set(new_fct, fx(cell_nb)); 
+
     ssize_t i = 0;
 
     for (i = 1; i <= fx(cell_nb); ++i)
@@ -1245,6 +1286,12 @@ struct object *global_memStats(size_t n, struct object *self, struct function *c
     send(s, s_set, name, ref(mem_symbol));
 
     return s;    
+}
+
+struct object *global_printRef(size_t n, struct object *self, struct function *closure, struct object *ref)
+{
+    printf("ref = %p\n", ref);
+    return self;
 }
 
 struct object *global_memAllocatedKBs(size_t n, struct object *self, struct function *closure)
@@ -2156,6 +2203,7 @@ struct object *wrap(method_t m, const char *name)
 
 void bootstrap()
 {
+    BOOTSTRAP = 1;
     ssize_t i;
     g_bind       = (bind_t)bind;
     g_super_bind = (bind_t)super_bind;
@@ -2451,6 +2499,9 @@ void bootstrap()
     name = send(root_symbol, s_intern, "readFile");
     send(global_object, s_set, name, wrap((method_t)global_readFile, "global_readFile"));
 
+    name = send(root_symbol, s_intern, "printRef");
+    send(global_object, s_set, name, wrap((method_t)global_printRef,"global_printRef"));
+
     name = send(root_symbol, s_intern, "memStats");
     send(global_object, s_set, name, wrap((method_t)global_memStats, "global_memStats"));
 
@@ -2560,10 +2611,25 @@ void bootstrap()
     send(root_array, s_set, s_pop, wrap((method_t)array_pop, "array_pop"));
 
     _log("Bootstrap done\n");
+    BOOTSTRAP = 0;
 }
 
 void serialize()
 {
+    /*
+    // Flush inline caches
+    ssize_t i = 0;
+    //printf("// Retrieving symbol array\n");
+    struct object *symbols   = send(symbol_table, s_get, s_symbols);
+    printf("// flushing caches in symbol array %p\n", symbols);
+    ssize_t l = fx(send(symbols, s_get, s_length));
+
+    for (i = 0; i < l; ++i)
+    {
+        flush_inline_cache(send(symbols, s_get, ref(i)));
+    }
+    */
+
     struct object *s_serialize = send(root_symbol,  s_intern, "__serialize__");
     struct object *s_pop       = send(root_symbol,  s_intern, "__pop__");
     struct object *stack       = send(root_array,   s_new,    ref(10));
@@ -2657,18 +2723,43 @@ void serialize()
 
 void init(ssize_t argc, char *argv[])
 {
-    struct object *arguments   = send(root_array, s_new, ref(argc));
+    struct object *s_eval = send(root_symbol, s_intern, "eval");
+    struct object *script;
 
     ssize_t i;
-    for (i=0; i < argc; ++i)
+    
+    for (i=1; i < argc; ++i)
+    {
+        if (!strcmp(argv[i], "--"))
+        {
+            ++i;
+            break;
+        } 
+    }
+
+    struct object *arguments   = send(root_array, s_new, ref(argc-i));
+
+    for (; i < argc; ++i)
     {
         struct object *arg = send(root_symbol, s_intern, argv[i]);
         send(arguments, s_push, arg);
     }
 
-    struct object *s_init      = send(root_symbol, s_intern, "init");
     struct object *s_arguments = send(root_symbol, s_intern, "arguments");
     send(global_object, s_set, s_arguments, arguments);
+
+    for (i = 1; i < argc; ++i)
+    {
+        if (!strcmp(argv[i], "--"))
+        {
+            break;
+        } 
+
+        script = global_readFile(1, global_object, (struct function *)NIL, (struct object *)argv[i]);
+        send(global_object, s_eval, script);
+    }
+
+    struct object *s_init      = send(root_symbol, s_intern, "init");
     send0(global_object, s_init);
 }
 

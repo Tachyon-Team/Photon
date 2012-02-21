@@ -1288,7 +1288,10 @@ PhotonCompiler.context = {
         var label = _label();
         this.ref_ctxt().push(label);
 
-        assert((typeof m) === "object" && m.__addr__ !== undefined, "Invalid reference");
+        assert(m === null || ((typeof m) === "object" && m.__addr__ !== undefined), "Invalid reference");
+
+        if (m === null)
+            return _$(0, label);
 
         if (typeof m.__addr_bytes__ !== "function")
         {
@@ -1321,9 +1324,11 @@ PhotonCompiler.context = {
             bind_helper = photon.bind;
         }
 
-        var CONT      = _label();
+        var CONT = _label();
         var loc = -(this.stack_location_nb + nb) * this.sizeof_ref + this.bias;
         var that = this;
+
+        var msg_expr = this.gen_symbol(msg);
 
         return [
             _op("sub", _$(nb*this.sizeof_ref), _ESP),
@@ -1338,7 +1343,7 @@ PhotonCompiler.context = {
             _op("mov", _$(args.length), _mem(loc, _EBP), 32),
 
             // Bind
-            msg,
+            msg_expr,
             _op("push", _EAX),
             _op("push", _$(0)), // NULL CLOSURE
             _op("push", _$(0)), // NULL RECEIVER
@@ -1346,7 +1351,6 @@ PhotonCompiler.context = {
             _op("mov", this.gen_mref(bind_helper), _EAX),
             _op("call", _EAX),
             _op("add", _$(16), _ESP),
-
             _op("mov", _EAX, _mem(loc + 2 * this.sizeof_ref, _EBP)), // SET CLOSURE
             _op("call", _EAX),
             _op("add", _$(nb*this.sizeof_ref), _ESP)
