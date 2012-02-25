@@ -101,11 +101,6 @@ Object.create = function (obj)
     return obj.__new__();
 };
 
-Object.prototype.hasOwnProperty = function (p)
-{
-    return this[@-5][@-1].__lookup__(p) !== undefined;
-}
-
 Object.prototype.__itr__ = function ()
 {
     return {

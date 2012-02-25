@@ -21,6 +21,14 @@ function _asm(code)
     return a;
 }
 
+function _assemble(code)
+{
+    var codeBlock = _asm(flatten(code)).codeBlock;
+    codeBlock.assemble();
+    code = clean(codeBlock.code);
+    return code;
+}
+
 function flatten(code)
 {
     function helper(code)

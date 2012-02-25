@@ -12,4 +12,15 @@ parser
 programs
 tests
 utility
-
+source/asm-test*
+source/*.dSYM
+source/log*.txt
+source/main.s
+source/photon
+source/photon-v8
+source/photon*.dSYM
+source/test*
+source/bs-pp.sh
+source/bs.sh
+source/ometa/photon-compiler.js
+source/ometa-js

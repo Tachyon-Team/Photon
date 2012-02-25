@@ -167,8 +167,8 @@ struct header {
 struct property {
     struct object     *name;
     struct object     *location;
-    struct object     *attributes;
-    struct object     *next;
+    struct object     *value_cache;
+    struct object     *location_cache;
 };
 
 //--------------------------------- Object Layouts -----------------------------
@@ -236,13 +236,6 @@ struct object *root_object        = (struct object *)0;
 struct object *root_symbol        = (struct object *)0;
 struct object *symbol_table       = (struct object *)0;
 
-struct object *array_base_map     = (struct object *)0;
-struct object *arguments_base_map = (struct object *)0;
-struct object *cell_base_map      = (struct object *)0;
-struct object *frame_base_map     = (struct object *)0;
-struct object *object_base_map    = (struct object *)0;
-struct object *symbol_base_map    = (struct object *)0;
-
 size_t mem_arguments              = 0;
 size_t mem_array                  = 0;
 size_t mem_cell                   = 0;
@@ -277,6 +270,11 @@ struct object *s_remove      = (struct object *)0;
 struct object *s_set         = (struct object *)0;
 struct object *s_set_cell    = (struct object *)0;
 struct object *s_symbols     = (struct object *)0;
+
+struct object *s_base_map                     = (struct object *)0;
+struct object *s_hasOwnProperty               = (struct object *)0;
+struct object *s_lookup_and_flush_all         = (struct object *)0;
+struct object *s_lookup_and_flush_value_cache = (struct object *)0;
 
 struct object *ARRAY_TYPE    = (struct object *)0;
 struct object *CELL_TYPE     = (struct object *)0;
@@ -499,7 +497,7 @@ struct lookup _bind(struct object *rcv, struct object *msg)
 
     rcv = rcv->_hd[-1].extension;
 
-    if (msg == s_lookup && ((struct map *)rcv == rcv->_hd[-1].map))
+    if (msg == s_lookup && ((struct map *)rcv == rcv->_hd[-1].extension->_hd[-1].map))
     {
         _l.rcv    = root_map->_hd[-1].extension;
         _l.offset = map_lookup(1, (struct map *)root_map, (struct function *)NIL, s_lookup);
@@ -552,37 +550,34 @@ struct object **cache_offset(struct object **ptr, ssize_t offset)
     return (struct object **)((char *)ptr + offset);
 }
 
-void flush_inline_cache(struct object *symbol)
+void iterate_and_flush(struct object **start)
 {
-    if (BOOTSTRAP || ref_is_fixnum(symbol) || ref_is_constant(symbol))
-        return;
-
-    //printf("// flushing inline cache for symbol %p\n", symbol);
-    //printf("// flushing inline cache for symbol %s\n", (char*)symbol);
-
-    // Invalidate caches
-    //
-    // -38: cached map
-    // -33: cached method
-    //   0: next cache
-    struct object **iter = (struct object **)symbol->_hd[-1].extension->_hd[-1].values[-1];
+    struct object **iter = ((struct object **)(*start));
     struct object **next = (struct object **)NIL;
 
     if (iter != (struct object **)NIL)
-        symbol->_hd[-1].extension->_hd[-1].values[-1] = NIL;
+        *start = NIL;
 
     while (iter != (struct object **)NIL)
     {
-        printf("// iter = %p\n", iter);
-
         next  = (struct object **)*iter;    
-        *iter = UNDEFINED;
-        *cache_offset(iter, -33) = UNDEFINED;
-        *cache_offset(iter, -38) = UNDEFINED;
+        *cache_offset(iter, -14) = UNDEFINED;
         iter  = next;
     }
 
-    //printf("// flushed inline cache for symbol %s\n", (char*)symbol);
+}
+
+void flush_inline_cache(struct property* p, struct object *flush_location_cache)
+{
+    if (BOOTSTRAP)
+        return;
+
+    iterate_and_flush(&p->value_cache);
+
+    if (flush_location_cache == TRUE)
+    {
+        iterate_and_flush(&p->location_cache);
+    }
 }
 
 //--------------------------------- Object Primitives --------------------------
@@ -590,6 +585,9 @@ void flush_inline_cache(struct object *symbol)
 struct object *object_get(size_t n, struct object *self, struct function *closure, struct object *name);
 struct object *object_set(size_t n, struct object *self, struct function *closure, struct object *name, struct object *value);
 void object_serialize_ref(struct object *obj, struct object *stack);
+struct map *base_map(struct object *obj, struct object *TYPE);
+struct object *map_property_offset(size_t n, struct map *self, struct function *closure, struct object *name);
+
 struct object *function_new(
     size_t n, 
     struct function *self, 
@@ -639,15 +637,7 @@ struct object *arguments_new(size_t n, struct array *self, struct function *clos
     );
     inc_mem_counter(mem_arguments, 5, fx(size)*sizeof(struct object *) + sizeof(struct array));
 
-    if (arguments_base_map != UNDEFINED)
-    {
-        new_args->_hd[-1].map = (struct map *)arguments_base_map;
-    } else
-    {
-        new_args->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
-        new_args->_hd[-1].map->type = ARRAY_TYPE;
-    }
-
+    new_args->_hd[-1].map       = base_map((struct object *)self, ARRAY_TYPE);
     new_args->_hd[-1].prototype = (struct object *)self;
     
     new_args->count = size;
@@ -778,15 +768,7 @@ struct object *array_new(size_t n, struct array *self, struct function *closure,
     );
     inc_mem_counter(mem_array, 0, fx(size)*sizeof(struct object *) + sizeof(struct array));
 
-    if (array_base_map != UNDEFINED)
-    {
-        new_array->_hd[-1].map = (struct map *)array_base_map;
-    } else
-    {
-        new_array->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
-        new_array->_hd[-1].map->type = ARRAY_TYPE;
-    }
-
+    new_array->_hd[-1].map       = base_map((struct object *)self, ARRAY_TYPE);
     new_array->_hd[-1].prototype = (struct object *)self;
     
     ((struct array *)new_array)->count = ref(0);
@@ -875,22 +857,38 @@ struct object *array_set(
     return value;
 }
 
+struct map *base_map(struct object *self, struct object *TYPE)
+{
+    struct map *new_map;
+    if (!BOOTSTRAP)
+    {
+        if (send(self, s_hasOwnProperty, s_base_map) == TRUE)
+        {
+            new_map       = (struct map *)send(self, s_get, s_base_map);
+        } else
+        {
+            new_map        = (struct map *)send0(self->_hd[-1].map, s_new);
+            new_map->type  = TYPE;
+            send(self, s_set, s_base_map, new_map);
+
+            new_map->cache = send(root_array, s_new, ref(0));
+        }
+    } else 
+    {
+        new_map       = (struct map *)send0(self->_hd[-1].map, s_new);
+        new_map->type  = TYPE;
+    }
+
+    return new_map;
+}
+
 struct object *cell_new(size_t n, struct cell *self, struct function *closure, struct object *val)
 {
     struct cell *new_cell = (struct cell *)send(self, s_init, ref(0), ref(sizeof(struct cell)));
     inc_mem_counter(mem_cell, 0, sizeof(struct cell));
 
     new_cell->value = val;
-
-    if (cell_base_map != UNDEFINED)
-    {
-        new_cell->_hd[-1].map = (struct map *)cell_base_map;
-    } else
-    {
-        new_cell->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
-        new_cell->_hd[-1].map->type = CELL_TYPE;
-    }
-
+    new_cell->_hd[-1].map       = base_map((struct object *)self, CELL_TYPE);
     new_cell->_hd[-1].prototype = (struct object *)self;
 
     return (struct object *)new_cell;
@@ -1002,15 +1000,7 @@ struct object *frame_new(
     );
     inc_mem_counter(mem_frame, 0, f_n*sizeof(struct object *) + sizeof(struct frame));
 
-    if (frame_base_map != UNDEFINED)
-    {
-        f->_hd[-1].map = (struct map *)frame_base_map;
-    } else
-    {
-        f->_hd[-1].map       = (struct map *)send0(self->_hd[-1].map, s_new);
-        f->_hd[-1].map->type = FRAME_TYPE;
-    }
-
+    f->_hd[-1].map = base_map((struct object *)self, FRAME_TYPE);
     f->_hd[-1].prototype = (struct object *)self;
 
     f->n       = f_n;
@@ -1374,8 +1364,10 @@ struct object *map_create(size_t n, struct map *self, struct function *closure, 
         payload_size
     );
 
-    new_map->properties[fx(new_map->count)].name     = name;
-    new_map->properties[fx(new_map->count)].location = new_map->next_offset;
+    new_map->properties[fx(new_map->count)].name           = name;
+    new_map->properties[fx(new_map->count)].location       = new_map->next_offset;
+    new_map->properties[fx(new_map->count)].value_cache    = NIL;
+    new_map->properties[fx(new_map->count)].location_cache = NIL;
 
     new_map->count       = ref(fx(new_map->count) + 1);
     new_map->next_offset = ref(fx(new_map->next_offset) - 1);
@@ -1411,6 +1403,39 @@ struct object *map_lookup(size_t n, struct map *self, struct function *closure, 
     return UNDEFINED;
 }
 
+struct object *map_lookup_and_flush(size_t n, struct map *self, struct function *closure, struct object *name, struct object *flush_location_cache)
+{
+    ssize_t i;
+
+    for (i=0; i < fx(self->count); ++i)
+    {
+        if (name == self->properties[i].name)
+        {
+            flush_inline_cache(&(self->properties[i]), flush_location_cache);
+            return self->properties[i].location;
+        }
+    }
+
+    return UNDEFINED;
+}
+
+struct object *map_lookup_and_flush_all(size_t n, struct map *self, struct function *closure, struct object *name)
+{
+    return map_lookup_and_flush(n+1, self, closure, name, TRUE);
+}
+
+struct object *map_lookup_and_flush_value_cache(size_t n, struct map *self, struct function *closure, struct object *name)
+{
+    return map_lookup_and_flush(n+1, self, closure, name, FALSE);
+}
+
+struct object *map_location_cache_offset(size_t n, struct map *self, struct function *closure, struct object *name)
+{
+    static struct property p;
+    struct object *offset = map_property_offset(n, self, closure, name);
+    return offset == UNDEFINED ? offset : ref(fx(offset) + ((char*)&p.location_cache - (char*)&p));
+}
+
 struct object *map_new(size_t n, struct map *self, struct function *closure)
 {
     struct map* new_map = (struct map *)send(
@@ -1422,7 +1447,7 @@ struct object *map_new(size_t n, struct map *self, struct function *closure)
     inc_mem_counter(mem_map, 4, 4*sizeof(struct property) + sizeof(struct map));
 
     new_map->_hd[-1].map       = self->_hd[-1].map;
-    new_map->_hd[-1].prototype = (struct object *)self;
+    new_map->_hd[-1].prototype = self->_hd[-1].map->_hd[-1].prototype;
     new_map->count             = ref(0);
     new_map->next_offset       = ref(-1);
     new_map->type              = MAP_TYPE;
@@ -1434,6 +1459,21 @@ struct object *map_new(size_t n, struct map *self, struct function *closure)
 struct object *map_property_size(size_t n, struct object* self, struct function *closure)
 {
     return ref(sizeof(struct property));
+}
+
+struct object *map_property_offset(size_t n, struct map *self, struct function *closure, struct object *name)
+{
+    ssize_t i;
+
+    for (i=0; i < fx(self->count); ++i)
+    {
+        if (name == self->properties[i].name)
+        {
+            return ref(sizeof(struct map) + sizeof(struct property)*i); 
+        }
+    }
+
+    return UNDEFINED;
 }
 
 struct object *map_print(size_t n, struct map *self, struct function *closure)
@@ -1466,8 +1506,10 @@ struct object *map_remove(size_t n, struct map *self, struct function *closure, 
             // The deleted property is not the last one,
             // move the last property in the deleted property
             // slot.
-            new_map->properties[i]          = self->properties[fx(new_map->count)];
-            new_map->properties[i].location = self->properties[i].location;
+            new_map->properties[i]                = self->properties[fx(new_map->count)];
+            new_map->properties[i].location       = self->properties[i].location;
+            new_map->properties[i].value_cache    = self->properties[i].value_cache;
+            new_map->properties[i].location_cache = self->properties[i].location_cache;
         }
     }
 
@@ -1494,8 +1536,10 @@ struct object *map_set(size_t n, struct map *self, struct function *closure, str
             assert(map_properties_count(self) < map_properties_size(self));
                 
             // Add property on self's map
-            self->properties[fx(self->count)].name     = name;
-            self->properties[fx(self->count)].location = self->next_offset;
+            self->properties[fx(self->count)].name           = name;
+            self->properties[fx(self->count)].location       = self->next_offset;
+            self->properties[fx(self->count)].value_cache    = NIL;
+            self->properties[fx(self->count)].location_cache = NIL;
             self->count = ref(fx(self->count) + 1);
 
             // Add value on self
@@ -1513,6 +1557,13 @@ struct object *map_set(size_t n, struct map *self, struct function *closure, str
     {
         return self->_hd[-1].values[fx(offset)] = value;
     } 
+}
+
+struct object *map_value_cache_offset(size_t n, struct map *self, struct function *closure, struct object *name)
+{
+    static struct property p;
+    struct object *offset = map_property_offset(n, self, closure, name);
+    return offset == UNDEFINED ? offset : ref(fx(offset) + (ssize_t)((char*)&p.value_cache - (char*)&p));
 }
 
 struct object *object_addr_bytes(size_t n, struct object *self, struct function *closure)
@@ -1592,7 +1643,7 @@ struct object *object_delete(size_t n, struct object *self, struct function *clo
     self = self->_hd[-1].extension;
 
     struct map *new_map;
-    struct object *offset = send(self->_hd[-1].map, s_lookup, name);
+    struct object *offset = send(self->_hd[-1].map, BOOTSTRAP ? s_lookup : s_lookup_and_flush_all, name);
     
     if (offset == UNDEFINED)
     {
@@ -1631,6 +1682,16 @@ struct object *object_get(size_t n, struct object *self, struct function *closur
 struct object *object_header_size(size_t n, struct object* self, struct function *closure)
 {
     return ref(sizeof(struct header));
+}
+
+struct object *object_hasOwnProperty(
+    size_t n,
+    struct object *self, 
+    struct function *closure,
+    struct object *name
+)
+{
+    return send(self->_hd[-1].extension->_hd[-1].map, s_lookup, name) != UNDEFINED ? TRUE : FALSE;
 }
 
 struct object *object_init(
@@ -1686,20 +1747,9 @@ struct object *object_init_static(
 
 struct object *object_new(size_t n, struct object *self, struct function *closure)
 {
-    struct map *new_map;
-
-    if (object_base_map != UNDEFINED)
-    {
-        new_map = (struct map *)object_base_map;
-    } else
-    {
-        new_map       = (struct map *)send0(self->_hd[-1].map, s_new);
-        new_map->type = OBJECT_TYPE;
-    }
-
     struct object *child     = send(self, s_init, ref(4), ref(0));
     inc_mem_counter(mem_object, 4, 0);
-    child->_hd[-1].map       = new_map;
+    child->_hd[-1].map       = base_map(self, OBJECT_TYPE);
     child->_hd[-1].prototype = self;
     return child;
 }
@@ -1720,13 +1770,26 @@ struct object *object_set(size_t n, struct object *self, struct function *closur
     ssize_t i;
     struct object *orig = self;
     struct object *copy;
+    struct object *offset;
     self = self->_hd[-1].extension;
 
     struct map *new_map;
-    struct object *offset = send(self->_hd[-1].map, s_lookup, name);
+
+    offset =  send(self->_hd[-1].map, BOOTSTRAP ? s_lookup : s_lookup_and_flush_value_cache, name);
 
     if (offset == UNDEFINED)
     {
+        // Flush ancestor caches
+        if (!BOOTSTRAP)
+        {
+            struct object *iter = self->_hd[-1].prototype;
+            while (iter != NIL && offset == UNDEFINED)
+            {
+                offset = send(iter->_hd[-1].extension->_hd[-1].map, s_lookup_and_flush_all, name);
+                iter = iter->_hd[-1].prototype;
+            }
+        }
+
         if (object_values_count(self) >= object_values_size(self))
         {
             ssize_t size = object_values_size(self) == 0 ? 2 : 2*object_values_size(self);
@@ -1756,6 +1819,7 @@ struct object *object_set(size_t n, struct object *self, struct function *closur
         return self->_hd[-1].values[i] = value;
     } else
     {
+        // Value cache has been flushed during lookup
         return self->_hd[-1].values[fx(offset)] = value;
     } 
 }
@@ -1821,16 +1885,8 @@ struct object *symbol_new(size_t n, struct object *self, struct function *closur
         ref(fx(size) + 1)
     );
     inc_mem_counter(mem_symbol, 0, fx(size) + 1);
-
-    if (symbol_base_map != UNDEFINED)
-    {
-        new_symbol->_hd[-1].map = (struct map *)symbol_base_map;
-    } else
-    {
-        new_symbol->_hd[-1].map = (struct map *)send0(self->_hd[-1].map, s_new);
-        new_symbol->_hd[-1].map->type = SYMBOL_TYPE;
-    }
-
+    
+    new_symbol->_hd[-1].map       = base_map(self, SYMBOL_TYPE);
     new_symbol->_hd[-1].prototype = self;
     new_symbol->string[0]        = '\0';
     new_symbol->string[fx(size)] = '\0';
@@ -2181,8 +2237,10 @@ struct object *bt_map_set(size_t n, struct map *self, struct function *closure, 
         assert(map_properties_count(self) < map_properties_size(self));
             
         // Add property on self's map
-        self->properties[fx(self->count)].name     = name;
-        self->properties[fx(self->count)].location = self->next_offset;
+        self->properties[fx(self->count)].name           = name;
+        self->properties[fx(self->count)].location       = self->next_offset;
+        self->properties[fx(self->count)].value_cache    = NIL;
+        self->properties[fx(self->count)].location_cache = NIL;
         self->count = ref(fx(self->count) + 1);
 
         // Add value on self
@@ -2300,17 +2358,25 @@ void bootstrap()
     root_object->_hd[-1].map->_hd[-1].prototype = root_map;
 
     // For bootstrapping purposes, create properties on the map first
-    root_object->_hd[-1].map->properties[0].name     = s_allocate;
-    root_object->_hd[-1].map->properties[0].location = ref(-1);
+    root_object->_hd[-1].map->properties[0].name           = s_allocate;
+    root_object->_hd[-1].map->properties[0].location       = ref(-1);
+    root_object->_hd[-1].map->properties[0].value_cache    = NIL;
+    root_object->_hd[-1].map->properties[0].location_cache = NIL;
 
-    root_object->_hd[-1].map->properties[1].name     = s_clone;
-    root_object->_hd[-1].map->properties[1].location = ref(-2);
+    root_object->_hd[-1].map->properties[1].name           = s_clone;
+    root_object->_hd[-1].map->properties[1].location       = ref(-2);
+    root_object->_hd[-1].map->properties[1].value_cache    = NIL;
+    root_object->_hd[-1].map->properties[1].location_cache = NIL;
 
-    root_object->_hd[-1].map->properties[2].name     = s_init;
-    root_object->_hd[-1].map->properties[2].location = ref(-3);
+    root_object->_hd[-1].map->properties[2].name           = s_init;
+    root_object->_hd[-1].map->properties[2].location       = ref(-3);
+    root_object->_hd[-1].map->properties[2].value_cache    = NIL;
+    root_object->_hd[-1].map->properties[2].location_cache = NIL;
     
-    root_object->_hd[-1].map->properties[3].name     = s_set;
-    root_object->_hd[-1].map->properties[3].location = ref(-4);
+    root_object->_hd[-1].map->properties[3].name           = s_set;
+    root_object->_hd[-1].map->properties[3].location       = ref(-4);
+    root_object->_hd[-1].map->properties[3].value_cache    = NIL;
+    root_object->_hd[-1].map->properties[3].location_cache = NIL;
 
     root_object->_hd[-1].map->count       = ref(4);
     root_object->_hd[-1].map->next_offset = ref(-5);
@@ -2327,7 +2393,7 @@ void bootstrap()
         ref(0), 
         ref(sizeof(struct map))
     );
-    root_object_map_map->_hd[-1].prototype = (struct object *)root_object;
+    root_object_map_map->_hd[-1].prototype = (struct object *)root_map;
     root_object_map_map->_hd[-1].map = root_object_map_map;
     root_object_map_map->count       = ref(0);
     root_object_map_map->next_offset = ref(-1);
@@ -2471,7 +2537,7 @@ void bootstrap()
     root_constant = send0(root_object, s_new);
 
     _log("Create Root Cell object\n");
-    root_cell = send0(root_object, s_new);
+    root_cell = send0(root_object, s_new); // TODO: root_cell should have the same layout as a regular cell
 
     _log("Add primitive methods on Root Cell object\n");
     send(root_cell, s_set, s_new, wrap((method_t)cell_new, "cell_new"));
@@ -2578,27 +2644,23 @@ void bootstrap()
     send(root_map, s_set, name, wrap((method_t)map_base_size, "map_base_size"));
     name = send(root_symbol, s_intern, "__property_size__");
     send(root_map, s_set, name, wrap((method_t)map_property_size, "map_property_size"));
+    name = send(root_symbol, s_intern, "__location_cache_offset__");
+    send(root_map, s_set, name, wrap((method_t)map_location_cache_offset, "map_location_cache_offset"));
+    name = send(root_symbol, s_intern, "__value_cache_offset__");
+    send(root_map, s_set, name, wrap((method_t)map_value_cache_offset, "map_value_cache_offset"));
 
-    _log("Optimizing map creation\n");
-    object_base_map                          = send0(root_object->_hd[-1].map, s_new);
-    ((struct map *)object_base_map)->type    = OBJECT_TYPE;
-    struct object *a = send(root_array, s_new, ref(4));
-    ((struct map *)object_base_map)->cache   = a;
+    _log("Initializing global symbols not used for bootstrap\n");
+    s_base_map                     = send(root_symbol, s_intern, "__base_map__");
+    s_hasOwnProperty               = send(root_symbol, s_intern, "hasOwnProperty");
+    s_lookup_and_flush_value_cache = send(root_symbol, s_intern, "__lookup_and_flush_value_cache__");
+    s_lookup_and_flush_all         = send(root_symbol, s_intern, "__lookup_and_flush_all__");
 
-    array_base_map                           = send0(root_array->_hd[-1].map, s_new);
-    ((struct map *)array_base_map)->type     = ARRAY_TYPE;
+    _log("Adding standard library methods");
+    send(root_object, s_set, s_hasOwnProperty, wrap((method_t)object_hasOwnProperty, "object_hasOwnProperty"));
 
-    arguments_base_map                       = send0(root_arguments->_hd[-1].map, s_new);
-    ((struct map *)arguments_base_map)->type = ARRAY_TYPE; 
-
-    cell_base_map                            = send0(root_cell->_hd[-1].map, s_new);
-    ((struct map *)cell_base_map)->type      = CELL_TYPE;
-
-    frame_base_map                           = send0(root_frame->_hd[-1].map, s_new);
-    ((struct map *)frame_base_map)->type     = FRAME_TYPE;
-
-    symbol_base_map                          = send0(root_symbol->_hd[-1].map, s_new);
-    ((struct map *)symbol_base_map)->type    = SYMBOL_TYPE;
+    _log("Adding cache invalidation methods");
+    send(root_map, s_set, s_lookup_and_flush_all,         wrap((method_t)map_lookup_and_flush_all, "map_lookup_and_flush_all"));
+    send(root_map, s_set, s_lookup_and_flush_value_cache, wrap((method_t)map_lookup_and_flush_value_cache, "map_lookup_and_flush_value_cache"));
 
     _log("Serialization methods\n");
     struct object *s_serialize = send(root_symbol, s_intern, "__serialize__");
@@ -2635,12 +2697,6 @@ void serialize()
     struct object *stack       = send(root_array,   s_new,    ref(10));
 
     send(stack, s_push, roots);
-    send(stack, s_push, object_base_map);
-    send(stack, s_push, array_base_map);
-    send(stack, s_push, arguments_base_map);
-    send(stack, s_push, cell_base_map);
-    send(stack, s_push, frame_base_map);
-    send(stack, s_push, symbol_base_map);
 
     while (fx(send(stack, s_get, s_length)) > 0)
     {
@@ -2673,13 +2729,6 @@ void serialize()
     SELF_ASSIGN(root_symbol);
     SELF_ASSIGN(symbol_table);
 
-    SELF_ASSIGN(array_base_map);
-    SELF_ASSIGN(arguments_base_map);
-    SELF_ASSIGN(cell_base_map);
-    SELF_ASSIGN(frame_base_map);
-    SELF_ASSIGN(object_base_map);
-    SELF_ASSIGN(symbol_base_map);
-
     SELF_ASSIGN(s_add);
     SELF_ASSIGN(s_allocate);
     SELF_ASSIGN(s_clone);
@@ -2698,6 +2747,11 @@ void serialize()
     SELF_ASSIGN(s_set);
     SELF_ASSIGN(s_set_cell);
     SELF_ASSIGN(s_symbols);
+
+    SELF_ASSIGN(s_base_map);
+    SELF_ASSIGN(s_hasOwnProperty);
+    SELF_ASSIGN(s_lookup_and_flush_all);
+    SELF_ASSIGN(s_lookup_and_flush_value_cache);
     printf("    ret\n");
 
     // Generate main
