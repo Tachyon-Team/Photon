@@ -132,8 +132,9 @@ function init_client(s)
     }
 }
 
+eval(readFile("inline.js"));
+
 [
- /*
  "stdlib/array.js", 
  "stdlib/string.js", 
  "stdlib/math.js",
@@ -148,10 +149,8 @@ function init_client(s)
  "deps/ometa-js/ometa-base.js",
  "deps/ometa-js/parser.js",
  "ometa/photon-compiler.js",
- "photon-lib.js"
-  */
+ "photon-lib.js",
+ "inline.js"
 ].forEach(init_client);
-
-eval(readFile("inline.js"));
 
 Array.prototype.slice.call(arguments, 0).forEach(init_client);

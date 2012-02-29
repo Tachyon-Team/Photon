@@ -101,6 +101,11 @@ Object.create = function (obj)
     return obj.__new__();
 };
 
+Object.prototype.__new_default__ = function ()
+{
+    return this.__new__();   
+};
+
 Object.prototype.__itr__ = function ()
 {
     return {
@@ -217,6 +222,11 @@ Array.prototype   = @{["ref", photon.array]}@;
 Array.prototype.constructor = Array;
 Array.constructor = Function;
 
+Array.prototype.__new_default__ = function ()
+{
+    return this.__new__(0);
+};
+
 function Function()
 {
     return this;
@@ -224,6 +234,11 @@ function Function()
 Function.prototype = @{["ref", photon.function]}@;
 Function.prototype.constructor = Function;
 Function.constructor = Empty;
+
+Function.prototype.__new_default__ = function ()
+{
+    return this.__new__(0,0);
+};
 
 Function.prototype.__typeof__ = function ()
 {
@@ -342,6 +357,11 @@ function String(value)
 String.prototype = @{["ref", photon.symbol]}@;
 String.prototype.constructor = String;
 String.constructor = Function;
+
+String.prototype.__new_default__ = function ()
+{
+    return this.__new__(0);
+};
 
 String.prototype.__typeof__ = function ()
 {
@@ -567,6 +587,7 @@ photon.fixnum      = mirror(@{["ref", photon.fixnum]}@);
 
 photon.bind       = mirror(@{["ref", photon.bind]}@);
 photon.super_bind = mirror(@{["ref", photon.super_bind]}@);
+photon.inline_bind = mirror(@{["ref", photon.inline_bind]}@);
 
 photon.variadic_enter = mirror(@{["ref", photon.variadic_enter]}@);
 photon.variadic_exit  = mirror(@{["ref", photon.variadic_exit]}@);
