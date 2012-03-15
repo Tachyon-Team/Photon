@@ -167,15 +167,13 @@ function inline_bind(msg, n, rcv, closure)
 
             if (l_rcv === rcv_ext)
             {
-                //print("patching location for msg:");
-                //print(msg);
+                //print("// patching location for msg:");
                 var head_offset = map.__location_cache_offset__(msg);
                 patch_inline_cache(map, map, offset, head_offset, patch_method_location());
                 return l_rcv[@offset];
             } else
             {
-                //print("patching value for msg:");
-                //print(msg);
+                //print("// patching value for msg:");
                 var head_offset = map.__value_cache_offset__(msg);
                 patch_inline_cache(map, rcv_ext[@-1], l_rcv[@offset], head_offset, patch_method_value());
                 return l_rcv[@offset];

@@ -927,8 +927,8 @@ PhotonCompiler.context = {
         //print("assemble");
         codeBlock.assemble();
         //print(codeBlock.code);
-        //print("listing");
-        //print(codeBlock.listingString());
+        print("listing");
+        print(codeBlock.listingString());
 
         ref_labels.sort(function (a, b)
         {
@@ -938,7 +938,7 @@ PhotonCompiler.context = {
         // Add positions of refs as tagged integers
         ref_labels.forEach(function (l)
         {
-            codeBlock.gen32(_ref(l.getPos()));
+            codeBlock.gen32(_ref(l.offset_type !== "negated" ? l.getPos() : -l.getPos()));
         });
 
         // Add the number of refs as a tagged integer

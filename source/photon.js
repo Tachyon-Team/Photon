@@ -23,44 +23,68 @@ create_handlers();
 
 function _compile(s, print)
 {
-    if (print === undefined)
+    return measurePerformance("Compilation", function () 
     {
-        print = function () {};
-    }
+        if (print === undefined)
+        {
+            print = function () {};
+        }
 
-    function failer (m, idx, f) 
-    { 
-        print("Matched failed at index " + idx + " on input " + m.input.hd); 
-        error(f);
-    };
+        function failer (m, idx, f) 
+        { 
+            print("Matched failed at index " + idx + " on input " + m.input.hd); 
+            error(f);
+        };
 
-    print("Parsing");
-    var ast = PhotonParser.matchAll(s, "topLevel", undefined, failer);
-    //print(ast);
-    print("Macro Expansion");
-    ast = PhotonMacroExp.match(ast, "trans", undefined, failer);
-    print("Desugaring");
-    ast = PhotonDesugar.match(ast, "trans", undefined, failer);
+        var ast;
 
-    //print(PhotonPrettyPrinter.match(ast, "trans"));
-    //print(ast);
+        measurePerformance("Parsing", function ()
+        {
+            print("Parsing");
+            ast = PhotonParser.matchAll(s, "topLevel", undefined, failer);
+        });
+        //print(ast);
+        measurePerformance("Macro Expansion", function ()
+        {
+            print("Macro Expansion");
+            ast = PhotonMacroExp.match(ast, "trans", undefined, failer);
+        });
+        measurePerformance("Desugaring", function ()
+        {
+            print("Desugaring");
+            ast = PhotonDesugar.match(ast, "trans", undefined, failer);
+        });
 
-    print("Variable Analysis");
-    PhotonVarAnalysis.match(ast, "trans", undefined, failer);
-    print("Variable Scope Binding");
-    ast = PhotonVarScopeBinding.match(ast, "trans", undefined, failer);
-    //print("Pretty Printing");
-    //print(ast);
-    //print(PhotonPrettyPrinter.match(ast, "trans"));
+        //print(PhotonPrettyPrinter.match(ast, "trans"));
+        //print(ast);
 
-    print("Code Generation");
-    var comp = PhotonCompiler.createInstance();
-    code = comp.match(ast, "trans", undefined, failer);
-    //print("Code: '" + code.length + "'");
-    var f = comp.context.new_function_object(code, comp.context.refs, 0, print);
-    f.functions = comp.context.functions;
+        measurePerformance("Variable Analysis", function ()
+        {
+            print("Variable Analysis");
+            PhotonVarAnalysis.match(ast, "trans", undefined, failer);
+        });
+        measurePerformance("Variable Scope Binding", function ()
+        {
+            print("Variable Scope Binding");
+            ast = PhotonVarScopeBinding.match(ast, "trans", undefined, failer);
+        });
+        //print("Pretty Printing");
+        //print(ast);
+        //print(PhotonPrettyPrinter.match(ast, "trans"));
 
-    return f; 
+        var comp, code, f;
+        measurePerformance("Code Generation", function ()
+        {
+            print("Code Generation");
+            comp = PhotonCompiler.createInstance();
+            code = comp.match(ast, "trans", undefined, failer);
+            //print("Code: '" + code.length + "'");
+            f = comp.context.new_function_object(code, comp.context.refs, 0, print);
+            f.functions = comp.context.functions;
+        });
+
+        return f; 
+    });
 }
 
 
@@ -99,6 +123,9 @@ photon.handlers = _compile(readFile("handlers.js")).functions;
 log("Creating super_bind function");
 photon.super_bind = _compile(readFile("super_bind.js")).functions["super_bind"];
 
+log("Creating inline cache bind function");
+photon.inline_bind = _compile(readFile("inline_bind.js")).functions["inline_bind"];
+
 } catch (e)
 {
     print(e.stack);
@@ -129,6 +156,9 @@ function init_client(s)
     }
 }
 
+
+eval(readFile("inline.js"));
+
 [
  "stdlib/array.js", 
  "stdlib/string.js", 
@@ -144,8 +174,10 @@ function init_client(s)
  "deps/ometa-js/ometa-base.js",
  "deps/ometa-js/parser.js",
  "ometa/photon-compiler.js",
- "photon-lib.js"
+ "photon-lib.js",
+ "inline.js"
 ].forEach(init_client);
 
-//eval(readFile("inline.js"));
 Array.prototype.slice.call(arguments, 0).forEach(init_client);
+
+reportPerformance();

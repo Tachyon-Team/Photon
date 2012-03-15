@@ -36,22 +36,27 @@ function _compile(s, print)
 
     print("Parsing");
     var ast = PhotonParser.matchAll(s, "topLevel", undefined, failer);
-    //print(ast);
+    print(ast);
+
     print("Macro Expansion");
     ast = PhotonMacroExp.match(ast, "trans", undefined, failer);
+
+    print(PhotonPrettyPrinter.match(ast, "trans"));
+    print(ast);
+
     print("Desugaring");
     ast = PhotonDesugar.match(ast, "trans", undefined, failer);
 
-    //print(PhotonPrettyPrinter.match(ast, "trans"));
-    //print(ast);
+    print(PhotonPrettyPrinter.match(ast, "trans"));
+    print(ast);
 
     print("Variable Analysis");
     PhotonVarAnalysis.match(ast, "trans", undefined, failer);
     print("Variable Scope Binding");
     ast = PhotonVarScopeBinding.match(ast, "trans", undefined, failer);
     //print("Pretty Printing");
-    //print(ast);
-    //print(PhotonPrettyPrinter.match(ast, "trans"));
+    print(ast);
+    print(PhotonPrettyPrinter.match(ast, "trans"));
 
     print("Code Generation");
     var comp = PhotonCompiler.createInstance();
@@ -135,6 +140,7 @@ function init_client(s)
 eval(readFile("inline.js"));
 
 [
+/*
  "stdlib/array.js", 
  "stdlib/string.js", 
  "stdlib/math.js",
@@ -151,6 +157,13 @@ eval(readFile("inline.js"));
  "ometa/photon-compiler.js",
  "photon-lib.js",
  "inline.js"
+ */
 ].forEach(init_client);
 
 Array.prototype.slice.call(arguments, 0).forEach(init_client);
+
+var code = ['send', '__set__', ['ref', photon.global], ['string', 'a'], ['binop', '+', ['number', 1], ['binop', '+', ['number', 1], ['number', 1]]]]; 
+print("Code Generation");
+var comp = PhotonCompiler.createInstance();
+code = comp.match(['global', _new_context(), ['begin', code]], "trans");
+var f = comp.context.new_function_object(code, {}, 0, print);

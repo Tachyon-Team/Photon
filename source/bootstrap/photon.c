@@ -1153,6 +1153,14 @@ struct object *function_print(size_t n, struct function *self)
     return UNDEFINED;
 }
 
+ssize_t flush_memoized_map(struct object *f, ssize_t offset)
+{
+    if (offset >= 0) return offset;
+
+    *((struct object **)((ssize_t)f - offset)) = UNDEFINED;
+    return -offset;
+}
+
 struct object *function_serialize(size_t n, struct object *self, struct function *closure, struct object *stack)
 {
     struct object *orig = self;
@@ -1174,7 +1182,13 @@ struct object *function_serialize(size_t n, struct object *self, struct function
 
     // Number of references in function code
     ssize_t k    = fx(*s);
-    ssize_t next = fx(*(--s));
+    ssize_t next = j;
+
+    if (k > 0)
+    {
+        k--;
+        next = flush_memoized_map(self, fx(*(--s)));
+    }
 
     for (i=0; i < j; ++i)
     {
@@ -1185,7 +1199,7 @@ struct object *function_serialize(size_t n, struct object *self, struct function
             if (k > 0)
             {
                 k--;
-                next = fx(*(--s));
+                next = flush_memoized_map(self, fx(*(--s)));
             }
             i = i + 3;
         } else
@@ -1514,6 +1528,43 @@ struct object *map_remove(size_t n, struct map *self, struct function *closure, 
     }
 
     return (struct object *)new_map;
+}
+
+struct object *map_serialize(size_t n, struct object *self, struct function *closure, struct object *stack)
+{
+    struct object *orig = self;
+    self = self->_hd[-1].extension;
+    struct map * self_map = (struct map *)self;
+
+    // Invalidate caches
+    ssize_t i;
+    for (i=0; i < fx(self_map->count); ++i)
+    {
+        self_map->properties[i].value_cache    = NIL;
+        self_map->properties[i].location_cache = NIL;    
+    }
+
+    i = -(object_values_size(self) + sizeof(struct header) / sizeof(struct object *));
+    ssize_t j = fx(self->_hd[-1].payload_size) / sizeof(struct object *);
+    struct object **s = (struct object **)self;
+
+    printf(".align 4\n");
+    printf(".globl _L%zd\n", (size_t)self);
+    for (; i < 0; ++i)
+    {
+        object_serialize_ref(s[i], stack);
+    }
+
+    printf("_L%zd:\n", (size_t)self);
+
+    for (; i < j; ++i)
+    {
+        object_serialize_ref(s[i], stack);
+    }
+
+    object_tag(orig);
+    object_tag(self);
+    return self;
 }
 
 struct object *map_set(size_t n, struct map *self, struct function *closure, struct object *name, struct object* value)
@@ -2668,6 +2719,7 @@ void bootstrap()
     send(root_cwrapper, s_set, s_serialize, wrap((method_t)cwrapper_serialize,     "cwrapper_serialize"));
     send(root_symbol,   s_set, s_serialize, wrap((method_t)binary_serialize,       "binary_serialize"));
     send(root_function, s_set, s_serialize, wrap((method_t)function_serialize,     "function_serialize"));
+    send(root_map,      s_set, s_serialize, wrap((method_t)map_serialize,          "map_serialize"));
 
     struct object *s_pop       = send(root_symbol,  s_intern, "__pop__");
     send(root_array, s_set, s_pop, wrap((method_t)array_pop, "array_pop"));
@@ -2802,6 +2854,9 @@ void init(ssize_t argc, char *argv[])
     struct object *s_arguments = send(root_symbol, s_intern, "arguments");
     send(global_object, s_set, s_arguments, arguments);
 
+    struct object *s_init      = send(root_symbol, s_intern, "init");
+    method_t init = (method_t)send(global_object, s_get, s_init);
+
     for (i = 1; i < argc; ++i)
     {
         if (!strcmp(argv[i], "--"))
@@ -2813,8 +2868,7 @@ void init(ssize_t argc, char *argv[])
         send(global_object, s_eval, script);
     }
 
-    struct object *s_init      = send(root_symbol, s_intern, "init");
-    send0(global_object, s_init);
+    init(0, global_object, (struct object *)init);
 }
 
 #endif // #ifndef _PHOTON_H

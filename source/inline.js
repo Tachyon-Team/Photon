@@ -11,8 +11,9 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
     var loc = -(this.stack_location_nb + nb) * this.sizeof_ref + this.bias;
     var that = this;
 
-    //var MAP    = _label();
-    //this.ref_ctxt().push(MAP);
+    var MAP    = _label();
+    MAP.offset_type = "negated";
+    this.ref_ctxt().push(MAP);
 
     var msg_expr = this.gen_symbol(msg);
 
@@ -41,7 +42,7 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
         // Object case
         _op("mov", _mem(-5*this.sizeof_ref, _ECX), _ECX), // Retrieve rcv's extension
         _op("mov", _mem(-this.sizeof_ref, _ECX), _EDX),   // Retrieve rcv's map
-        0x81, 0xfa, 0x00, 0x00, 0x00, 0x00,                      // Check against last map (cmp $(MAP), edx)
+        0x81, 0xfa, MAP, 0x00, 0x00, 0x00, 0x00,          // Check against last map (cmp $(MAP), edx)
         _op("jne", BIND),                                 // Perform method binding in case of cache miss
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00,               // Retrieve cached method 
                                                           //    (or method from cached location) 
