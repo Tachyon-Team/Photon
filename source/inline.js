@@ -19,7 +19,6 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
 
     return [
         _op("sub", _$(nb*this.sizeof_ref), _ESP),
-
         rcv,
         _op("mov", _EAX, _mem(loc + this.sizeof_ref, _EBP), 32),
         args.map(function (a, i) 
@@ -63,7 +62,8 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
         _op("add", _$(16), _ESP),
 
         CONT,
-        _op("mov", _EAX, _mem(loc + 2 * this.sizeof_ref, _EBP)), // SET CLOSURE
+        //_op("mov", _EAX, _mem(loc + 2 * this.sizeof_ref, _EBP)) 
+        0x89, 0x85, _op("gen32", loc + 2 * this.sizeof_ref), // SET CLOSURE (Fixed encoding)
         _op("call", _EAX),
         _op("add", _$(nb*this.sizeof_ref), _ESP)
     ];

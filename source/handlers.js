@@ -3,6 +3,11 @@ function add(b,a)
     return String.prototype.__add__.call(a,b);
 }
 
+function sub(b,a)
+{
+    throw "Unimplemented sub handler";
+}
+
 function lt(b,a)
 {
     a = a.valueOf();

@@ -423,6 +423,7 @@ x86.Assembler.prototype.memory.prototype.toString = function (verbose)
     }
 };
 
+/*
 x86.Assembler.prototype.linked = function (name, linkValue, width)
 {
     var that = Object.create(x86.Assembler.prototype.linked.prototype);
@@ -460,6 +461,7 @@ x86.Assembler.prototype.linked.prototype.toString = function (verbose)
         return "<" + this.name + ">";
     }
 };
+*/
 
 /**
     Returns a new memory object. Note: the lower case constructor
@@ -619,306 +621,210 @@ x86.Assembler.prototype.register.prototype.subReg = function (width)
     }
 };
 
-/** Predefined register object */
 x86.Assembler.prototype.register.al =
     x86.Assembler.prototype.register("al",    80);
-/** Predefined register object */
 x86.Assembler.prototype.register.cl =
     x86.Assembler.prototype.register("cl",    81);
-/** Predefined register object */
 x86.Assembler.prototype.register.dl =
     x86.Assembler.prototype.register("dl",    82);
-/** Predefined register object */
 x86.Assembler.prototype.register.bl =
     x86.Assembler.prototype.register("bl",    83);
-/** Predefined register object */
+/*
 x86.Assembler.prototype.register.ah =
     x86.Assembler.prototype.register("ah",   100);
-/** Predefined register object */
 x86.Assembler.prototype.register.ch =
     x86.Assembler.prototype.register("ch",   101);
-/** Predefined register object */
 x86.Assembler.prototype.register.dh =
     x86.Assembler.prototype.register("dh",   102);
-/** Predefined register object */
 x86.Assembler.prototype.register.bh =
     x86.Assembler.prototype.register("bh",   103);
-/** Predefined register object */
 x86.Assembler.prototype.register.spl =
     x86.Assembler.prototype.register("spl",   84);
-/** Predefined register object */
 x86.Assembler.prototype.register.bpl =
     x86.Assembler.prototype.register("bpl",   85);
-/** Predefined register object */
 x86.Assembler.prototype.register.sil =
     x86.Assembler.prototype.register("sil",   86);
-/** Predefined register object */
 x86.Assembler.prototype.register.dil =
     x86.Assembler.prototype.register("dil",   87);
-/** Predefined register object */
 x86.Assembler.prototype.register.r8b =
     x86.Assembler.prototype.register("r8b",   88);
-/** Predefined register object */
 x86.Assembler.prototype.register.r9b =
     x86.Assembler.prototype.register("r9b",   89);
-/** Predefined register object */
 x86.Assembler.prototype.register.r10b =
     x86.Assembler.prototype.register("r10b",  90);
-/** Predefined register object */
 x86.Assembler.prototype.register.r11b =
     x86.Assembler.prototype.register("r11b",  91);
-/** Predefined register object */
 x86.Assembler.prototype.register.r12b =
     x86.Assembler.prototype.register("r12b",  92);
-/** Predefined register object */
 x86.Assembler.prototype.register.r13b =
     x86.Assembler.prototype.register("r13b",  93);
-/** Predefined register object */
 x86.Assembler.prototype.register.r14b =
     x86.Assembler.prototype.register("r14b",  94);
-/** Predefined register object */
 x86.Assembler.prototype.register.r15b =
     x86.Assembler.prototype.register("r15b",  95);
-/** Predefined register object */
 x86.Assembler.prototype.register.ax =
     x86.Assembler.prototype.register("ax",    32);
-/** Predefined register object */
 x86.Assembler.prototype.register.cx =
     x86.Assembler.prototype.register("cx",    33);
-/** Predefined register object */
 x86.Assembler.prototype.register.dx =
     x86.Assembler.prototype.register("dx",    34);
-/** Predefined register object */
 x86.Assembler.prototype.register.bx =
     x86.Assembler.prototype.register("bx",    35);
-/** Predefined register object */
 x86.Assembler.prototype.register.sp =
     x86.Assembler.prototype.register("sp",    36);
-/** Predefined register object */
 x86.Assembler.prototype.register.bp =
     x86.Assembler.prototype.register("bp",    37);
-/** Predefined register object */
 x86.Assembler.prototype.register.si =
     x86.Assembler.prototype.register("si",    38);
-/** Predefined register object */
 x86.Assembler.prototype.register.di =
     x86.Assembler.prototype.register("di",    39);
-/** Predefined register object */
 x86.Assembler.prototype.register.r8w =
     x86.Assembler.prototype.register("r8w",   40);
-/** Predefined register object */
 x86.Assembler.prototype.register.r9w =
     x86.Assembler.prototype.register("r9w",   41);
-/** Predefined register object */
 x86.Assembler.prototype.register.r10w =
     x86.Assembler.prototype.register("r10w",  42);
-/** Predefined register object */
 x86.Assembler.prototype.register.r11w =
     x86.Assembler.prototype.register("r11w",  43);
-/** Predefined register object */
 x86.Assembler.prototype.register.r12w =
     x86.Assembler.prototype.register("r12w",  44);
-/** Predefined register object */
 x86.Assembler.prototype.register.r13w =
     x86.Assembler.prototype.register("r13w",  45);
-/** Predefined register object */
 x86.Assembler.prototype.register.r14w =
     x86.Assembler.prototype.register("r14w",  46);
-/** Predefined register object */
 x86.Assembler.prototype.register.r15w =
     x86.Assembler.prototype.register("r15w",  47);
-/** Predefined register object */
+*/
 x86.Assembler.prototype.register.eax =
     x86.Assembler.prototype.register("eax",   16);
-/** Predefined register object */
 x86.Assembler.prototype.register.ecx =
     x86.Assembler.prototype.register("ecx",   17);
-/** Predefined register object */
 x86.Assembler.prototype.register.edx =
     x86.Assembler.prototype.register("edx",   18);
-/** Predefined register object */
 x86.Assembler.prototype.register.ebx =
     x86.Assembler.prototype.register("ebx",   19);
-/** Predefined register object */
 x86.Assembler.prototype.register.esp =
     x86.Assembler.prototype.register("esp",   20);
-/** Predefined register object */
 x86.Assembler.prototype.register.ebp =
     x86.Assembler.prototype.register("ebp",   21);
-/** Predefined register object */
 x86.Assembler.prototype.register.esi =
     x86.Assembler.prototype.register("esi",   22);
-/** Predefined register object */
 x86.Assembler.prototype.register.edi =
     x86.Assembler.prototype.register("edi",   23);
-/** Predefined register object */
+/*
 x86.Assembler.prototype.register.r8d =
     x86.Assembler.prototype.register("r8d",   24);
-/** Predefined register object */
 x86.Assembler.prototype.register.r9d =
     x86.Assembler.prototype.register("r9d",   25);
-/** Predefined register object */
 x86.Assembler.prototype.register.r10d =
     x86.Assembler.prototype.register("r10d",  26);
-/** Predefined register object */
 x86.Assembler.prototype.register.r11d =
     x86.Assembler.prototype.register("r11d",  27);
-/** Predefined register object */
 x86.Assembler.prototype.register.r12d =
     x86.Assembler.prototype.register("r12d",  28);
-/** Predefined register object */
 x86.Assembler.prototype.register.r13d =
     x86.Assembler.prototype.register("r13d",  29);
-/** Predefined register object */
 x86.Assembler.prototype.register.r14d =
     x86.Assembler.prototype.register("r14d",  30);
-/** Predefined register object */
 x86.Assembler.prototype.register.r15d =
     x86.Assembler.prototype.register("r15d",  31);
-/** Predefined register object */
 x86.Assembler.prototype.register.rax =
     x86.Assembler.prototype.register("rax",    0);
-/** Predefined register object */
 x86.Assembler.prototype.register.rcx =
     x86.Assembler.prototype.register("rcx",    1);
-/** Predefined register object */
 x86.Assembler.prototype.register.rdx =
     x86.Assembler.prototype.register("rdx",    2);
-/** Predefined register object */
 x86.Assembler.prototype.register.rbx =
     x86.Assembler.prototype.register("rbx",    3);
-/** Predefined register object */
 x86.Assembler.prototype.register.rsp =
     x86.Assembler.prototype.register("rsp",    4);
-/** Predefined register object */
 x86.Assembler.prototype.register.rbp =
     x86.Assembler.prototype.register("rbp",    5);
-/** Predefined register object */
 x86.Assembler.prototype.register.rsi =
     x86.Assembler.prototype.register("rsi",    6);
-/** Predefined register object */
 x86.Assembler.prototype.register.rdi =
     x86.Assembler.prototype.register("rdi",    7);
-/** Predefined register object */
 x86.Assembler.prototype.register.r8 =
     x86.Assembler.prototype.register("r8",     8);
-/** Predefined register object */
 x86.Assembler.prototype.register.r9 =
     x86.Assembler.prototype.register("r9",     9);
-/** Predefined register object */
 x86.Assembler.prototype.register.r10 =
     x86.Assembler.prototype.register("r10",   10);
-/** Predefined register object */
 x86.Assembler.prototype.register.r11 =
     x86.Assembler.prototype.register("r11",   11);
-/** Predefined register object */
 x86.Assembler.prototype.register.r12 =
     x86.Assembler.prototype.register("r12",   12);
-/** Predefined register object */
 x86.Assembler.prototype.register.r13 =
     x86.Assembler.prototype.register("r13",   13);
-/** Predefined register object */
 x86.Assembler.prototype.register.r14 =
     x86.Assembler.prototype.register("r14",   14);
-/** Predefined register object */
 x86.Assembler.prototype.register.r15 =
     x86.Assembler.prototype.register("r15",   15);
-/** Predefined register object */
 x86.Assembler.prototype.register.st =
     x86.Assembler.prototype.register("st",    48);
-/** Predefined register object */
 x86.Assembler.prototype.register.st_1 =
     x86.Assembler.prototype.register("st_1",  49);
-/** Predefined register object */
 x86.Assembler.prototype.register.st_2 =
     x86.Assembler.prototype.register("st_2",  50);
-/** Predefined register object */
 x86.Assembler.prototype.register.st_3 =
     x86.Assembler.prototype.register("st_3",  51);
-/** Predefined register object */
 x86.Assembler.prototype.register.st_4 =
     x86.Assembler.prototype.register("st_4",  52);
-/** Predefined register object */
 x86.Assembler.prototype.register.st_5 =
     x86.Assembler.prototype.register("st_5",  53);
-/** Predefined register object */
 x86.Assembler.prototype.register.st_6 =
     x86.Assembler.prototype.register("st_6",  54);
-/** Predefined register object */
 x86.Assembler.prototype.register.st_7 =
     x86.Assembler.prototype.register("st_7",  55);
-/** Predefined register object */
 x86.Assembler.prototype.register.mm0 =
     x86.Assembler.prototype.register("mm0",   56);
-/** Predefined register object */
 x86.Assembler.prototype.register.mm1 =
     x86.Assembler.prototype.register("mm1",   57);
-/** Predefined register object */
 x86.Assembler.prototype.register.mm2 =
     x86.Assembler.prototype.register("mm2",   58);
-/** Predefined register object */
 x86.Assembler.prototype.register.mm3 =
     x86.Assembler.prototype.register("mm3",   59);
-/** Predefined register object */
 x86.Assembler.prototype.register.mm4 =
     x86.Assembler.prototype.register("mm4",   60);
-/** Predefined register object */
 x86.Assembler.prototype.register.mm5 =
     x86.Assembler.prototype.register("mm5",   61);
-/** Predefined register object */
 x86.Assembler.prototype.register.mm6 =
     x86.Assembler.prototype.register("mm6",   62);
-/** Predefined register object */
 x86.Assembler.prototype.register.mm7 =
     x86.Assembler.prototype.register("mm7",   63);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm0 =
     x86.Assembler.prototype.register("xmm0",  64);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm1 =
     x86.Assembler.prototype.register("xmm1",  65);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm2 =
     x86.Assembler.prototype.register("xmm2",  66);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm3 =
     x86.Assembler.prototype.register("xmm3",  67);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm4 =
     x86.Assembler.prototype.register("xmm4",  68);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm5 =
     x86.Assembler.prototype.register("xmm5",  69);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm6 =
     x86.Assembler.prototype.register("xmm6",  70);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm7 =
     x86.Assembler.prototype.register("xmm7",  71);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm8 =
     x86.Assembler.prototype.register("xmm8",  72);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm9 =
     x86.Assembler.prototype.register("xmm9",  73);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm10 =
     x86.Assembler.prototype.register("xmm10", 74);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm11 =
     x86.Assembler.prototype.register("xmm11", 75);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm12 =
     x86.Assembler.prototype.register("xmm12", 76);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm13 =
     x86.Assembler.prototype.register("xmm13", 77);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm14 =
     x86.Assembler.prototype.register("xmm14", 78);
-/** Predefined register object */
 x86.Assembler.prototype.register.xmm15 =
     x86.Assembler.prototype.register("xmm15", 79);
+*/
 
 /** Returns an {@link asm.CodeBlock#label} object. */
 x86.Assembler.prototype.labelObj = function (text)
@@ -2057,41 +1963,36 @@ x86.Assembler.prototype.ret = function (opnd)
                                    opnd));
     }
 };
-/** Can be chained. */
+/*
 x86.Assembler.prototype.cmc = function ()
 {
     return this.noOpndInstr(0xf5, "cmc");
 };
-/** Can be chained. */
 x86.Assembler.prototype.clc = function ()
 {
     return this.noOpndInstr(0xf8, "clc");
 };
-/** Can be chained. */
 x86.Assembler.prototype.stc = function ()
 {
     return this.noOpndInstr(0xf9, "stc");
 };
-/** Can be chained. */
 x86.Assembler.prototype.cli = function ()
 {
     return this.noOpndInstr(0xfa, "cli");
 };
-/** Can be chained. */
 x86.Assembler.prototype.sti = function ()
 {
     return this.noOpndInstr(0xfb, "sti");
 };
-/** Can be chained. */
 x86.Assembler.prototype.cld = function ()
 {
     return this.noOpndInstr(0xfc, "cld");
 };
-/** Can be chained. */
 x86.Assembler.prototype.std = function ()
 {
     return this.noOpndInstr(0xfd, "std");
 };
+*/
 
 
 // Two operand instructions
@@ -3098,7 +2999,8 @@ x86.Assembler.prototype.xchg = function (src, dst, width)
     return this;
 };
 
-/** x87 code generation methods and functions **/
+/*
+// x87 code generation methods and functions 
 
 x86.Assembler.prototype.fpuReg = function (i)
 {
@@ -3110,27 +3012,25 @@ x86.Assembler.prototype.fdumpStack = function (mem, base, width)
 {
     var step = width / 8;
     this.fstMem(mem(0, EAX), width, false);
-    /*    
-    this.fincstp();
-    this.fstMem(mem(step, EAX), width, false);
-    this.fincstp();
-    this.fstMem(mem(2*step, EAX), width, false);
-    this.fincstp();
-    this.fstMem(mem(3*step, EAX), width, false);
-    this.fincstp();
-    this.fstMem(mem(4*step, EAX), width, false);
-    this.fincstp();
-    this.fstMem(mem(5*step, EAX), width, false);
-    this.fincstp();
-    this.fstMem(mem(6*step, EAX), width, false);
-    this.fincstp();
-    this.fstMem(mem(7*step, EAX), width, false);
-    this.fincstp();
-    */
+    //this.fincstp();
+    //this.fstMem(mem(step, EAX), width, false);
+    //this.fincstp();
+    //this.fstMem(mem(2*step, EAX), width, false);
+    //this.fincstp();
+    //this.fstMem(mem(3*step, EAX), width, false);
+    //this.fincstp();
+    //this.fstMem(mem(4*step, EAX), width, false);
+    //this.fincstp();
+    //this.fstMem(mem(5*step, EAX), width, false);
+    //this.fincstp();
+    //this.fstMem(mem(6*step, EAX), width, false);
+    //this.fincstp();
+    //this.fstMem(mem(7*step, EAX), width, false);
+    //this.fincstp();
     return this;
 }
 
-/** @private 0 operand fpu instructions  */
+// @private 0 operand fpu instructions 
 x86.Assembler.prototype.fpuOp0 = function(op, mnemonic)
 {
     this.gen8(0xd9);
@@ -3172,7 +3072,7 @@ x86.Assembler.prototype.fscale  = function () { return this.fpuOp0(0xfd, "fscale
 x86.Assembler.prototype.fsin    = function () { return this.fpuOp0(0xfe, "fsin"); }
 x86.Assembler.prototype.fcos    = function () { return this.fpuOp0(0xff, "fcos"); }
 
-/** @private 1 operand fpu instructions  */
+// @private 1 operand fpu instructions 
 x86.Assembler.prototype.fpuOpi1 = function(i, destST0, op, mnemonic)
 {
     this.gen8((destST0 ? 0xd8 : 0xdc));
@@ -3197,7 +3097,7 @@ x86.Assembler.prototype.fsubr    = function (i, destST0) { return this.fpuOpi1(i
 x86.Assembler.prototype.fdiv     = function (i, destST0) { return this.fpuOpi1(i, destST0, 0xf0, "fdiv"); }
 x86.Assembler.prototype.fdivr    = function (i, destST0) { return this.fpuOpi1(i, destST0, 0xf8, "fdivr"); }
 
-/** @private 2 operands fpu instructions  */
+// @private 2 operands fpu instructions
 x86.Assembler.prototype.fpuOpi2 = function(i, op, mnemonic)
 {
     this.gen8(0xde);
@@ -3220,7 +3120,7 @@ x86.Assembler.prototype.fsubrp    = function (i)          { return this.fpuOpi2(
 x86.Assembler.prototype.fdivp     = function (i, destST0) { return this.fpuOpi2(i, destST0, 0xf0, "fsub"); }
 x86.Assembler.prototype.fdivrp    = function (i, destST0) { return this.fpuOpi2(i, destST0, 0xf8, "fsubr"); }
 
-/** @private 1 operand fpu instructions  */
+// @private 1 operand fpu instructions
 x86.Assembler.prototype.fpuOp1 = function(i, op1, op2, mnemonic)
 {
     this.gen8(op1);
@@ -3324,10 +3224,7 @@ x86.Assembler.prototype.fstpMem = function(opnd, width)
 }
 
 // ------------------- Syntactic sugar for common constructions ---------------
-
-/**
-*   Decrementing for loop 
-*/
+//    Decrementing for loop 
 x86.Assembler.prototype.forLoop = function (index, test, limit, body)
 {
     const loop = this.labelObj();
@@ -3359,7 +3256,4 @@ x86.Assembler.prototype.forLoop = function (index, test, limit, body)
 
     return this;
 };
-
-
-
-
+*/

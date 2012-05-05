@@ -243,7 +243,7 @@ Function.prototype.__new_default__ = function ()
 Function.prototype.__typeof__ = function ()
 {
     return "function";
-}
+};
 
 Function.prototype.call = function ()
 {
@@ -642,13 +642,57 @@ function eval(s)
     PhotonVarAnalysis.match(ast, "trans", undefined, failer);
     print("// eval: Variable scope binding");
     ast = PhotonVarScopeBinding.match(ast, "trans", undefined, failer);
+    print("// eval: Optimizing");
+    ast = PhotonOptimizer.match(ast, "trans", undefined, failer);
     print("// eval: Code Generation");
     var comp = PhotonCompiler.createInstance();
-    code = comp.match(ast, "trans", undefined, failer);
+    var code = comp.match(ast, "trans", undefined, failer);
     print("// eval: Function construction");
     var f = comp.context.new_function_object(code, comp.context.refs, 0, print);
     print("// eval: Executing generated code");
     return f.__obj__();
+}
+
+function eval_instr(s)
+{
+    function failer (m, idx, f) 
+    { 
+        print("Matched failed at index " + idx + " on input " + m.input.hd); 
+        error(f);
+    };
+    var ast;
+    return measurePerformance("eval", function () {
+        ast = measurePerformance("Parsing", function () {
+            return PhotonParser.matchAll(s, "topLevel");
+        });
+        ast = measurePerformance("Macro Expansion", function () {
+            return PhotonMacroExp.match(ast, "trans", undefined, failer);
+        });
+        ast = measurePerformance("Desugaring", function () {
+            return PhotonDesugar.match(ast, "trans", undefined, failer);
+        });
+        ast = measurePerformance("Variable Scope Analysis", function () {
+            return PhotonVarAnalysis.match(ast, "trans", undefined, failer);
+        });
+        ast = measurePerformance("Variable Scope Binding", function () {
+            return PhotonVarScopeBinding.match(ast, "trans", undefined, failer);
+        });
+        ast = measurePerformance("Optimizing", function () {
+            return PhotonOptimizer.match(ast, "trans", undefined, failer);
+        });
+        var comp;
+        var code = measurePerformance("Code Generation", function () {
+            comp = PhotonCompiler.createInstance();
+            return comp.match(ast, "trans", undefined, failer);
+        });
+        var f = measurePerformance("Function Construction", function () {
+             return comp.context.new_function_object(code, comp.context.refs, 0, print);
+        });
+        var result = measurePerformance("Executing Generated Code", function () {
+            return f.__obj__();
+        });
+        return result;
+    });
 }
 
 function pp(s)

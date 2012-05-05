@@ -94,7 +94,7 @@ asm.CodeBlock = function (startPos, bigEndian, listing)
     this.requiredArray = [];
 };
 
-/** Throw an exception with message and args */
+// Throw an exception with message and args 
 asm.error = function (message)
 {
     var err = message;
@@ -105,7 +105,7 @@ asm.error = function (message)
     throw "AsmError: " + err;
 };
 
-/** Ensure a boolean condition is met, otherwise throw an exception */
+// Ensure a boolean condition is met, otherwise throw an exception 
 asm.assert = function (bool, message)
 {
     if (!bool) 
@@ -905,8 +905,9 @@ asm.CodeBlock.prototype.assemble = function ()
     return pos;
 };
 
-/** Returns an allocated machine code block with the assembled
-    code. This block must be freed using freeMachineBlock */
+/*
+// Returns an allocated machine code block with the assembled
+//    code. This block must be freed using freeMachineBlock
 asm.CodeBlock.prototype.assembleToMachineCodeBlock = function ()
 {
     const that = this;
@@ -962,7 +963,7 @@ asm.CodeBlock.prototype.assembleToMachineCodeBlock = function ()
     return block;
 };
 
-/** Returns the number of bytes in the code block */
+// Returns the number of bytes in the code block 
 asm.CodeBlock.prototype.byteNb = function ()
 {
     var nb = 0;
@@ -972,19 +973,18 @@ asm.CodeBlock.prototype.byteNb = function ()
     return nb;
 };
 
-/** 
-    Marks the position at which the object is required for a subsequent
-    linking with the same or different machine code block providing
-    an object with the same value.  
-    
-    'linkObj' is the linking object that will be used to connect a 
-    requiring site to a providing site during linking. It can be any 
-    javascript object implementing the following methods:
-    - 'linkValue(dstAddr)', returns an array of bytes totalling 'width' bits.
-                            Called when the generated machine code block is linked.
-    - 'width()', number of bits of the linkValue returned. Should be a multiple of 8.
-                 Called when genRequired is called.
-*/
+// 
+//    Marks the position at which the object is required for a subsequent
+//    linking with the same or different machine code block providing
+//    an object with the same value.  
+//    
+//    'linkObj' is the linking object that will be used to connect a 
+//    requiring site to a providing site during linking. It can be any 
+//    javascript object implementing the following methods:
+//    - 'linkValue(dstAddr)', returns an array of bytes totalling 'width' bits.
+//                            Called when the generated machine code block is linked.
+//    - 'width()', number of bits of the linkValue returned. Should be a multiple of 8.
+//                 Called when genRequired is called.
 asm.CodeBlock.prototype.genRequired = function (linkObj)
 {
 
@@ -999,17 +999,16 @@ asm.CodeBlock.prototype.genRequired = function (linkObj)
     this.requiredArray.push({label:label, linkObj:linkObj});
 };
 
-/**
-    Marks the position at which the object is provided for a subsequent
-    linking.
-    
-    'linkObj' is the linking object that will be used to connect a 
-    requiring site to a providing site during linking. It can be any 
-    javascript object implementing the following methods:
-    - 'setAddr(addr)' set to the address of the machine code block 
-                      when the machine code block is assembled
-
-*/
+//
+//    Marks the position at which the object is provided for a subsequent
+//    linking.
+//    
+//    'linkObj' is the linking object that will be used to connect a 
+//    requiring site to a providing site during linking. It can be any 
+//    javascript object implementing the following methods:
+//    - 'setAddr(addr)' set to the address of the machine code block 
+//                      when the machine code block is assembled
+//
 asm.CodeBlock.prototype.genProvided = function (linkObj)
 {
     // Add a label to retrieve the offset after assembly
@@ -1020,23 +1019,23 @@ asm.CodeBlock.prototype.genProvided = function (linkObj)
     this.providedArray.push({label:label, linkObj:linkObj});
 };
 
-/** 
-    Patches at each of the requiring site of the machine code block,
-    the address of the corresponding providing site, as determined by
-    the equality of the linking objects.
-
-    'mcb' is the machine code block to link.
-    
-    mcb must implement the following methods:
-    - 'getRequiredIt()' returns an iterator to the required objects
-
-    Required objects must implement the following methods:
-    - 'linkValue()', returns an array of bytes 
-    - 'getOffset()', returns the offset in number of bytes from 
-                     the beginning of the mcb
-*/
+// 
+//    Patches at each of the requiring site of the machine code block,
+//    the address of the corresponding providing site, as determined by
+//    the equality of the linking objects.
+//
+//    'mcb' is the machine code block to link.
+//    
+//    mcb must implement the following methods:
+//    - 'getRequiredIt()' returns an iterator to the required objects
+//
+//    Required objects must implement the following methods:
+//    - 'linkValue()', returns an array of bytes 
+//    - 'getOffset()', returns the offset in number of bytes from 
+//                     the beginning of the mcb
 asm.link = function (mcb, params)
 {
+    throw "Unsupported link operation";
     var bytes, offset;
 
     // For each requiring site of each machine code block,
@@ -1064,8 +1063,8 @@ asm.link = function (mcb, params)
 
 };
 
-/** Represents a machine address */
-/* TODO: replace with "num" type */
+// Represents a machine address 
+// TODO: replace with "num" type 
 asm.address = function (byteArray, bigEndian)
 {
     if (bigEndian === undefined)
@@ -1097,20 +1096,20 @@ asm.address = function (byteArray, bigEndian)
     return that;
 };
 
-/** Returns a null address */
+// Returns a null address 
 asm.address.nullAddr = function (width, bigEndian)
 {
     var byteArray = (width === 32) ? [0,0,0,0] : [0,0,0,0,0,0,0,0];
     return asm.address(byteArray, bigEndian);
 };
 
-/** Returns the number of bits in the address */
+// Returns the number of bits in the address
 asm.address.prototype.width = function ()
 {
     return this.addrElemArray.length === 2 ? 32 : 64;
 };
 
-/** Returns a copy of the current address */
+// Returns a copy of the current address
 asm.address.prototype.copy = function ()
 {
     newAddr = Object.create(this);
@@ -1119,9 +1118,8 @@ asm.address.prototype.copy = function ()
     return newAddr;
 };
 
-/** Returns a new address corresponding to the old address
-    added to the integer value of the offset
-*/
+// Returns a new address corresponding to the old address
+//    added to the integer value of the offset
 asm.address.prototype.addOffset = function (n)
 {
     if (n < 0) 
@@ -1151,7 +1149,7 @@ asm.address.prototype.addOffset = function (n)
     return newAddr;
 };
 
-/** Returns a new address located at old address - n */
+// Returns a new address located at old address - n 
 asm.address.prototype.subOffset = function (n)
 {
     
@@ -1192,9 +1190,8 @@ asm.address.prototype.subOffset = function (n)
     return newAddr;
 };
 
-/** Returns a new address corresponding to the sum of the
-    value of the old address with the new modulo width.
-*/
+// Returns a new address corresponding to the sum of the
+//    value of the old address with the new modulo width.
 asm.address.prototype.addAddress = function (addr)
 {
     assert(this.width() === addr.width(),
@@ -1216,7 +1213,7 @@ asm.address.prototype.addAddress = function (addr)
     return newAddr;
 };
 
-/** Returns the complement of the address */
+// Returns the complement of the address 
 asm.address.prototype.complement = function ()
 {
     const newAddr = this.copy();
@@ -1231,7 +1228,7 @@ asm.address.prototype.complement = function ()
     return newAddr.addOffset(1);
 };
 
-/** Returns the offset needed to reach 'addr' from this.addr */
+// Returns the offset needed to reach 'addr' from this.addr 
 asm.address.prototype.getAddrOffsetBytes = function (addr, bigEndian)
 {
     if (bigEndian === undefined)
@@ -1247,9 +1244,8 @@ asm.address.prototype.getAddrOffsetBytes = function (addr, bigEndian)
     return addr.addAddress(this.complement()).getBytes(bigEndian);
 };
 
-/** Compare two addresses. Returns -1 if this is lesser than 'addr',
-    0 if they are equal, 1 if this is greater than 'addr'
-*/
+// Compare two addresses. Returns -1 if this is lesser than 'addr',
+//    0 if they are equal, 1 if this is greater than 'addr'
 asm.address.prototype.cmp = function (addr)
 {
     assert(this.width() === addr.width(),
@@ -1269,7 +1265,7 @@ asm.address.prototype.cmp = function (addr)
     return 0;
 };
 
-/** Returns an array of bytes containing the address */
+// Returns an array of bytes containing the address 
 asm.address.prototype.getBytes = function (bigEndian)
 {
     if (bigEndian === undefined)
@@ -1297,8 +1293,9 @@ asm.address.prototype.getBytes = function (bigEndian)
     }
 };
 
-/** Returns a string representation of an address */
+// Returns a string representation of an address 
 asm.address.prototype.toString = function ()
 {
     return this.getBytes().toString();
 };
+*/

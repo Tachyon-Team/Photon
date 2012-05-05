@@ -65,7 +65,7 @@ ometa PhotonASTTraversal {
 ometa PhotonASTCopy {
   trans      = [:t apply(t):ans]      -> ans,
 
-  global   :ctxt trans:r                        -> [#global, _deep_copy(ctxt), r],
+  global   :ctxt trans:r                        -> [#global, ctxt, r],
   this end                                      -> [#this],    
   break end                                     -> [#break],
   continue end                                  -> [#continue],
@@ -91,14 +91,14 @@ ometa PhotonASTCopy {
   forIn    trans:x trans:arr trans:body         -> [#forIn, x, arr, body],
   begin    trans:x end                          -> [#begin, x],
   begin    trans*:xs                            -> [#begin].concat(xs),
-  func     :args :ctxt trans:body               -> [#func, _deep_copy(args), _deep_copy(ctxt), body],  
+  func     :args :ctxt trans:body               -> [#func, args, ctxt, body],  
   call     trans:fn trans*:args                 -> [#call, fn].concat(args),
   ccall    trans:fn trans*:args                 -> [#ccall, fn].concat(args),
   send     :msg trans:recv trans*:args          -> [#send, msg, recv].concat(args),
   new      trans:fn trans*:args                 -> [#new, fn].concat(args),
   var      :name trans:val                      -> [#var, name, val],
   throw    trans:x                              -> [#throw, x],
-  try      :ctxt trans:x :name trans:c trans:f  -> [#try, _deep_copy(ctxt), x, name, c, f],
+  try      :ctxt trans:x :name trans:c trans:f  -> [#try, ctxt, x, name, c, f],
   json     trans*:props                         -> [#json].concat(props),
   binding  trans:name trans:val                 -> [#binding, name, val],
   switch   trans:x trans*:cases                 -> [#switch, x].concat(cases),
@@ -110,9 +110,9 @@ ometa PhotonASTCopy {
   mreturn  trans:x trans:y                      -> [#mreturn, x, y],
   code     :c                                   -> [#code, c],
   super    trans:e                              -> [#super, e],
-  macro    :n :args :ctxt trans:body            -> [#macro, n, _deep_copy(args), _deep_copy(ctxt), body],
+  macro    :n :args :ctxt trans:body            -> [#macro, n, args, ctxt, body],
   letvar   [#var :name trans:val]               -> [#var, name, val],
-  let      :ctxt [#begin letvar*:vs] trans:body -> [#let, _deep_copy(ctxt), [#begin].concat(vs), body],
+  let      :ctxt [#begin letvar*:vs] trans:body -> [#let, ctxt, [#begin].concat(vs), body],
   super_send :msg trans:rcv trans*:args         -> [#super_send, msg, rcv].concat(args),
   closure end                                   -> [#closure],
   arguments trans:i                             -> [#arguments, i],
@@ -180,7 +180,7 @@ ometa PhotonPrettyPrinter
   ref      :s                                                      -> ("@{[#ref, " +  (s.hasOwnProperty("pp") && (typeof s.pp) === "function" ? s.pp() : "[object]") +  "]}@"),
   gets     trans:x trans:fd                                        -> (x +  "[@" +  fd +  "]"),
   mreturn  :x :y                                                   -> ("@{[#mreturn, " +  x +  ", " +  y + "]}@"),
-  code     :c                                                      -> ("@{[#code, " +  c +  "]}@"),
+  code     :c                                                      -> ("@{[#code, " +  c.map(function (e) { return "[native code]"; }).join("\n") +  "]}@"),
   super    trans:e                                                 -> ("super(" +  e + ")"),
   macro    :n :args :ctxt block:body                               -> ("macro " + n + "(" + args.join(",") + ")\n" + body),
   letvars  [#begin 
@@ -326,7 +326,7 @@ ometa PhotonParser <: Parser {
                             )
                | primExprHd,
   primExprHd   = "super" "(" expr:e ")"                                              -> [#super, e] 
-               | "(" expr:e ")"                                                      -> e
+               | "(" listOf(#expr, ','):es ")"                                       -> (es.length === 1 ? es[0] : [#begin].concat(es))
                | "this"                                                              -> [#this]
                | "$closure"                                                          -> [#closure]
                | "$arguments" "[@" expr:i "]"                                        -> [#arguments, i]

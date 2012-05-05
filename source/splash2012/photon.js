@@ -10,36 +10,49 @@ function mirror_addr_bytes()
 photon.init();
 photon.array.pp    = function () { return "photon.array"; };
 photon.object.pp   = function () { return "photon.object"; };
-photon["function"].pp = function () { return "photon.function"; };
+photon.function.pp = function () { return "photon.function"; };
 photon.global.pp   = function () { return "photon.global"; };
 photon.cell.pp     = function () { return "photon.cell"; };
 photon.map.pp      = function () { return "photon.map"; };
 photon.symbol.pp   = function () { return "photon.symbol"; };
 photon.fixnum.pp   = function () { return "photon.fixnum"; };
-photon.optimize_get = false;
-photon.optimize_set = false;
 
-var verbose = Array.prototype.indexOf.call(arguments, "-v") > 0;
+var options = {"inline_cache":true, "verbose":false, "report":false};
+var cmdline_options = {"-noic":true, "-v":true, "-report":true};
+
+for (var i = 0; i < arguments.length; ++i)
+{
+    var option = arguments[i];
+
+    if (options === "-noic")
+    {
+        options["inline_cache"] = false;
+    } else if (options === "-v")
+    {
+        options["verbose"] = true;
+    } else if (option === "-report")
+    {
+        options["report"] = true;
+    }
+}
 
 create_handlers();
 
 function _compile(s, print)
 {
-    return measurePerformance("Compilation", function () 
+    if (print === undefined)
     {
-        if (print === undefined)
-        {
-            print = function () {};
-        }
+        print = function () {};
+    }
 
-        function failer (m, idx, f) 
-        { 
-            print("Matched failed at index " + idx + " on input " + m.input.hd); 
-            error(f);
-        };
+    function failer (m, idx, f) 
+    { 
+        print("Matched failed at index " + idx + " on input " + m.input.hd); 
+        error(f);
+    };
 
-        var ast;
-
+    var ast;
+    return measurePerformance("Compile", function () {
         measurePerformance("Parsing", function ()
         {
             print("Parsing");
@@ -98,7 +111,7 @@ function _compile(s, print)
 
 function log(s)
 {
-    if (verbose) 
+    if (options["verbose"]) 
         print(s);
 }
 
@@ -108,9 +121,9 @@ try
 {
 
 log("Creating bind function");
-photon.bind = photon.send(photon["function"], "__new__", 15, 0);
+photon.bind = photon.send(photon.function, "__new__", 15, 0);
 var _bind = photon.bind;
-photon.bind = _compile(readFile("_bind.js")).functions["bind"];
+photon.bind = _compile(readFile("../_bind.js")).functions["bind"];
 photon.send(_bind, "__intern__", 
             clean(flatten([
                 _op("mov", _mref(photon.bind), _EAX),
@@ -126,13 +139,16 @@ photon.send(_bind, "__intern__",
            ])));
 
 log("Creating handlers");
-photon.handlers = _compile(readFile("handlers.js")).functions;
+photon.handlers = _compile(readFile("../handlers.js")).functions;
 
 log("Creating super_bind function");
-photon.super_bind = _compile(readFile("super_bind.js")).functions["super_bind"];
+photon.super_bind = _compile(readFile("../super_bind.js")).functions["super_bind"];
 
-log("Creating inline cache bind function");
-photon.inline_bind = _compile(readFile("inline_bind.js")).functions["inline_bind"];
+if (options["inline_cache"])
+{
+    log("Creating inline cache bind function");
+    photon.inline_bind = _compile(readFile("../inline_bind.js")).functions["inline_bind"];
+}
 
 } catch (e)
 {
@@ -144,53 +160,40 @@ log("Adding handlers in client environment");
 photon.send( photon.global, "__set__", "_handlers", photon.handlers);
 
 log("Installing standard library");
-var f = _compile(readFile("photon-stdlib.js"), arguments[1] === "-v" ? print : undefined);
+var f = _compile(readFile("../photon-stdlib.js"), arguments[1] === "-v" ? print : undefined);
 log("Initializing standard library");
 photon.send({f:f}, "f");
 
 
 function init_client(s)
 {
+    if (cmdline_options.hasOwnProperty(s))
+        return;
+
+    perfBuckets = {};
     try
     {
-        log("Compiling '" + s + "'");
-        var f = _compile(readFile(s), verbose ? print : undefined);
-        log("Executing '" + s + "'");
+        log("// Compiling '" + s + "'");
+        var f = _compile(readFile(s), options["verbose"] ? print : undefined);
+        log("// Executing '" + s + "'");
         photon.send({f:f}, "f");
     } catch(e)
     {
         print(e.stackTrace);
         throw e;
     }
+
+    if (options["report"])
+        reportPerformance();
+}
+
+if (options["inline_cache"])
+{
+    eval(readFile("../inline.js"));
 }
 
 
-eval(readFile("inline.js"));
 photon.optimize_get = true;
 photon.optimize_set = true;
-
-[
- "stdlib/array.js", 
- "stdlib/string.js", 
- "stdlib/math.js",
- "utility/debug.js", 
- "utility/num.js",
- "utility/misc.js",
- "utility/iterators.js",
- "utility/arrays.js", 
- "backend/asm.js", 
- "backend/x86/asm.js", 
- "deps/ometa-js/lib.js",
- "deps/ometa-js/ometa-base.js",
- "deps/ometa-js/parser.js",
- "ometa/photon-compiler.js",
- "ometa/photon-optimizer.js",
- "photon-lib.js",
- "inline.js",
- "ometa/photon-lisp-parser.js",
- "get_opt.js"
-].forEach(init_client);
-
 Array.prototype.slice.call(arguments, 0).forEach(init_client);
 
-reportPerformance();

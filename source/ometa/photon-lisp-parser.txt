@@ -1,0 +1,114 @@
+ometa PhotonLispParser <: Parser {
+  fromTo :x :y = seq(x) (~seq(y) char)* seq(y), 
+  fromTo2 :x :y = seq(x) (~seq(y) char)*:s seq(y) -> s.join(''), 
+  space        = ^space | fromTo('//', '\n') | fromTo('/*', '*/'),
+  ceval        = fromTo2('@{', '}@'):s                                               -> [#eval, s],
+  nameFirst    = letter | '$' | '_',
+  nameRest     = nameFirst | digit,
+  iName        = firstAndRest(#nameFirst, #nameRest):r                               -> r.join(''),
+  isKeyword :x = ?self._isKeyword(x),
+  name         = iName:n ~isKeyword(n)                                               -> [#name, n === 'self' ? '$elf' : n],
+  keyword      = iName:k isKeyword(k)                                                -> [k, k],
+  hexDigit     = char:x {this.hexDigits.indexOf(x.toLowerCase())}:v ?(v >= 0)        -> v,
+  hexLit       = hexLit:n hexDigit:d                                                 -> (n * 16 + d)
+               | hexDigit,
+  intDigit     = char:x {this.hexDigits.indexOf(x.toLowerCase())}:v ?(v >= 0)        -> v,
+  intLit       = intLit:n intDigit:d                                                 -> (n * 10 + d)
+               | intDigit,
+  number       = ``0x'' hexLit:n                                                     -> [#number, n]
+               | intLit:n                                                            -> [#number, n],
+  escapeChar   = '\\' char:c                                                         -> unescape('\\' + c),
+  str          = seq('"""')  (escapeChar | ~seq('"""') char)*:cs seq('"""')          -> [#string, cs.join('')]
+               | '\'' (escapeChar | ~'\'' char)*:cs '\''                             -> [#string, cs.join('')]
+               | '"'  (escapeChar | ~'"'  char)*:cs '"'                              -> [#string, cs.join('')]
+               | ('#' | '`') iName:n                                                 -> [#string, n],
+  special      = ( '('   | ')'    | '{'    | '}'     | ``[@'' |'['      | ']'     | ','    
+                 | ';'   | '?'    | ':'    | ``!=='' | ``!='' | ``==='' | ``==''
+                 |``<<=''| ``<<'' |``>>>='' |``>>>'' |``>>=''  |``>>'' 
+                 | ``='' | ``>='' | '>'    | ``<=''  | '<'    | ``++''  | ``+=''
+                 | '+'   | ``--'' | ``-='' | '-'     | ``*='' | '*'     | ``/=''
+                 | '/'   | ``%='' | '%'    | ``&&='' | ``&='' | ``&&''  | ``||='' 
+                 | ``|=''| ``||''
+                 | '.'   | '!'    | '|'    | '&'     | '^'    | '~'              ):s -> [s, s],
+  tok          = spaces (ceval | name | keyword | number | str | special),
+  toks         = token*:ts spaces end                                                -> ts,
+  token :tt    = tok:t ?(t[0] === tt)                                                -> t[1],
+  spacesNoNl   = (~'\n' space)*,
+  litteral     = "(" ")"                                                             -> [#get, undefined]
+               | "number":n                                                          -> [#number, n]
+               | "string":s                                                          -> [#string, s]
+               | "name":n                                                            -> [#get, n]
+               | "this"                                                              -> [#this], 
+
+  unop         = "(" ( "-"                                                   
+                     | "+"
+                     | "!"
+                     | "void"
+                     | "delete"
+                     | "typeof"
+                     | "~" ):op expr:e ")"                                           -> [#unop, op, e],
+
+  binop        = "(" ( "||"                                                   
+                     | "&&"
+                     | "|"
+                     | "^"
+                     | "&"
+                     | "=="
+                     | "!="
+                     | "==="
+                     | "!=="
+                     | ">"
+                     | ">="
+                     | "<"
+                     | "<="
+                     | "instanceof"
+                     | ">>>"
+                     | ">>"
+                     | "<<"
+                     | "+"
+                     | "-"
+                     | "*"
+                     | "/"
+                     | "%"
+                     | "~" ):op expr:e1 expr:e2 ")"                                  -> [#binop, op, e1, e2],
+
+  builtin      = "(" ( "if" expr:c expr:t expr:f                                     -> [#if, c, t, f]
+                     | "let" 
+                       "(" 
+                            ("name":n ( expr | empty -> [#get, undefined] ):v   -> [#var, n, v])*:bs 
+                       ")"
+                        expr:e                                                       -> [#let, _new_context(), [#begin].concat(bs), e]
+                     | "var" "name":n expr:e                                         -> [#var, n, e]
+                     | "return" expr:e                                               -> [#return, e]
+                     | "function" "(" "name"*:ns ")" expr*:es                        -> { var last = (es.length === 0) ? [#get, "undefined"] : es.pop();
+                                                                                         [#func, ns, _new_context(), 
+                                                                                             [#begin].concat(es).concat([[#return, last]])]} 
+                     ):s ")"                                                         -> s,
+
+  expr         = litteral
+               | unop
+               | binop
+               | builtin
+               | "(" expr:e expr*:es ")"                                             -> [#call, e].concat(es), 
+  exprs        = expr*:es                                                            -> [#begin].concat(es),
+  topLevel     = exprs:r spaces end                                                  -> [#global, _new_context(), r]
+}
+
+PhotonLispParser.initialize = function ()
+{
+    this.hexDigits = "0123456789abcdef";
+    this.keywords  = { };
+    var keywords = ["break", "case", "catch", "continue", "default", "delete", "do", 
+                "else", "finally", "for", "function", "if", "in", "instanceof", 
+                "new", "return", "switch", "this", "throw", "try", "typeof", "var", 
+                "void", "while", "with", "ometa", "const", "global_return", "macro", 
+                "super", "let", "$closure", "$arguments", "$arguments_length"];
+    for (var idx = 0; idx < keywords.length; idx++)
+    {
+      this.keywords[keywords[idx]] = true
+    }
+    this._isKeyword = function(k) { return this.keywords.hasOwnProperty(k) }
+};
+
+// To allow the Parser to be tested without loading photon-lib.js
+//function _new_context() { return {}; }

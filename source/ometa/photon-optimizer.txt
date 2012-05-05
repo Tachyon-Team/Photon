@@ -1,0 +1,7 @@
+
+ometa PhotonOptimizer <: PhotonASTCopy {
+    send ( #__get__ trans:rcv [#string :id]    -> [#send, "__get__", rcv, [#string, id],    [#get, photon.optimize_get ? #true : #false]]
+         | #__set__ trans:rcv [#string :id] trans:v -> [#send, "__set__", rcv, [#string, id], v, [#get, photon.optimize_set ? #true : #false]]
+         | ^send)
+}
+(1);

@@ -10,4 +10,4 @@ d8 utility/debug.js                    \
    deps/ometa-js/parser.js             \
    ometa/photon-compiler.js            \
    photon-lib.js                       \
-   photon-pp.js -- $1
+   photon-pp.js -- $@

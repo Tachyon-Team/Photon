@@ -8,29 +8,21 @@ photon.cell.pp     = function () { return "photon.cell"; };
 photon.map.pp      = function () { return "photon.map"; };
 photon.symbol.pp   = function () { return "photon.symbol"; };
 photon.fixnum.pp   = function () { return "photon.fixnum"; };
+photon.frame.pp    = function () { return "photon.frame"; };
+photon.bind        = {pp:function () { return "photon.bind"; }};
+photon.super_bind  = {pp:function () { return "photon.super_bind"; }};
+photon.inline_bind = {pp:function () { return "photon.inline_bind"; }};
+photon.variadic_enter = {pp:function () { return "photon.inline_bind"; }};
+photon.variadic_exit  = {pp:function () { return "photon.inline_bind"; }};
 
 function _pp(s)
 {
-    //print("Parsing");
     var ast = PhotonParser.matchAll(s, "topLevel");
-    /*
-    print("Macro Expansion");
-    ast = PhotonMacroExp.match(ast, "trans");
-    //print(ast);
-    print("Desugaring");
-    ast = PhotonDesugar.match(ast, "trans", undefined, function (m, idx, f) 
-    { 
-        print("Matched failed at index " + idx + " on input " + m.input.hd); 
-        error(f);
-    });
-    print("Variable Analysis");
-    PhotonVarAnalysis.match(ast, "trans");
-    print("Variable Scope Binding");
-    ast = PhotonVarScopeBinding.match(ast, "trans");
-    print("Pretty Printing");
-    print(ast);
-    */
     return PhotonPrettyPrinter.match(ast, "trans");
 }
 
-print(_pp(readFile(arguments[0])));
+
+for (var i = 0; i < arguments.length; ++i)
+{
+    print(_pp(readFile(arguments[i])));
+}

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include <assert.h>
 
 #ifndef _PHOTON_H
@@ -35,6 +36,66 @@
          29,28,27,26,25,24,23,22,21,20, \
          19,18,17,16,15,14,13,12,11,10, \
          9,8,7,6,5,4,3,2,1,0
+
+#ifndef CURRENT_TIME_MILLIS
+#define CURRENT_TIME_MILLIS
+// Timer initialization time
+double photonTimerInitTime;
+
+// Last time value returned by the timer
+double photonTimerLastTime;
+
+double photonCurrentTimeSecs()
+{
+    struct timeval timeVal;
+
+    int r = gettimeofday(&timeVal, NULL);
+
+    if (r != 0)
+    {
+        printf("Error in getTimeSecs\n");
+        exit(0);
+    }
+
+    double curTime = (timeVal.tv_sec + timeVal.tv_usec / 1000000.0);
+
+    double deltaTime = curTime - photonTimerInitTime;
+
+    //printf("// cur time  : %f\n", curTime);
+    //printf("// init time : %f\n", photonTimerInitTime);
+    //printf("// delta time: %f\n", deltaTime);
+
+    // If the clock value is updated, avoid returning
+    // a time smaller than the last value
+    if (deltaTime < photonTimerLastTime)
+    {
+        return photonTimerLastTime;
+    }
+
+    photonTimerLastTime = deltaTime;
+
+    return deltaTime;
+}
+
+ssize_t photonCurrentTimeMillis()
+{
+    double timeSecs = photonCurrentTimeSecs();
+
+    //printf("// Time secs: %f\n", timeSecs);
+
+    ssize_t timeMs = (ssize_t)(timeSecs * 1000);
+
+    return timeMs;
+}
+#endif // #ifndef CURRENT_TIME_MILLIS
+
+void initTimer()
+{
+    // Initialize the timer
+    photonTimerInitTime = 0;
+    photonTimerInitTime = photonCurrentTimeSecs();
+    photonTimerLastTime = 0;
+}
 
 struct array;
 struct cell;
@@ -587,6 +648,13 @@ struct object *object_set(size_t n, struct object *self, struct function *closur
 void object_serialize_ref(struct object *obj, struct object *stack);
 struct map *base_map(struct object *obj, struct object *TYPE);
 struct object *map_property_offset(size_t n, struct map *self, struct function *closure, struct object *name);
+struct object *object_init_static(
+    size_t n,
+    struct object *self, 
+    struct function *closure,
+    struct object *values_size, 
+    struct object *payload_size
+);
 
 struct object *function_new(
     size_t n, 
@@ -760,12 +828,22 @@ struct object *array_new(size_t n, struct array *self, struct function *closure,
     assert(ref_is_fixnum(size));
     assert(fx(size) >= 0);
 
+    /*
     struct object *new_array = send(
         self, 
         s_init, 
         ref(0), 
         ref(fx(size)*sizeof(struct object *) + sizeof(struct array))
     );
+    */
+    struct object *new_array = object_init_static(
+        2,
+        (struct object *)self,
+        (struct function *)NIL,
+        ref(0), 
+        ref(fx(size)*sizeof(struct object *) + sizeof(struct array))
+    );
+
     inc_mem_counter(mem_array, 0, fx(size)*sizeof(struct object *) + sizeof(struct array));
 
     new_array->_hd[-1].map       = base_map((struct object *)self, ARRAY_TYPE);
@@ -1213,6 +1291,10 @@ struct object *function_serialize(size_t n, struct object *self, struct function
     return self;
 }
 
+struct object *global_currentTimeMillis(size_t n, struct object *self, struct function *closure)
+{
+    return ref(photonCurrentTimeMillis());
+}
 
 struct object *global_readFile(size_t n, struct object *self, struct function *closure, struct object *name)
 {
@@ -1670,9 +1752,10 @@ struct object *object_clone(size_t n, struct object *self, struct function *clos
     self = self->_hd[-1].extension;
 
     ssize_t i;
-    struct object* clone = send(
+    struct object* clone = object_init_static(
+        2,
         self, 
-        s_init, 
+        (struct function *)NIL, 
         ref(object_values_size(self)),
         payload_size
     );
@@ -1798,7 +1881,8 @@ struct object *object_init_static(
 
 struct object *object_new(size_t n, struct object *self, struct function *closure)
 {
-    struct object *child     = send(self, s_init, ref(4), ref(0));
+    //struct object *child     = send(self, s_init, ref(4), ref(0));
+    struct object *child = object_init_static(2, self, (struct function *)NIL, ref(4), ref(0));
     inc_mem_counter(mem_object, 4, 0);
     child->_hd[-1].map       = base_map(self, OBJECT_TYPE);
     child->_hd[-1].prototype = self;
@@ -2312,6 +2396,8 @@ struct object *wrap(method_t m, const char *name)
 
 void bootstrap()
 {
+    initTimer();
+
     BOOTSTRAP = 1;
     ssize_t i;
     g_bind       = (bind_t)bind;
@@ -2613,6 +2699,9 @@ void bootstrap()
     global_object = send0(root_object, s_new);
 
     _log("Adding global methods\n");
+    name = send(root_symbol, s_intern, "currentTimeMillis");
+    send(global_object, s_set, name, wrap((method_t)global_currentTimeMillis, "global_currentTimeMillis"));
+
     name = send(root_symbol, s_intern, "readFile");
     send(global_object, s_set, name, wrap((method_t)global_readFile, "global_readFile"));
 
@@ -2829,6 +2918,7 @@ void serialize()
 
 void init(ssize_t argc, char *argv[])
 {
+    initTimer();
     struct object *s_eval = send(root_symbol, s_intern, "eval");
     struct object *script;
 

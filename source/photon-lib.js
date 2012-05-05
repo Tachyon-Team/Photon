@@ -96,13 +96,38 @@ const _NIL       = 2;
 const _TRUE      = 6;
 const _UNDEFINED = 0;
 
-function _op(op)
-{
+var _op;
+(function () {
     var a = new (x86.Assembler)(x86.target.x86);
-    var args = Array.prototype.slice.call(arguments, 1);
-    a[op].apply(a, args);
-    return a.codeBlock.code;
-}
+
+    _op = function (op, op0, op1, op2, op3, op4)
+    {
+        a.codeBlock.code = [];
+
+        if (op0 === undefined)
+        {
+            a[op]();
+        } else if (op1 === undefined)
+        {
+            a[op](op0);
+        } else if (op2 === undefined)
+        {
+            a[op](op0, op1);
+        } else if (op3 === undefined)
+        {
+            a[op](op0, op1, op2);
+        } else if (op4 === undefined)
+        {
+            a[op](op0, op1, op2, op3);
+        } else 
+        {
+            throw "Invalid _op number of arguments";
+            //var args = Array.prototype.slice.call(arguments, 1);
+            //a[op].apply(a, args);
+        }
+        return a.codeBlock.code;
+    }
+})();
 
 function _ref(n)
 {
@@ -571,7 +596,7 @@ function subr(code)
     code = clean(codeBlock.code);
     var length = code.length;
 
-    var f = photon.send(photon.function, "__new__", length, 0);
+    var f = photon.send(photon["function"], "__new__", length, 0);
     photon.send(f, "__intern__", code);
 
     return f;
@@ -927,8 +952,8 @@ PhotonCompiler.context = {
         //print("assemble");
         codeBlock.assemble();
         //print(codeBlock.code);
-        print("listing");
-        print(codeBlock.listingString());
+        //print("listing");
+        //print(codeBlock.listingString());
 
         ref_labels.sort(function (a, b)
         {
@@ -947,7 +972,7 @@ PhotonCompiler.context = {
         code = clean(codeBlock.code);
         var length = code.length;
 
-        var f = photon.send(photon.function, "__new__", length, cell_nb);
+        var f = photon.send(photon["function"], "__new__", length, cell_nb);
         photon.send(f, "__intern__", code);
 
         return f;
