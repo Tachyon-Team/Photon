@@ -1,0 +1,30 @@
+Index: SConstruct
+===================================================================
+--- SConstruct	(revision 7932)
++++ SConstruct	(working copy)
+@@ -103,7 +103,7 @@
+       'CPPDEFINES':   ['ENABLE_DISASSEMBLER', 'DEBUG'],
+     },
+     'mode:release': {
+-      'CCFLAGS':      ['-O3', '-fomit-frame-pointer', '-fdata-sections',
++      'CCFLAGS':      ['-O3', '-g', '-fomit-frame-pointer', '-fdata-sections',
+                        '-ffunction-sections'],
+     },
+     'os:linux': {
+@@ -288,7 +288,6 @@
+   'gcc': {
+     'all': {
+       'WARNINGFLAGS': ['-Wall',
+-                       '-Werror',
+                        '-W',
+                        '-Wno-unused-parameter',
+                        '-Wnon-virtual-dtor']
+@@ -305,7 +304,7 @@
+       }
+     },
+     'os:macos': {
+-      'WARNINGFLAGS': ['-pedantic']
++      'WARNINGFLAGS': []
+     },
+     'arch:arm': {
+       # This is to silence warnings about ABI changes that some versions of the

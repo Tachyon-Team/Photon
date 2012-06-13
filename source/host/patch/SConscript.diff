@@ -1,0 +1,13 @@
+Index: SConscript
+===================================================================
+--- SConscript	(revision 7932)
++++ SConscript	(working copy)
+@@ -36,6 +36,8 @@
+ 
+ SOURCES = {
+   'all': Split("""
++    tachyon-exts.cc
++    d8-tachyon-exts.cc
+     accessors.cc
+     allocation.cc
+     api.cc

@@ -1,0 +1,22 @@
+Index: d8.cc
+===================================================================
+--- d8.cc	(revision 7932)
++++ d8.cc	(working copy)
+@@ -39,6 +39,8 @@
+ #include "platform.h"
+ 
+ 
++#include "d8-tachyon-exts.h"
++
+ namespace v8 {
+ 
+ 
+@@ -427,6 +429,8 @@
+   global_template->Set(String::New("quit"), FunctionTemplate::New(Quit));
+   global_template->Set(String::New("version"), FunctionTemplate::New(Version));
+ 
++  INIT_D8_EXTENSIONS;
++
+ #ifdef LIVE_OBJECT_LIST
+   global_template->Set(String::New("lol_is_enabled"), Boolean::New(true));
+ #else

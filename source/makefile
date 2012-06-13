@@ -87,6 +87,7 @@ JS_FILES  = $(REGULAR_FILES) $(EXTENDED_FILES) $(COMPILER_JS_FILES)
 
 RUNTIME_FILES = bootstrap/photon.c host/d8-tachyon-exts.cc
 
+V8_FILES = host/*.cc host/*.h host/*.c bootstrap/photon.c
 
 all: ometa/photon-compiler.js photon
 
@@ -103,7 +104,7 @@ main.s: $(JS_FILES) photon-v8
 	time ./photon-v8 serialize.js > main.s
 
 photon-v8: deps/v8/d8 Makefile
-	echo "d8 $(BS_FILES) -- \"\$$@\"" > photon-v8 && chmod +x photon-v8
+	echo "deps/v8/d8 $(BS_FILES) -- \"\$$@\"" > photon-v8 && chmod +x photon-v8
 
 photon: main.s 
 	time gcc -m32 -O3 -g -Wl,-no_pie -segprot __TEXT rwx rwx bootstrap/photon.c main.s -o photon
@@ -140,4 +141,9 @@ sloc:
 
 .PHONY: deps
 deps:
-	git clone git://github.com/elavoie/ometa-js.git deps/ometa-js
+	#git clone git://github.com/elavoie/ometa-js.git deps/ometa-js
+	#git clone git://github.com/v8/v8.git deps/v8 
+	patch deps/v8/SConstruct host/patch/SConstruct.diff
+	patch deps/v8/src/SConscript host/patch/SConscript.diff
+	patch deps/v8/src/d8.cc host/patch/d8.cc.diff
+	pushd deps/v8/src; for i in ../../../host/*.c ../../../host/*.cc ../../../host/*.h ../../../bootstrap/photon.c; do ln -s $$i; done
