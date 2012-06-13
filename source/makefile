@@ -52,6 +52,7 @@ PHOTON_COMPILER_JS_FILES = \
 
 COMPILER_JS_FILES = \
         ometa/photon-compiler.js \
+        ometa/photon-lisp-parser.js \
         ometa/photon-optimizer.js
 
 JS_OPTIMIZATION_FILES = \
@@ -100,6 +101,9 @@ ometa/photon-compiler.js: ometa/photon-compiler.txt
 ometa/photon-optimizer.js: ometa/photon-optimizer.txt
 	time ./ometa-compile.sh ometa/photon-optimizer
 
+ometa/photon-lisp-parser.js: ometa/photon-lisp-parser.txt
+	time ./ometa-compile.sh ometa/photon-lisp-parser
+
 main.s: $(JS_FILES) photon-v8
 	time ./photon-v8 serialize.js > main.s
 
@@ -141,8 +145,8 @@ sloc:
 
 .PHONY: deps
 deps:
-	#git clone git://github.com/elavoie/ometa-js.git deps/ometa-js
-	#git clone git://github.com/v8/v8.git deps/v8 
+	git clone git://github.com/elavoie/ometa-js.git deps/ometa-js
+	git clone git://github.com/v8/v8.git deps/v8 
 	patch deps/v8/SConstruct host/patch/SConstruct.diff
 	patch deps/v8/src/SConscript host/patch/SConscript.diff
 	patch deps/v8/src/d8.cc host/patch/d8.cc.diff
