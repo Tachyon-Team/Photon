@@ -10,6 +10,18 @@
 #ifndef _PHOTON_H
 #define _PHOTON_H
 
+#define HEAP_PTR_IN_REG_not
+
+#ifdef HEAP_PTR_IN_REG
+
+register char *next asm ("esi");
+
+#else
+
+char *next = 0;
+
+#endif // HEAP_PTR_IN_REG
+
 /*
  * The PP_NARG macro evaluates to the number of arguments that have been
  * passed to it.
@@ -113,14 +125,15 @@ typedef struct object *(*method_t)(size_t n, struct object *receiver, struct obj
 //--------------------------------- Memory Allocation Primitives ---------------
 inline ssize_t ref_is_object(struct object *obj);
 
+
 char *start = 0;
-char *next  = 0;
-char *end   = 0;
+char *limit = 0;
 unsigned long long mem_allocated = 0;      // in Bytes
 unsigned long long exec_mem_allocated = 0; // in Bytes
 
 #define MB *1000000
 #define HEAP_SIZE (10 MB)
+#define HEAP_FUDGE 1000
 
 extern void newHeap()
 {
@@ -136,36 +149,40 @@ extern void newHeap()
 
     assert(start != MAP_FAILED);
 
-    next = start;
-    end = start + HEAP_SIZE;
-    //printf("heap start = %p, next = %p, end = %p\n", start, next, end);
+    limit = start + HEAP_FUDGE;
+    next  = start + HEAP_SIZE;
+    //printf("// heap start = %p, limit = %p, next = %p\n", start, limit, next);
 }
 
 inline char *raw_calloc(size_t nb, size_t size)
 {
-    size_t obj_size = nb * size;
-    char *new_ptr = 0;
+    // Align size
+    size_t obj_size = (nb * size + (sizeof(ssize_t) - 1)) & (-(sizeof(ssize_t)));
+    char *new_ptr = (char *)0;
     mem_allocated += obj_size;
 
-    if ((next + obj_size) > end)
+    if (obj_size > (HEAP_SIZE - HEAP_FUDGE))
     {
-        if (obj_size > HEAP_SIZE)
-        {
-            new_ptr = (char *)calloc(1, obj_size);
-            assert(new_ptr != 0);
-            return new_ptr;
-        } else
+        new_ptr = (char *)calloc(1, obj_size);
+        assert(new_ptr != 0);
+
+        assert(next >= limit && next <= start + HEAP_SIZE);
+        return new_ptr;
+    } else
+    {
+        next -= obj_size;
+
+        if (next < limit)
         {
             newHeap();   
+            next -= obj_size;
         }
+
+        assert(next >= limit && next <= start + HEAP_SIZE);
     }
 
-    new_ptr = next;
-    
-    // Increment and align pointer 
-    next += (obj_size + (sizeof(ssize_t) - 1)) & (-(sizeof(ssize_t)));
-
-    return new_ptr;
+    assert(next >= limit && next <= start + HEAP_SIZE);
+    return next;
 }
 
 // Allocate executable memory
@@ -363,7 +380,7 @@ inline ssize_t array_indexed_values_size(struct array *self)
 
 inline struct object *fixnum_to_ref(ssize_t i)
 {
-    return (struct object *)((i * 2) + 1);
+    return (struct object *)((i << 1) + 1);
 }
 
 inline ssize_t fx(struct object *obj)
@@ -1033,6 +1050,7 @@ struct object *cwrapper_serialize(
     ssize_t i = -(object_values_size(self) + sizeof(struct header) / sizeof(struct object *));
     struct object **s = (struct object **)self;
 
+    printf("// cwrapper\n");
     printf(".align 4\n");
     printf(".globl _L%zd\n", (size_t)self);
     for (; i < 0; ++i)
@@ -1247,6 +1265,7 @@ struct object *function_serialize(size_t n, struct object *self, struct function
     ssize_t j = fx(self->_hd[-1].payload_size);
     struct object **s = (struct object **)self;
 
+    printf("// function\n");
     printf(".align 4\n");
     printf(".globl _L%zd\n", (size_t)self);
     for (; i < 0; ++i)
@@ -1630,6 +1649,7 @@ struct object *map_serialize(size_t n, struct object *self, struct function *clo
     ssize_t j = fx(self->_hd[-1].payload_size) / sizeof(struct object *);
     struct object **s = (struct object **)self;
 
+    printf("// map\n");
     printf(".align 4\n");
     printf(".globl _L%zd\n", (size_t)self);
     for (; i < 0; ++i)
@@ -1889,6 +1909,53 @@ struct object *object_new(size_t n, struct object *self, struct function *closur
     return child;
 }
 
+struct map *object_map_fast = (struct map *)0;
+void object_new_fast_init()
+{
+    struct object *obj = object_new(0, root_object, (struct function *)NIL); 
+    object_map_fast    = obj->_hd[-1].map;
+}
+
+#define OBJ_NEW_FAST_PRELUDE_SIZE 40
+#define OBJ_NEW_FAST_SIZE 44
+struct object *object_new_fast(size_t n, struct object *self, struct function *closure)
+{
+    struct object *child = (struct object *)next;
+    child->_hd[-1].values_size   = ref(4);
+    child->_hd[-1].extension     = child;
+    child->_hd[-1].flags         = ref(0);
+    child->_hd[-1].payload_size  = ref(0);
+    child->_hd[-1].map           = object_map_fast; 
+    child->_hd[-1].prototype     = self;
+
+    next -= OBJ_NEW_FAST_SIZE;
+
+    // Store prelude size before the object
+    *((ssize_t *)next) = OBJ_NEW_FAST_PRELUDE_SIZE;
+
+    if (next < limit)
+    {
+        newHeap();   
+        /*
+        // Copy object to new heap
+        struct object **dest = (struct object **)next;
+        struct object **src  = (struct object **)child;
+        dest[-1] = src[-1];
+        dest[-2] = src[-2];
+        dest[-3] = src[-3];
+        dest[-4] = src[-4];
+        dest[-5] = src[-5];
+        dest[-6] = src[-6];
+        // Skip property values since they are undefined 
+        dest[-11] = src[-11]; // Copy prelude size
+        child = (struct object *)next;
+        next -= OBJ_NEW_FAST_SIZE;
+        */
+    }
+
+    return child;
+}
+
 struct object *object_print(size_t n, struct object *self, struct function *closure)
 {
     printf("[Object]\n");
@@ -1984,6 +2051,7 @@ struct object *structured_serialize(size_t n, struct object *self, struct functi
     ssize_t j = fx(self->_hd[-1].payload_size) / sizeof(struct object *);
     struct object **s = (struct object **)self;
 
+    printf("// structured\n");
     printf(".align 4\n");
     printf(".globl _L%zd\n", (size_t)self);
     for (; i < 0; ++i)
@@ -2055,6 +2123,7 @@ struct object *binary_serialize(size_t n, struct object *self, struct function *
 
     struct object **s = (struct object **)self;
 
+    printf("// binary\n");
     printf(".align 4\n");
     printf(".globl _L%zd\n", (size_t)self);
     for (; i < 0; ++i)
@@ -2102,6 +2171,7 @@ void _log(const char* s)
     //printf("%s", s); 
 }
 
+/*
 //--------------------------------- Memory Management --------------------------
 char *from_start = 0;
 char *from_end   = 0;
@@ -2362,6 +2432,7 @@ void mm_test()
     _log("Memory management test succeeded\n");
 
 }
+*/
 
 //--------------------------------- Bootstrap ----------------------------------
 struct object *bt_map_set(size_t n, struct map *self, struct function *closure, struct object *name, struct object* value)
@@ -2813,6 +2884,25 @@ void bootstrap()
     struct object *s_pop       = send(root_symbol,  s_intern, "__pop__");
     send(root_array, s_set, s_pop, wrap((method_t)array_pop, "array_pop"));
 
+    _log("Experimenting with fast object allocation");
+
+    name = send(root_symbol, s_intern, "__new_fast__"); 
+    struct object *fn = send(root_object, s_get, s_new);
+    send(root_object, s_set, name, fn); 
+
+    if (object_map_fast == (struct map *)0)
+    {
+        object_new_fast_init();
+
+        send(roots, s_push, object_map_fast); 
+        name = send(root_symbol, s_intern, "default_object_map");
+        send(roots_names, s_push, name); 
+
+        name = send(root_symbol, s_intern, "__new_fast__");
+        send(root_object, s_set, name, wrap((method_t)object_new_fast, "object_new_fast"));
+    }
+
+
     _log("Bootstrap done\n");
     BOOTSTRAP = 0;
 }
@@ -2893,6 +2983,17 @@ void serialize()
     SELF_ASSIGN(s_hasOwnProperty);
     SELF_ASSIGN(s_lookup_and_flush_all);
     SELF_ASSIGN(s_lookup_and_flush_value_cache);
+
+
+    if (object_map_fast != (struct map *)0)
+    {
+        SELF_ASSIGN(object_map_fast);
+    } else
+    {
+        printf("    movl $0, %%eax\n");
+        printf("    movl %%eax, _object_map_fast\n");
+    }
+
     printf("    ret\n");
 
     // Generate main
@@ -2900,7 +3001,8 @@ void serialize()
     printf("_main:\n");
     printf("    pushl %%ebp\n");
     printf("    movl  %%esp, %%ebp\n");
-    printf("    sub   $8, %%esp\n");
+    printf("    pushl %%esi\n");
+    printf("    sub   $4, %%esp\n");
     printf("    call _newHeap\n");
     printf("    call _init_globals\n");
     printf("    pushl $0\n");
@@ -2910,7 +3012,8 @@ void serialize()
     printf("    movl  8(%%ebp), %%eax\n");
     printf("    pushl %%eax\n");
     printf("    call _init\n");
-    printf("    add   $24, %%esp\n");
+    printf("    add   $20, %%esp\n");
+    printf("    popl %%esi\n");
     printf("    mov $0, %%eax\n");
     printf("    popl %%ebp\n");
     printf("    ret\n");
@@ -2918,7 +3021,9 @@ void serialize()
 
 void init(ssize_t argc, char *argv[])
 {
+    //printf("// init: start = %p, limit = %p, next = %p\n", start, limit, next);
     initTimer();
+
     struct object *s_eval = send(root_symbol, s_intern, "eval");
     struct object *script;
 

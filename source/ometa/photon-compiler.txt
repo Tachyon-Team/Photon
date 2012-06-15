@@ -599,7 +599,7 @@ ometa PhotonDesugar <: PhotonASTCopy {
                                                                               [#get, o]]]]},
   json     trans*:props                                       -> {var o = gensym();
                                                                   [#let, _new_context(), 
-                                                                    [#begin, [#var, o, [#send, "__new__", [#ref, photon.object]]]],
+                                                                    [#begin, [#var, o, [#send, "__new_fast__", [#ref, photon.object]]]],
                                                                     ([#begin]
                                                                     .concat(props.map(function (b) { 
                                                                      return [#send, "__set__", 

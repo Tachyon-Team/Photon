@@ -1,5 +1,7 @@
 SHELL := /bin/bash
 
+JS_VM = ../deps/v8/d8
+
 BS_FILES = \
         ../utility/debug.js \
         ../utility/num.js \
@@ -21,7 +23,7 @@ STDLIB_FILES = \
         ../stdlib/string.js \
         ../stdlib/math.js
 
-CREATE_EXEC = gcc -m32 -O3 -g -Wl,-no_pie -segprot __TEXT rwx rwx ../bootstrap/photon.c
+CREATE_EXEC = /usr/bin/gcc -m32 -O3 -Wl,-no_pie -segprot __TEXT rwx rwx ../bootstrap/photon.c
 
 PRECOMPILED_NOIC = \
     bin/cfr-noic \
@@ -42,28 +44,35 @@ PRECOMPILED = \
 
 all: map dynamic-profile static-profile fib-lisp
 
+../ometa/photon-compiler.js: ../ometa/photon-compiler.txt
+	pushd ../ && time ./ometa-compile.sh ./ometa/photon-compiler && popd
+
+../ometa/photon-optimizer.js: ../ometa/photon-optimizer.txt
+	pushd ../ && time ./ometa-compile.sh ./ometa/photon-optimizer && popd
+
 ../ometa/photon-lisp-parser.js: ../ometa/photon-lisp-parser.txt
-	pushd ../ &&\
-	./ometa-compile.sh ometa/photon-lisp-parser &&\
-    popd
+	pudhd ../ && time ./ometa-compile.sh ./ometa/photon-lisp-parser && popd
 
-obj/main.s: $(BS_FILES) $(STDLIB_FILES) ../inline.js ../get_opt.js ../serialize.js ../photon.js
-	d8 $(BS_FILES) photon.js -- $(STDLIB_FILES) $(BS_FILES) ../inline.js ../get_opt.js ../serialize.js > obj/main.s
+../deps/v8/d8: ../bootstrap/photon.c ../host/d8-tachyon-exts.cc
+	pushd ../deps/v8 && scons d8 arch=ia32 && popd
 
-bin/photon:  obj/main.s
+obj/main.s: $(BS_FILES) $(STDLIB_FILES) ../inline.js ../get_opt.js ../serialize.js ../photon.js ../deps/v8/d8
+	$(JS_VM) $(BS_FILES) photon.js -- $(STDLIB_FILES) $(BS_FILES) ../inline.js ../get_opt.js ../serialize.js > obj/main.s
+
+bin/photon:  obj/main.s ../bootstrap/photon.c
 	time $(CREATE_EXEC) obj/main.s -o bin/photon 
 
 obj/main-noic.s: $(BS_FILES) $(STDLIB_FILES) ../serialize.js ../photon.js
-	d8 $(BS_FILES) photon.js -- -noic $(STDLIB_FILES) $(BS_FILES) ../serialize.js > obj/main-noic.s
+	$(JS_VM) $(BS_FILES) photon.js -- -noic $(STDLIB_FILES) $(BS_FILES) ../serialize.js > obj/main-noic.s
 
 bin/photon-noic:  obj/main-noic.s
 	time $(CREATE_EXEC) obj/main-noic.s -o bin/photon-noic
 
 map:
 	echo "JS Map implementation" &&\
-    time d8 $(BS_FILES) photon.js -- ../utility/debug.js harmony-map.js map-test.js &&\
+    time $(JS_VM) $(BS_FILES) photon.js -- ../utility/debug.js harmony-map.js map-test.js &&\
     echo "Native Map implementation" &&\
-	time d8 $(BS_FILES) photon.js -- ../utility/debug.js harmony-map-native.js map-test.js
+	time $(JS_VM) $(BS_FILES) photon.js -- ../utility/debug.js harmony-map-native.js map-test.js
 
 dynamic-profile: bin/photon
 	bin/photon dynamic-profile.js
@@ -152,19 +161,30 @@ obj/tree-clone-noic.s: benchmarks/access-binary-tree-clone.js bin/photon-noic
 bin/tree-clone-noic: obj/tree-clone-noic.s
 	$(CREATE_EXEC) obj/tree-clone-noic.s -o bin/tree-clone-noic
 
+obj/creation.s: benchmarks/creation.js bin/photon
+	bin/photon benchmarks/creation.js serialize.js > obj/creation.s
+
+bin/creation: obj/creation.s
+	$(CREATE_EXEC) obj/creation.s -o bin/creation
+
+NODE_NB = 4000000
+perf-creation: bin/creation
+	time bin/creation -- $(NODE_NB)
+	time $(JS_VM) benchmarks/creation.js init.js -- $(NODE_NB)
+
 IC_NB = 400
 perf: $(PRECOMPILED) 
 	time bin/cfr -- $(IC_NB)
-	time d8 benchmarks/controlflow-recursive.js init.js -- $(IC_NB)
+	time $(JS_VM) benchmarks/controlflow-recursive.js init.js -- $(IC_NB)
 	time bin/nsieve -- $(IC_NB)
-	time d8 benchmarks/access-nsieve.js init.js -- $(IC_NB)
+	time $(JS_VM) benchmarks/access-nsieve.js init.js -- $(IC_NB)
 	time bin/fannkuch -- $(IC_NB)
-	time d8 benchmarks/access-fannkuch.js init.js -- $(IC_NB)
+	time $(JS_VM) benchmarks/access-fannkuch.js init.js -- $(IC_NB)
 	time bin/fannkuch-nostring -- $(IC_NB)
-	time d8 benchmarks/access-fannkuch-nostring.js init.js -- $(IC_NB)
+	time $(JS_VM) benchmarks/access-fannkuch-nostring.js init.js -- $(IC_NB)
 	time bin/tree -- $(IC_NB)
 	time bin/tree-clone -- $(IC_NB)
-	time d8 benchmarks/access-binary-tree.js init.js -- $(IC_NB)
+	time $(JS_VM) benchmarks/access-binary-tree.js init.js -- $(IC_NB)
 
 NOIC_NB = 40
 perf-noic: $(PRECOMPILED_NOIC) $(PRECOMPILED)
@@ -181,9 +201,10 @@ perf-noic: $(PRECOMPILED_NOIC) $(PRECOMPILED)
 	time bin/tree-clone -- $(NOIC_NB)
 	time bin/tree-clone-noic -- $(NOIC_NB)
 
+
 COMP_TIME_FILE = benchmarks/controlflow-recursive.js benchmarks/access-nsieve.js
 comp-time: comp_time.js bin/photon bin/photon-noic 
-	time d8 $(BS_FILES) photon.js -- -report $(COMP_TIME_FILE)
+	time $(JS_VM) $(BS_FILES) photon.js -- -report $(COMP_TIME_FILE)
 	bin/photon comp_time.js -- $(COMP_TIME_FILE)
 	bin/photon-noic comp_time.js -- $(COMP_TIME_FILE)
 
