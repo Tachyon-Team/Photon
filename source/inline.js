@@ -14,7 +14,8 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
     MAP.offset_type = "negated";
     this.ref_ctxt().push(MAP);
 
-    var msg_expr = this.gen_symbol(msg);
+    var msg_expr    = this.gen_symbol(msg);
+    var clos_offset = loc + 2 * this.sizeof_ref;
 
     return [
         _op("sub", _$(nb*this.sizeof_ref), _ESP),
@@ -46,10 +47,10 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
                                                           //    (or method from cached location) 
 
         _op("jmp", CONT),
-        0,0,0,0, // next     node in list
-        0,0,0,0, // previous node in list
+        0,0,0,0, _listing("(data) NEXT"),     // next     node in list
+        0,0,0,0, _listing("(data) PREVIOUS"), // previous node in list
 
-        BIND, _listing(BIND.id + ":"),
+        BIND, _lbl_listing(BIND),
         // Bind
         msg_expr,
         _op("push", _EAX),
@@ -60,9 +61,9 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
         _op("call", _EAX),
         _op("add", _$(16), _ESP),
 
-        CONT, _listing(CONT.id + ":"),
+        CONT, _lbl_listing(CONT),
         //_op("mov", _EAX, _mem(loc + 2 * this.sizeof_ref, _EBP)) 
-        0x89, 0x85, _op("gen32", loc + 2 * this.sizeof_ref), // SET CLOSURE (Fixed encoding)
+        0x89, 0x85, _op("gen32", clos_offset), _listing("mov %eax, " + clos_offset + "(%ebp)"), // SET CLOSURE (Fixed encoding)
         _op("call", _EAX),
         _op("add", _$(nb*this.sizeof_ref), _ESP)
     ];

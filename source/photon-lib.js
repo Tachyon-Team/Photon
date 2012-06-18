@@ -80,21 +80,22 @@ function addr_to_num(addr)
     return n;
 }
 
-const _reg       = x86.Assembler.prototype.register;
-const _ESP       = _reg.esp;
-const _EBP       = _reg.ebp;
-const _EAX       = _reg.eax;
-const _EBX       = _reg.ebx;
-const _ECX       = _reg.ecx;
-const _EDX       = _reg.edx;
-const _$         = x86.Assembler.prototype.immediateValue;
-const _mem       = x86.Assembler.prototype.memory;
-const _label     = asm.CodeBlock.prototype.label;
-const _listing   = asm.CodeBlock.prototype.listing;
-const _FALSE     = 4;
-const _NIL       = 2;
-const _TRUE      = 6;
-const _UNDEFINED = 0;
+const _reg         = x86.Assembler.prototype.register;
+const _ESP         = _reg.esp;
+const _EBP         = _reg.ebp;
+const _EAX         = _reg.eax;
+const _EBX         = _reg.ebx;
+const _ECX         = _reg.ecx;
+const _EDX         = _reg.edx;
+const _$           = x86.Assembler.prototype.immediateValue;
+const _mem         = x86.Assembler.prototype.memory;
+const _label       = asm.CodeBlock.prototype.label;
+const _listing     = asm.CodeBlock.prototype.listing;
+const _lbl_listing = function (label) { return _listing(label.id + ":"); };
+const _FALSE       = 4;
+const _NIL         = 2;
+const _TRUE        = 6;
+const _UNDEFINED   = 0;
 
 var _op;
 (function () {
