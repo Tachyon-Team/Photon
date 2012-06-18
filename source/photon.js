@@ -18,7 +18,6 @@ photon.symbol.pp   = function () { return "photon.symbol"; };
 photon.fixnum.pp   = function () { return "photon.fixnum"; };
 photon.optimize_get = false;
 photon.optimize_set = false;
-PhotonDesugar.context.littDictInit();
 
 var verbose = Array.prototype.indexOf.call(arguments, "-v") > 0;
 
