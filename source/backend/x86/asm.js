@@ -1963,6 +1963,26 @@ x86.Assembler.prototype.ret = function (opnd)
                                    opnd));
     }
 };
+
+x86.Assembler.prototype.enter = function (opnd1, opnd2)
+{
+    this.gen8(0xc8);
+    this.genImmNum(opnd1.value, 16);
+    this.genImmNum(opnd2.value, 8);
+
+    this.
+    genListing(x86.instrFormat("enter",
+                               "",
+                               opnd1,
+                               opnd2));
+    return this;
+};
+
+x86.Assembler.prototype.leave = function ()
+{
+    return this.noOpndInstr(0xc9, "leave");
+};
+
 /*
 x86.Assembler.prototype.cmc = function ()
 {

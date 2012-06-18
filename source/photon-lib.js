@@ -1022,8 +1022,6 @@ PhotonCompiler.context = {
     gen_prologue:function (local_n, arg_n)
     {
         var a = new (x86.Assembler)(x86.target.x86);
-        a.
-        push(_EBP);
        
         if (arg_n > 0)
         {
@@ -1031,6 +1029,7 @@ PhotonCompiler.context = {
 
             // Check arg number
             a.
+            push(_EBP).
             cmp(_$(arg_n), _mem(8, _ESP), 32).
             jge(FAST).
             mov(this.gen_mref(photon.variadic_enter), _EAX).
@@ -1038,11 +1037,17 @@ PhotonCompiler.context = {
             call(_EAX).
             add(_$(4), _ESP).
             // Fast entry point
-            label(FAST);
+            label(FAST).
+            mov(_ESP, _EBP);
         }
-
-        // Setup stack frame 
-        a.mov(_ESP, _EBP);
+        else
+        {
+            // Setup stack frame 
+            a.
+            enter(_$(0),_$(0)); // not really faster but easier to read
+            //push(_EBP).
+            //mov(_ESP, _EBP);
+        }
 
         // Reserve space for locals
         for (var i=0; i<local_n; i++)
@@ -1066,8 +1071,9 @@ PhotonCompiler.context = {
             a.
             cmp(_$(arg_n), _mem(8, _EBP), 32).
             jl(SLOW).
-            mov(_EBP, _ESP).   
-            pop(_EBP).
+            leave(). // not really faster but easier to read
+            //mov(_EBP, _ESP).   
+            //pop(_EBP).
             ret().
             label(SLOW).
             mov(_$(arg_n), _EDX).
@@ -1077,8 +1083,9 @@ PhotonCompiler.context = {
         else
         {
             a.
-            mov(_EBP, _ESP).   
-            pop(_EBP).
+            leave(). // not really faster but easier to read
+            //mov(_EBP, _ESP).   
+            //pop(_EBP).
             ret();
         }
         return a.codeBlock.code;
