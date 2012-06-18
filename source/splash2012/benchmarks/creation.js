@@ -10,11 +10,13 @@ function init()
     var x = null;
     var o = {};
 
-    // 20% slower
+    /*
+    // 25% slower
     for (var i = 0; i < n; ++i)
     {
         x = {};     
     }
+    */
 
     /* 
     // ~ 7x slower
@@ -23,7 +25,8 @@ function init()
         x = Object.create(o);
     }
 
-    // ~ 63x slower
+    */
+    // Before: ~63x slower After: 2.0x slower
     var m = n/10;
     for (var i = 0; i < m; ++i)
     {
@@ -32,6 +35,15 @@ function init()
         {
             x = {next:x, value:1};
         }
+    }
+
+    /*
+    // Before: ~6.33x slower
+    var obj = {next:x, value:1};
+    for (var i = 0; i < n; ++i)
+    {
+        obj.next  = i;
+        obj.value = i; 
     }
 
     // > 100x slower
@@ -45,16 +57,24 @@ function init()
         }
     }
 
-    // ~30x slower
+    // Before: ~30x slower After: ~x slower
     for (var i = 0; i < n; ++i)
     {
         x = []; 
     }
+    */
 
+    /*
     // > 100x slower
     for (var i = 0; i < n; ++i)
     {
         x = [0,1,2,3,4,5,6,7,8,9,10];
+    }
+
+    // ~ 17x slower
+    for (var i = 0; i < n; ++i)
+    {
+        x = [[0],[1]];
     }
     */
 }

@@ -497,14 +497,6 @@ ometa PhotonDesugar <: PhotonASTCopy {
   var      :name {self.context.declare(name)}
                  ( [#get #undefined]                          -> [#begin]
                  | trans:val                                  -> [#set, [#get, name], val]),
-  arr      trans*:xs                                          -> {var a = gensym(); 
-                                                                  [#let, _new_context(), 
-                                                                    [#begin, 
-                                                                        [#var, a, [#send, "__new__", [#ref, photon.array], [#number, xs.length]]]],
-                                                                    [#begin]
-                                                                    .concat(xs.map(function (x) {
-                                                                     return [#send, "__push__", [#get, a], x];}))
-                                                                    .concat([[#get, a]])]},
   unop     ( 'typeof' trans:x                                 -> [#send, "__typeof__",  x]
            | 'delete' ( [#getp trans:x trans:f]               -> [#send, "__delete__",  x, f]
                       | [#get :n]                             -> [#get, #false])
@@ -597,9 +589,11 @@ ometa PhotonDesugar <: PhotonASTCopy {
                                                                                   [#string, "object"]],
                                                                               [#get, r],
                                                                               [#get, o]]]]},
-  json     trans*:props                                       -> {var o = gensym();
+  json     trans*:props                                       -> {var o     = gensym();
+                                                                  var names = props.map(function (b) { return b[1][1]; });
+                                                                  var clone = self.context.getClone(names);
                                                                   [#let, _new_context(), 
-                                                                    [#begin, [#var, o, [#send, "__new_fast__", [#ref, photon.object]]]],
+                                                                    [#begin, [#var, o, [#send, "__clone_fast__", [#ref, clone]]]],
                                                                     ([#begin]
                                                                     .concat(props.map(function (b) { 
                                                                      return [#send, "__set__", 
@@ -607,6 +601,14 @@ ometa PhotonDesugar <: PhotonASTCopy {
                                                                                     b[1],
                                                                                     b[2]];}))
                                                                     .concat([[#get, o]]))]},
+  arr      trans*:xs                                          -> {var a = gensym(); 
+                                                                  [#let, _new_context(), 
+                                                                    [#begin, 
+                                                                        [#var, a, [#send, "__new__", [#ref, photon.array], [#number, xs.length]]]],
+                                                                    [#begin]
+                                                                    .concat(xs.map(function (x) {
+                                                                     return [#send, "__push__", [#get, a], x];}))
+                                                                    .concat([[#get, a]])]},
   call     = [#getp [#super trans:rcv] ( [#string :msg] 
                                        | { error("Super send need a static message name"); } ) ] 
              trans*:args                                      -> [#super_send, msg, rcv].concat(args)
@@ -640,6 +642,7 @@ PhotonDesugar.context =
         var that = Object.create(PhotonDesugar.context);
         that.scope = null;
         that.previous_scopes = [];
+        that.littDictRoot = {};
         return that;
     }, 
     enter_function_scope:function ()
@@ -673,6 +676,54 @@ PhotonDesugar.context =
         {
             this.scope[ids[i]] = true;
         }
+    },
+    littPropVal:function (node, nonPrim)
+    {
+        if (node[0] === "number" || node[0] === "string") 
+        {
+            return node[1];
+        }else if (node[0] === "get")
+        {
+            if      (node[1] === "true")  return true;
+            else if (node[1] === "false") return false;
+            else if (node[1] === "null")  return null;
+            else                          return undefined; 
+        } else
+        {
+            return nonPrim;
+        }
+    },
+    littDictNode:function (names)
+    {
+        var clone = photon.send(photon.object, "__new__");
+        for (var i = 0; i < names.length; ++i)
+        {
+            var name = names[i]; 
+            photon.send(clone, "__set__", name, undefined);
+        }
+        return clone;
+    },
+    namesHashStr:function (names)
+    {
+        var a = []; 
+        for (var i = 0; i < names.length; ++i)
+        {
+            a.push(names[i]);
+            a.push(String(names[i].length));
+        }
+        return a.join("");
+    },
+    getClone:function (names)
+    {
+        var dict = this.littDictRoot;
+        var hash = this.namesHashStr(names);
+        
+        if (!dict.hasOwnProperty(hash))
+        {
+            dict[hash] = this.littDictNode(names);
+        }
+
+        return dict[hash];
     }
 };
 
