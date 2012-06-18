@@ -1792,6 +1792,46 @@ struct object *object_clone(size_t n, struct object *self, struct function *clos
     return clone;
 }
 
+struct object *object_clone_fast(size_t n, struct object *self, struct function *closure)
+{
+    //assert(fx(self->_hd[-1].payload_size) == 0);
+    self = self->_hd[-1].extension;
+
+
+    struct object *clone = (struct object *)next;
+    clone->_hd[-1].values_size   = self->_hd[-1].values_size;
+    clone->_hd[-1].extension     = clone;
+    clone->_hd[-1].flags         = self->_hd[-1].flags;
+    clone->_hd[-1].payload_size  = self->_hd[-1].payload_size;
+    clone->_hd[-1].map           = self->_hd[-1].map; 
+    clone->_hd[-1].prototype     = self;
+
+    ssize_t i;
+    for (i=-object_values_size(self); i < 0; ++i)
+    {
+        clone->_hd[-1].values[i] = self->_hd[-1].values[i];
+    }
+
+
+    ssize_t values_size = fx(self->_hd[-1].values_size);
+    ssize_t object_prelude_size = values_size * sizeof(struct object *) + sizeof(struct header);
+    ssize_t object_size = object_prelude_size + sizeof(ssize_t);
+
+    //assert(object_size <= HEAP_FUDGE);
+
+    next -= object_size;
+
+    // Store prelude size before the object
+    *((ssize_t *)next) = object_prelude_size;
+
+    if (next < limit)
+    {
+        newHeap();   
+    }
+
+    return clone;
+}
+
 struct object *object_delete(size_t n, struct object *self, struct function *closure, struct object *name)
 {
     self = self->_hd[-1].extension;
@@ -2901,6 +2941,9 @@ void bootstrap()
         name = send(root_symbol, s_intern, "__new_fast__");
         send(root_object, s_set, name, wrap((method_t)object_new_fast, "object_new_fast"));
     }
+
+    name = send(root_symbol, s_intern, "__clone_fast__");
+    send(root_object, s_set, name, wrap((method_t)object_clone_fast, "object_clone_fast"));
 
 
     _log("Bootstrap done\n");
