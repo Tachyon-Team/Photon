@@ -1814,11 +1814,11 @@ x86.Assembler.prototype.jumpLabel = function (opcode, mnemonic, label, offset)
     };
 
     /** @ignore */
-    function listing(isShort)
+    function listing(cb, isShort)
     {
-        if (that.useListing)
+        if (cb.useListing)
         {
-            that.genListing(
+            cb.genListing(
                 x86.instrFormat(mnemonic,
                                  that.jumpLabelSuffix(isShort),
                                  label.name() + x86.offsetToString(offset)));
@@ -1839,7 +1839,7 @@ x86.Assembler.prototype.jumpLabel = function (opcode, mnemonic, label, offset)
     {
         cb.gen8(opcode);
         cb.gen8(labelDist(label, offset, pos, 2) & 0xFF);
-        listing(true);
+        listing(cb, true);
     };
 
     /** @ignore 32 bit relative address */
@@ -1872,7 +1872,7 @@ x86.Assembler.prototype.jumpLabel = function (opcode, mnemonic, label, offset)
                 gen32(labelDist(label, offset, pos, 6));
                 break;
         }
-        listing(false);
+        listing(cb, false);
     };
 
     var checks = [(opcode === x86.opcode.callRel32) ? alwaysNull:shortDispCheck,

@@ -943,17 +943,17 @@ PhotonCompiler.context = {
             print = function () {};
         }
 
-        //print("Code AST");
-        //print(code);
+        print("Code AST");
+        print(code.toString());
         code = flatten(code);
-        //print("Flattened Code AST");
-        //print(clean(code));
+        print("Flattened Code AST");
+        print(clean(code).toString());
         var codeBlock = _asm(code).codeBlock;
-        //print("assemble");
+        print("assemble");
         codeBlock.assemble();
-        //print(codeBlock.code);
-        //print("listing");
-        //print(codeBlock.listingString());
+        print(codeBlock.code.toString());
+        print("listing");
+        print(codeBlock.listingString());
 
         ref_labels.sort(function (a, b)
         {
@@ -986,7 +986,8 @@ PhotonCompiler.context = {
             _op("mov", _$(_UNDEFINED), _EAX),
             this.gen_epilogue(args.length)
         ];
-        var f = this.new_function_object(code, this.ref_ctxt(), 0);
+        print("// name = "+name);
+        var f = this.new_function_object(code, this.ref_ctxt(), 0, (name === "foobar") ? print : undefined);
         photon.send(f, "__set__", "length", args.length);
         
         // Remember globally defined functions for direct access

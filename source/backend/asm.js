@@ -74,6 +74,8 @@ asm.CodeBlock = function (startPos, bigEndian, listing)
     if (listing === undefined)
         listing = false;
 
+    listing = true; //////////////////////////////////////////////////////
+
     /** Offset at which the code will be generated */
     this.startPos     = startPos;
 

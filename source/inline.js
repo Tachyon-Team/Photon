@@ -41,9 +41,9 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
         // Object case
         _op("mov", _mem(-5*this.sizeof_ref, _ECX), _ECX), // Retrieve rcv's extension
         _op("mov", _mem(-this.sizeof_ref, _ECX), _EDX),   // Retrieve rcv's map
-        0x81, 0xfa, MAP, 0x00, 0x00, 0x00, 0x00,          // Check against last map (cmp $(MAP), edx)
+        0x81, 0xfa, MAP, 0x00, 0x00, 0x00, 0x00, asm.CodeBlock.prototype.listing("cmp $MAP, %edx"),          // Check against last map (cmp $(MAP), edx)
         _op("jne", BIND),                                 // Perform method binding in case of cache miss
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,               // Retrieve cached method 
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, asm.CodeBlock.prototype.listing("mov $METHOD, %eax"),               // Retrieve cached method 
                                                           //    (or method from cached location) 
 
         _op("jmp", CONT),
