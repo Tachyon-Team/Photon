@@ -1587,8 +1587,14 @@ PhotonCompiler.context = {
 
     gen_let:function (nb, es, body)
     {
+        var pushes = [];
+        for (var i = 0; i < nb; ++i)
+        {
+            pushes.push(_op("push", _$(_UNDEFINED)));    
+        }
+
         return [
-            _op("sub", _$(nb*this.sizeof_ref), _ESP),
+            pushes,
             es,
             body,
             _op("add", _$(nb*this.sizeof_ref), _ESP)
