@@ -1424,7 +1424,7 @@ x86.Assembler.prototype.movImm = function (dest, src, width)
         {
             if (src.label !== undefined)
             {
-                that.label(src.label);
+                that.codeBlock.genLabel(src.label);
             }
 
             if (max32 === true)

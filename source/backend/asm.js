@@ -326,7 +326,7 @@ asm.CodeBlock.prototype.label   = function (id)
 
     /** @private Value that will be printed in listing */
     if (id !== undefined)
-        that.id = id;
+        that.id = id + "_" + label.nextId++;
     else
         that.id = "L" + label.nextId++;
 

@@ -1372,7 +1372,6 @@ PhotonCompiler.context = {
             bind_helper = photon.bind;
         }
 
-        var CONT = _label();
         var loc = -(this.stack_location_nb + nb) * this.sizeof_ref + this.bias;
         var that = this;
 

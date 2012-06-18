@@ -6,7 +6,6 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
     }
 
     var CONT = _label();
-    var SELF = _label();
     var BIND = _label();
     var loc = -(this.stack_location_nb + nb) * this.sizeof_ref + this.bias;
     var that = this;
@@ -41,16 +40,16 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
         // Object case
         _op("mov", _mem(-5*this.sizeof_ref, _ECX), _ECX), // Retrieve rcv's extension
         _op("mov", _mem(-this.sizeof_ref, _ECX), _EDX),   // Retrieve rcv's map
-        0x81, 0xfa, MAP, 0x00, 0x00, 0x00, 0x00, asm.CodeBlock.prototype.listing("cmp $MAP, %edx"),          // Check against last map (cmp $(MAP), edx)
+        0x81, 0xfa, MAP, 0x00, 0x00, 0x00, 0x00, _listing("cmp $MAP, %edx"),          // Check against last map (cmp $(MAP), edx)
         _op("jne", BIND),                                 // Perform method binding in case of cache miss
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, asm.CodeBlock.prototype.listing("mov $METHOD, %eax"),               // Retrieve cached method 
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, _listing("mov $METHOD, %eax"),               // Retrieve cached method 
                                                           //    (or method from cached location) 
 
         _op("jmp", CONT),
         0,0,0,0, // next     node in list
         0,0,0,0, // previous node in list
 
-        BIND,
+        BIND, _listing(BIND.id + ":"),
         // Bind
         msg_expr,
         _op("push", _EAX),
@@ -61,7 +60,7 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
         _op("call", _EAX),
         _op("add", _$(16), _ESP),
 
-        CONT,
+        CONT, _listing(CONT.id + ":"),
         //_op("mov", _EAX, _mem(loc + 2 * this.sizeof_ref, _EBP)) 
         0x89, 0x85, _op("gen32", loc + 2 * this.sizeof_ref), // SET CLOSURE (Fixed encoding)
         _op("call", _EAX),
