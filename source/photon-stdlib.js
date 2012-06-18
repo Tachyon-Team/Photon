@@ -642,6 +642,7 @@ function eval(s)
     PhotonVarAnalysis.match(ast, "trans", undefined, failer);
     print("// eval: Variable scope binding");
     ast = PhotonVarScopeBinding.match(ast, "trans", undefined, failer);
+    //print(PhotonPrettyPrinter.match(ast, "trans", undefined, failer));
     print("// eval: Optimizing");
     ast = PhotonOptimizer.match(ast, "trans", undefined, failer);
     print("// eval: Code Generation");

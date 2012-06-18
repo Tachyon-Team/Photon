@@ -181,7 +181,7 @@ function _deep_copy(o)
 function _new_context()
 {
     return {
-        scope:{},
+        scope:null,
         name:undefined
     };
 }

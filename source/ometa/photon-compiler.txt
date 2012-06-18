@@ -783,6 +783,9 @@ ometa PhotonVarScopeBinding <: PhotonASTCopy {
   global :ctxt   {self.context.enter_function_scope(ctxt.scope)} 
          trans:r {self.context.leave_function_scope(ctxt.scope)} -> [#global, ctxt, r], 
 
+  // Remove all var definition because they are implicit in the function prelude protocol
+  var :name [#get #undefined]                                    -> [#begin],
+
   get       (#true | #false | #undefined | #null | ?{self.context.is_local_scope()} #arguments):c -> [#get, c],
   get (:id -> {var x = self.context.scope.lookup(id); if (x === undefined) throw "Undefined variable '" + id + "'"; x}):x 
                                        ( isGlobal(x)             -> [#send, "__get__", [#ref, photon.global], [#string, id]]
