@@ -648,7 +648,7 @@ function eval(s)
     var comp = PhotonCompiler.createInstance();
     var code = comp.match(ast, "trans", undefined, failer);
     print("// eval: Function construction");
-    var f = comp.context.new_function_object(code, comp.context.refs, 0, print);
+    var f = comp.context.new_function_object(code, comp.context.refs, 0);
     print("// eval: Executing generated code");
     return f.__obj__();
 }
