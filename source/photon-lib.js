@@ -1021,27 +1021,32 @@ PhotonCompiler.context = {
 
     gen_prologue:function (local_n, arg_n)
     {
-        var FAST = _label("FAST_ENTRY");
         var a = new (x86.Assembler)(x86.target.x86);
         a.
-        push(_EBP).
+        push(_EBP);
        
-        // Check arg number
-        cmp(_$(arg_n), _mem(8, _ESP), 32).
-        jge(FAST).
-        mov(this.gen_mref(photon.variadic_enter), _EAX).
-        push(_$(arg_n)).
-        call(_EAX).
-        add(_$(4), _ESP).
+        if (arg_n > 0)
+        {
+            var FAST = _label("FAST_ENTRY");
 
-        // Fast entry point
-        label(FAST).
+            // Check arg number
+            a.
+            cmp(_$(arg_n), _mem(8, _ESP), 32).
+            jge(FAST).
+            mov(this.gen_mref(photon.variadic_enter), _EAX).
+            push(_$(arg_n)).
+            call(_EAX).
+            add(_$(4), _ESP).
+            // Fast entry point
+            label(FAST);
+        }
 
         // Setup stack frame 
-        mov(_ESP, _EBP).
+        a.mov(_ESP, _EBP);
 
         // Reserve space for locals
-        sub(_$(this.sizeof_ref*local_n), _ESP);
+        for (var i=0; i<local_n; i++)
+            a.push(_$(_UNDEFINED));
 
         return a.codeBlock.code;
     },
@@ -1049,23 +1054,33 @@ PhotonCompiler.context = {
     gen_epilogue:function (arg_n)
     {
         var a = new (x86.Assembler)(x86.target.x86);
-        var SLOW = _label("SLOW");
 
         for (var i = 0; i < this.try_lvl; ++i)
         {
             a.mov(_mem(0, _EBP), _EBP);
         }
 
-        a.
-        cmp(_$(arg_n), _mem(8, _EBP), 32).
-        jl(SLOW).
-        mov(_EBP, _ESP).   
-        pop(_EBP).
-        ret().
-        label(SLOW).
-        mov(_$(arg_n), _EDX).
-        mov(this.gen_mref(photon.variadic_exit), _ECX).
-        jmp(_ECX);
+        if (arg_n > 0)
+        {
+            var SLOW = _label("SLOW");
+            a.
+            cmp(_$(arg_n), _mem(8, _EBP), 32).
+            jl(SLOW).
+            mov(_EBP, _ESP).   
+            pop(_EBP).
+            ret().
+            label(SLOW).
+            mov(_$(arg_n), _EDX).
+            mov(this.gen_mref(photon.variadic_exit), _ECX).
+            jmp(_ECX);
+        }
+        else
+        {
+            a.
+            mov(_EBP, _ESP).   
+            pop(_EBP).
+            ret();
+        }
         return a.codeBlock.code;
     },
 
