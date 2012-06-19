@@ -1198,31 +1198,27 @@ PhotonCompiler.context = {
     
         a.
         mov(_EAX, _ECX).
+        and(_mem(0, _ESP), _ECX).
         and(_$(1), _ECX).
-        and(_mem(0, _ESP), _ECX);
-
-        a.
+        pop(_ECX).
         je(TYPE_FAIL).
-        mov(_EAX, _ECX).
-        dec(_ECX).
-        add(_mem(0, _ESP), _ECX).
+        dec(_EAX).
+        add(_ECX, _EAX).
         jo(OVF).
-        mov(_ECX, _EAX).
-        add(_$(this.sizeof_ref), _ESP).
         label(END);
 
         var a2 = new (x86.Assembler)(x86.target.x86);
+
         a2.
-        label(TYPE_FAIL).
-        pop(_ECX);
+        label(TYPE_FAIL);
+
         a2.codeBlock.extend(this.gen_call(
             nb, 
             _op("mov", this.gen_mref(photon.handlers.add), _EAX),
             [[], _op("mov", _ECX, _EAX)]));
-        a2.
-        jmp(END);
 
         a2.
+        jmp(END).
         label(OVF);
 
         a2.codeBlock.extend(this.gen_throw(this.gen_symbol("Addition overflow")));
@@ -1231,7 +1227,6 @@ PhotonCompiler.context = {
         jmp(END);
 
         this.defer(a2.codeBlock.code);
-
 
         return a.codeBlock.code;
     },
@@ -1417,9 +1412,12 @@ PhotonCompiler.context = {
 
         var msg_expr = this.gen_symbol(msg);
 
-        return [
-            _op("sub", _$(nb*this.sizeof_ref), _ESP),///////////////////
+        var code = [];
 
+        for (var i=0; i<nb; i++)
+            code.push(_op("push", _$(_UNDEFINED)));
+
+        return code.concat([
             rcv,
             _op("mov", _EAX, _mem(loc + this.sizeof_ref, _EBP), 32),
             args.map(function (a, i) 
@@ -1441,7 +1439,7 @@ PhotonCompiler.context = {
             _op("mov", _EAX, _mem(loc + 2 * this.sizeof_ref, _EBP)), // SET CLOSURE
             _op("call", _EAX),
             _op("add", _$(nb*this.sizeof_ref), _ESP)
-        ];
+        ]);
     },
 
     gen_call:function (nb, fn, args)
