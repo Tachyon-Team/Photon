@@ -10,15 +10,17 @@
 #ifndef _PHOTON_H
 #define _PHOTON_H
 
+#define DEBUG_GC_TRACES_not
+
 #define HEAP_PTR_IN_REG_not
 
 #ifdef HEAP_PTR_IN_REG
 
-register char *next asm ("esi");
+register char *heap_ptr asm ("esi");
 
 #else
 
-char *next = 0;
+char *heap_ptr = 0;
 
 #endif // HEAP_PTR_IN_REG
 
@@ -126,19 +128,19 @@ typedef struct object *(*method_t)(size_t n, struct object *receiver, struct obj
 inline ssize_t ref_is_object(struct object *obj);
 
 
-char *start = 0;
-char *limit = 0;
+char *heap_start = 0;
+char *heap_limit = 0;
 unsigned long long mem_allocated = 0;      // in Bytes
 unsigned long long exec_mem_allocated = 0; // in Bytes
 
-#define MB *1000000
-#define HEAP_SIZE (10 MB)
+#define MB *(1024*1024)
+#define HEAP_SIZE (30 MB)
 #define HEAP_FUDGE 1000
 
 extern void newHeap()
 {
-    //start = (char *)calloc(1, HEAP_SIZE);
-    start = (char *)mmap(
+    //heap_start = (char *)calloc(1, HEAP_SIZE);
+    heap_start = (char *)mmap(
         0,
         HEAP_SIZE,
         PROT_READ | PROT_WRITE | PROT_EXEC,
@@ -147,11 +149,11 @@ extern void newHeap()
         0
     );
 
-    assert(start != MAP_FAILED);
+    assert(heap_start != MAP_FAILED);
 
-    limit = start + HEAP_FUDGE;
-    next  = start + HEAP_SIZE;
-    //printf("// heap start = %p, limit = %p, next = %p\n", start, limit, next);
+    heap_limit = heap_start + HEAP_FUDGE;
+    heap_ptr  = heap_start + HEAP_SIZE;
+    //printf("// heap_start = %p, heap_limit = %p, heap_ptr = %p\n", heap_start, heap_limit, heap_ptr);
 }
 
 inline char *raw_calloc(size_t nb, size_t size)
@@ -166,23 +168,26 @@ inline char *raw_calloc(size_t nb, size_t size)
         new_ptr = (char *)calloc(1, obj_size);
         assert(new_ptr != 0);
 
-        assert(next >= limit && next <= start + HEAP_SIZE);
+        assert(heap_ptr >= heap_limit && heap_ptr <= heap_start + HEAP_SIZE);
         return new_ptr;
     } else
     {
-        next -= obj_size;
+        heap_ptr -= obj_size;
 
-        if (next < limit)
+        if (heap_ptr < heap_limit)
         {
-            newHeap();   
-            next -= obj_size;
+#ifdef DEBUG_GC_TRACES_not
+            fprintf(stderr, "*** newHeap called from raw_calloc!\n");
+#endif
+            newHeap(); // TODO: use heap_limit_reached
+            heap_ptr -= obj_size;
         }
 
-        assert(next >= limit && next <= start + HEAP_SIZE);
+        assert(heap_ptr >= heap_limit && heap_ptr <= heap_start + HEAP_SIZE);
     }
 
-    assert(next >= limit && next <= start + HEAP_SIZE);
-    return next;
+    assert(heap_ptr >= heap_limit && heap_ptr <= heap_start + HEAP_SIZE);
+    return heap_ptr;
 }
 
 // Allocate executable memory
@@ -500,6 +505,193 @@ inline ssize_t ref_to_fixnum(struct object *obj)
 inline char byte(ssize_t i, struct object *obj)
 {
     return (char)(((size_t)obj >> i*8) & 0xff);
+}
+
+//-------------------------------- Memory management ---------------------------
+
+struct object *todo[1000000];
+int todo_ptr;
+int todo_scan;
+
+void forward(const char *msg, struct object **obj)
+{
+  struct object *o = *obj;
+
+  if (o == UNDEFINED)
+    {
+#ifdef DEBUG_GC_TRACES
+      fprintf(stderr, "%s %p: UNDEFINED\n", msg, o);
+#endif
+    }
+  else if (o == NIL)
+    {
+#ifdef DEBUG_GC_TRACES
+      fprintf(stderr, "%s %p: NIL\n", msg, o);
+#endif
+    }
+  else if (o == TRUE)
+    {
+#ifdef DEBUG_GC_TRACES
+      fprintf(stderr, "%s %p: TRUE\n", msg, o);
+#endif
+    }
+  else if (o == FALSE)
+    {
+#ifdef DEBUG_GC_TRACES
+      fprintf(stderr, "%s %p: FALSE\n", msg, o);
+#endif
+    }
+  else if (ref_is_fixnum(o))
+    {
+#ifdef DEBUG_GC_TRACES
+      fprintf(stderr, "%s %p: FIXNUM (%d)\n", msg, o, (int)ref_to_fixnum(o));
+#endif
+    }
+  else
+  {
+    if (ref_is_fixnum(o->_hd[-1].values_size)) // not forwarded yet
+      {
+#ifdef DEBUG_GC_TRACES
+
+        fprintf(stderr, "%s %p: MEMORY ALLOCATED OBJECT #%d\n", msg, o, todo_ptr);
+#endif
+        o->_hd[-1].values_size = (struct object *)((ref_to_fixnum(o->_hd[-1].values_size)<<16)+(todo_ptr<<1)); // leave forwarding pointer
+        todo[todo_ptr++] = o;
+      }
+    else
+      {
+#ifdef DEBUG_GC_TRACES
+        fprintf(stderr, "%s %p: FORWARDED MEMORY ALLOCATED OBJECT #%d\n", msg, o, ((int)(o->_hd[-1].values_size) & ~(-1<<16)) >> 1);
+#endif
+      }
+  }
+}
+
+void scan()
+{
+  struct object *o = todo[todo_scan];
+
+#ifdef DEBUG_GC_TRACES
+  fprintf(stderr, "\nSCANNING %p MEMORY ALLOCATED OBJECT #%d\n", o, todo_scan);
+#endif
+
+  int n = ((int)o->_hd[-1].values_size)>>16;
+  struct object *vs = fixnum_to_ref(n);
+
+  forward("  values_size", &vs);
+  forward("    extension", &o->_hd[-1].extension);
+  forward("        flags", &o->_hd[-1].flags);
+  forward(" payload_size", &o->_hd[-1].payload_size);
+  forward("          map", (struct object **)&o->_hd[-1].map);
+  forward("    prototype", &o->_hd[-1].prototype);
+
+  ssize_t i;
+  for (i=-n; i < 0; ++i)
+  {
+    forward("    values[i]", &o->_hd[-1].values[i]);
+  }
+}
+
+void forward_roots()
+{
+  forward("                  global_object", &global_object);
+  forward("                          roots", &roots);
+  forward("                    roots_names", &roots_names);
+  forward("                 root_arguments", &root_arguments);
+  forward("                     root_array", &root_array);
+  forward("                      root_cell", &root_cell);
+  forward("                  root_constant", &root_constant);
+  forward("                  root_cwrapper", &root_cwrapper);
+  forward("                    root_fixnum", &root_fixnum);
+  forward("                     root_frame", &root_frame);
+  forward("                  root_function", &root_function);
+  forward("                       root_map", &root_map);
+  forward("                    root_object", &root_object);
+  forward("                    root_symbol", &root_symbol);
+  forward("                   symbol_table", &symbol_table);
+  //  forward("                       RESERVED", &RESERVED);
+  forward("                          FALSE", &FALSE);
+  forward("                            NIL", &NIL);
+  forward("                           TRUE", &TRUE);
+  forward("                      UNDEFINED", &UNDEFINED);
+  forward("                          s_add", &s_add);
+  forward("                     s_allocate", &s_allocate);
+  forward("                        s_clone", &s_clone);
+  forward("                       s_create", &s_create);
+  forward("                       s_delete", &s_delete);
+  forward("                          s_get", &s_get);
+  forward("                     s_get_cell", &s_get_cell);
+  forward("                         s_init", &s_init);
+  forward("                       s_intern", &s_intern);
+  forward("                       s_length", &s_length);
+  forward("                       s_lookup", &s_lookup);
+  forward("                          s_new", &s_new);
+  forward("                    s_prototype", &s_prototype);
+  forward("                         s_push", &s_push);
+  forward("                       s_remove", &s_remove);
+  forward("                          s_set", &s_set);
+  forward("                     s_set_cell", &s_set_cell);
+  forward("                      s_symbols", &s_symbols);
+  forward("                     s_base_map", &s_base_map);
+  forward("               s_hasOwnProperty", &s_hasOwnProperty);
+  forward("         s_lookup_and_flush_all", &s_lookup_and_flush_all);
+  forward(" s_lookup_and_flush_value_cache", &s_lookup_and_flush_value_cache);
+  forward("                     ARRAY_TYPE", &ARRAY_TYPE);
+  forward("                      CELL_TYPE", &CELL_TYPE);
+  forward("                    FIXNUM_TYPE", &FIXNUM_TYPE);
+  forward("                     FRAME_TYPE", &FRAME_TYPE);
+  forward("                  FUNCTION_TYPE", &FUNCTION_TYPE);
+  forward("                       MAP_TYPE", &MAP_TYPE);
+  forward("                    OBJECT_TYPE", &OBJECT_TYPE);
+  forward("                    SYMBOL_TYPE", &SYMBOL_TYPE);
+}
+
+extern struct object *garbage_collect(struct object *live)
+{
+#ifdef DEBUG_GC_TRACES
+  fprintf(stderr, "------------------------------------------- GC!\n");
+#endif
+
+  todo_ptr = 0;
+  todo_scan = 0;
+
+#ifdef DEBUG_GC_TRACES
+  fprintf(stderr, "\n*** ROOTS:\n");
+#endif
+
+  forward_roots();
+  forward("                           live", &live);
+
+  while (todo_scan < todo_ptr)
+    {
+      scan();
+      todo_scan++;
+    }
+
+  // clean up forwarding pointers
+  for (todo_ptr = 0; todo_ptr < todo_scan; todo_ptr++)
+    {
+      struct object *obj = todo[todo_ptr];
+      int n = ((int)obj->_hd[-1].values_size)>>16;
+      obj->_hd[-1].values_size = fixnum_to_ref(n);
+    }
+
+  newHeap();
+
+#ifdef DEBUG_GC_TRACES_not
+fprintf(stderr, "\n------------------------------------------- live objects in heap = %d\n", todo_scan);
+#endif
+
+  return live;
+}
+
+extern struct object *heap_limit_reached(struct object *live)
+{
+#ifdef DEBUG_GC_TRACES
+  fprintf(stderr, "*** heap_limit_reached!\n");
+#endif
+
+  return garbage_collect(live);
 }
 
 //--------------------------------- Object Model Primitives --------------------
@@ -1798,7 +1990,7 @@ struct object *object_clone_fast(size_t n, struct object *self, struct function 
     self = self->_hd[-1].extension;
 
 
-    struct object *clone = (struct object *)next;
+    struct object *clone = (struct object *)heap_ptr;
     clone->_hd[-1].values_size   = self->_hd[-1].values_size;
     clone->_hd[-1].extension     = clone;
     clone->_hd[-1].flags         = self->_hd[-1].flags;
@@ -1819,17 +2011,15 @@ struct object *object_clone_fast(size_t n, struct object *self, struct function 
 
     //assert(object_size <= HEAP_FUDGE);
 
-    next -= object_size;
+    heap_ptr -= object_size;
 
     // Store prelude size before the object
-    *((ssize_t *)next) = object_prelude_size;
+    *((ssize_t *)heap_ptr) = object_prelude_size;
 
-    if (next < limit)
-    {
-        newHeap();   
-    }
-
-    return clone;
+    if (heap_ptr < heap_limit)
+      return heap_limit_reached(clone);   
+    else
+      return clone;
 }
 
 struct object *object_delete(size_t n, struct object *self, struct function *closure, struct object *name)
@@ -1960,7 +2150,7 @@ void object_new_fast_init()
 #define OBJ_NEW_FAST_SIZE 44
 struct object *object_new_fast(size_t n, struct object *self, struct function *closure)
 {
-    struct object *child = (struct object *)next;
+    struct object *child = (struct object *)heap_ptr;
     child->_hd[-1].values_size   = ref(4);
     child->_hd[-1].extension     = child;
     child->_hd[-1].flags         = ref(0);
@@ -1968,17 +2158,16 @@ struct object *object_new_fast(size_t n, struct object *self, struct function *c
     child->_hd[-1].map           = object_map_fast; 
     child->_hd[-1].prototype     = self;
 
-    next -= OBJ_NEW_FAST_SIZE;
+    heap_ptr -= OBJ_NEW_FAST_SIZE;
 
     // Store prelude size before the object
-    *((ssize_t *)next) = OBJ_NEW_FAST_PRELUDE_SIZE;
+    *((ssize_t *)heap_ptr) = OBJ_NEW_FAST_PRELUDE_SIZE;
 
-    if (next < limit)
-    {
-        newHeap();   
+    if (heap_ptr < heap_limit)
+      return heap_limit_reached(child);
         /*
         // Copy object to new heap
-        struct object **dest = (struct object **)next;
+        struct object **dest = (struct object **)heap_ptr;
         struct object **src  = (struct object **)child;
         dest[-1] = src[-1];
         dest[-2] = src[-2];
@@ -1988,12 +2177,11 @@ struct object *object_new_fast(size_t n, struct object *self, struct function *c
         dest[-6] = src[-6];
         // Skip property values since they are undefined 
         dest[-11] = src[-11]; // Copy prelude size
-        child = (struct object *)next;
-        next -= OBJ_NEW_FAST_SIZE;
+        child = (struct object *)heap_ptr;
+        heap_ptr -= OBJ_NEW_FAST_SIZE;
         */
-    }
-
-    return child;
+    else
+      return child;
 }
 
 struct object *object_print(size_t n, struct object *self, struct function *closure)
@@ -2369,7 +2557,7 @@ void mm_test()
 {
     ssize_t i;
 
-    from_start = start;
+    from_start = heap_start;
     from_end   = end;
 
     struct object *roots[3];
@@ -2398,7 +2586,7 @@ void mm_test()
     newHeap();
 
     _log("Forwarding roots\n");
-    char *scan = next;
+    char *scan = heap_ptr;
 
     for (i = 0; i < 4; ++i)
     {
@@ -2436,7 +2624,7 @@ void mm_test()
 
 
     _log("Beginning scan\n");
-    while (scan < end && scan < next)
+    while (scan < end && scan < heap_ptr)
     {
         // Ajust for prelude size
         ssize_t size = *((ssize_t *)scan); 
@@ -3064,7 +3252,7 @@ void serialize()
 
 void init(ssize_t argc, char *argv[])
 {
-    //printf("// init: start = %p, limit = %p, next = %p\n", start, limit, next);
+    //printf("// init: heap_start = %p, heap_limit = %p, heap_ptr = %p\n", heap_start, heap_limit, heap_ptr);
     initTimer();
 
     struct object *s_eval = send(root_symbol, s_intern, "eval");
