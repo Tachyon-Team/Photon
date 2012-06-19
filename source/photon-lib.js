@@ -709,7 +709,26 @@ PhotonCompiler.context = {
         that.arg_nb = 0;
         that.previous_arg_nb = [];
 
+        // Deferred code generation functions
+        that.deferred = [];
+
         return that;
+    },
+    
+    defer:function (func)
+    {
+         this.deferred.push(func);
+    },
+    
+    execute_deferred:function (a)
+    {
+        while (this.deferred.length > 0)
+        {
+            var arr = this.deferred;
+            this.deferred = [];
+            for (var i=0; i<arr.length; i++)
+                arr[i](a);
+        }
     },
     
     nop:function (nb)
@@ -1088,6 +1107,9 @@ PhotonCompiler.context = {
             //pop(_EBP).
             ret();
         }
+
+        this.execute_deferred(a);
+
         return a.codeBlock.code;
     },
 
@@ -1139,7 +1161,6 @@ PhotonCompiler.context = {
         label(FAST);
 
         return a.codeBlock.code;
-
     },
 
     gen_ovf_check:function (op)
@@ -1167,38 +1188,51 @@ PhotonCompiler.context = {
 
     gen_add:function (nb)
     {
-
+        var that = this;
         var a = new (x86.Assembler)(x86.target.x86);
-        var FAST   = _label("FAST");
-        var END    = _label("END");
-        var NO_OVF = _label("NO_OVF");
+        var END       = _label("END");
+        var OVF       = _label("OVF");
+        var TYPE_FAIL = _label("TYPE_FAIL");
     
         a.
         mov(_EAX, _ECX).
         and(_$(1), _ECX).
-        and(_mem(0, _ESP), _ECX).
-        jne(FAST).
+        and(_mem(0, _ESP), _ECX);
 
-        pop(_ECX);
-        a.codeBlock.extend(this.gen_call(
-            nb, 
-            _op("mov", this.gen_mref(photon.handlers.add), _EAX),
-            [[], _op("mov", _ECX, _EAX)]));
         a.
-        jmp(END).
-
-        label(FAST).
+        je(TYPE_FAIL).
         mov(_EAX, _ECX).
         dec(_ECX).
         add(_mem(0, _ESP), _ECX).
-        jno(NO_OVF);
+        jo(OVF).
+        mov(_ECX, _EAX).
+        add(_$(that.sizeof_ref), _ESP).
+        jmp(END);
 
-        a.codeBlock.extend(this.gen_throw(this.gen_symbol("Addition overflow")));
+        // TODO: why does this crash with a bus error when uncommented?
+        //this.defer(function (a) {
 
         a.
-        label(NO_OVF).
-        mov(_ECX, _EAX).
-        add(_$(this.sizeof_ref), _ESP).
+        label(TYPE_FAIL).
+        pop(_ECX);
+        a.codeBlock.extend(that.gen_call(
+            nb, 
+            _op("mov", that.gen_mref(photon.handlers.add), _EAX),
+            [[], _op("mov", _ECX, _EAX)]));
+        a.
+        jmp(END);
+
+        a.
+        label(OVF);
+
+        a.codeBlock.extend(that.gen_throw(that.gen_symbol("Addition overflow")));
+
+        a.
+        jmp(END);
+        // TODO: uncomment this too
+        //});
+
+        a.
         label(END);
 
         return a.codeBlock.code;
