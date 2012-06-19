@@ -709,26 +709,22 @@ PhotonCompiler.context = {
         that.arg_nb = 0;
         that.previous_arg_nb = [];
 
-        // Deferred code generation functions
+        // Deferred code
         that.deferred = [];
 
         return that;
     },
     
-    defer:function (func)
+    defer:function (code)
     {
-         this.deferred.push(func);
+         this.deferred.push(code);
     },
     
-    execute_deferred:function (a)
+    deferred_insert:function (a)
     {
-        while (this.deferred.length > 0)
-        {
-            var arr = this.deferred;
-            this.deferred = [];
-            for (var i=0; i<arr.length; i++)
-                arr[i](a);
-        }
+        for (var i=0; i<this.deferred.length; i++)
+            a.codeBlock.extend(this.deferred[i]);
+        this.deferred = [];
     },
     
     nop:function (nb)
@@ -1108,7 +1104,7 @@ PhotonCompiler.context = {
             ret();
         }
 
-        this.execute_deferred(a);
+        this.deferred_insert(a);
 
         return a.codeBlock.code;
     },
@@ -1188,7 +1184,6 @@ PhotonCompiler.context = {
 
     gen_add:function (nb)
     {
-        var that = this;
         var a = new (x86.Assembler)(x86.target.x86);
         var END       = _label("END");
         var OVF       = _label("OVF");
@@ -1206,31 +1201,33 @@ PhotonCompiler.context = {
         add(_mem(0, _ESP), _ECX).
         jo(OVF).
         mov(_ECX, _EAX).
-        add(_$(that.sizeof_ref), _ESP).
-        jmp(END);
+        add(_$(this.sizeof_ref), _ESP).
+        jmp(END);//TODO: remove the jump when deferred code works!
 
-        // TODO: why does this crash with a bus error when uncommented?
-        //this.defer(function (a) {
+        var a2 = new (x86.Assembler)(x86.target.x86);
 
-        a.
+        a2.
         label(TYPE_FAIL).
         pop(_ECX);
-        a.codeBlock.extend(that.gen_call(
+        a2.codeBlock.extend(this.gen_call(
             nb, 
-            _op("mov", that.gen_mref(photon.handlers.add), _EAX),
+            _op("mov", this.gen_mref(photon.handlers.add), _EAX),
             [[], _op("mov", _ECX, _EAX)]));
-        a.
+        a2.
         jmp(END);
 
-        a.
+        a2.
         label(OVF);
 
-        a.codeBlock.extend(that.gen_throw(that.gen_symbol("Addition overflow")));
+        a2.codeBlock.extend(this.gen_throw(this.gen_symbol("Addition overflow")));
 
-        a.
+        a2.
         jmp(END);
-        // TODO: uncomment this too
-        //});
+
+        //TODO: why is the following code crashing Photon?
+        //this.defer(a2.codeBlock.code);
+
+        a.codeBlock.extend(a2.codeBlock.code); // this works but it unfortunately doesn't defer the code
 
         a.
         label(END);
