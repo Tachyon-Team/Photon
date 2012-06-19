@@ -710,7 +710,8 @@ PhotonCompiler.context = {
         that.previous_arg_nb = [];
 
         // Deferred code
-        that.deferred = [];
+        that.deferred = null;
+        that.previous_deferred = [];
 
         return that;
     },
@@ -805,6 +806,8 @@ PhotonCompiler.context = {
         this.stack_offsets   = stack_offsets;
         this.previous_stack_location_nb.push(this.stack_location_nb);
         this.stack_location_nb = stack_location_nb;
+        this.previous_deferred.push(this.deferred);
+        this.deferred = [];
     },
 
     leave_global_scope:function ()
@@ -814,6 +817,7 @@ PhotonCompiler.context = {
         this.stack_location_nb = this.previous_stack_location_nb.pop();
         this.stack_offsets   = this.previous_offsets.pop();
         this.try_lvl = this.previous_try_lvls.pop();
+        this.deferred = this.previous_deferred.pop();
     },
 
     enter_function_scope:function (scope, args)
@@ -826,6 +830,8 @@ PhotonCompiler.context = {
         this.try_lvl = 0;
         this.previous_arg_nb.push(this.arg_nb);
         this.arg_nb = args.length;
+        this.previous_deferred.push(this.deferred);
+        this.deferred = [];
 
         var stack_offsets = {};
         var stack_location_nb = 0;
@@ -861,6 +867,7 @@ PhotonCompiler.context = {
         this.stack_offsets   = this.previous_offsets.pop();
         this.try_lvl = this.previous_try_lvls.pop();
         this.arg_nb = this.previous_arg_nb.pop();
+        this.deferred = this.previous_deferred.pop();
     },
 
     enter_try_block:function ()
@@ -1202,10 +1209,9 @@ PhotonCompiler.context = {
         jo(OVF).
         mov(_ECX, _EAX).
         add(_$(this.sizeof_ref), _ESP).
-        jmp(END);//TODO: remove the jump when deferred code works!
+        label(END);
 
         var a2 = new (x86.Assembler)(x86.target.x86);
-
         a2.
         label(TYPE_FAIL).
         pop(_ECX);
@@ -1224,13 +1230,8 @@ PhotonCompiler.context = {
         a2.
         jmp(END);
 
-        //TODO: why is the following code crashing Photon?
-        //this.defer(a2.codeBlock.code);
+        this.defer(a2.codeBlock.code);
 
-        a.codeBlock.extend(a2.codeBlock.code); // this works but it unfortunately doesn't defer the code
-
-        a.
-        label(END);
 
         return a.codeBlock.code;
     },
