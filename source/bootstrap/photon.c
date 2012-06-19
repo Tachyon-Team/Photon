@@ -128,6 +128,9 @@ typedef struct object *(*method_t)(size_t n, struct object *receiver, struct obj
 inline ssize_t ref_is_object(struct object *obj);
 
 
+char *static_heap_start = 0;
+char *static_heap_end = 0;
+
 char *heap_start = 0;
 char *heap_limit = 0;
 unsigned long long mem_allocated = 0;      // in Bytes
@@ -646,6 +649,42 @@ void forward_roots()
   forward("                    SYMBOL_TYPE", &SYMBOL_TYPE);
 }
 
+void *main_frame = NULL;
+
+extern int main(int argc, char**argv);
+
+void forward_stack()
+{
+  void *ebp;
+  asm("movl %%ebp,%0" : "=r"(ebp));
+
+  void **frame = (void**)ebp;
+  void **next_frame;
+  void **ptr;
+  void *ra;
+
+  fprintf(stderr,"forward_stack=%p\n", forward_stack);
+  fprintf(stderr,"static_heap_start=%p\n", static_heap_start);
+  fprintf(stderr,"static_heap_end  =%p\n", static_heap_end);
+
+  while (frame != main_frame)
+    {
+      next_frame = (void**)frame[0];
+      ra = frame[1];
+      if (((char *)ra >= heap_start && (char *)ra < heap_limit) ||
+          ((char *)ra >= static_heap_start && (char *)ra < static_heap_end))
+        fprintf(stderr, "Photon frame %p\n", frame);
+      else
+        fprintf(stderr, "C frame %p\n", frame);
+      ptr = frame;
+      while (ptr < next_frame)
+        fprintf(stderr,"  %p\n", *ptr++);
+      fprintf(stderr,"\n");
+
+      frame = next_frame;
+    }
+}
+
 extern struct object *garbage_collect(struct object *live)
 {
 #ifdef DEBUG_GC_TRACES
@@ -661,6 +700,8 @@ extern struct object *garbage_collect(struct object *live)
 
   forward_roots();
   forward("                           live", &live);
+
+  forward_stack();
 
   while (todo_scan < todo_ptr)
     {
@@ -3160,6 +3201,8 @@ void serialize()
 
     send(stack, s_push, roots);
 
+    printf("_Lstatic_heap_start:\n");
+
     while (fx(send(stack, s_get, s_length)) > 0)
     {
         struct object *obj = send0(stack, s_pop);
@@ -3169,6 +3212,8 @@ void serialize()
         }
     }
 
+    printf("_Lstatic_heap_end:\n");
+
     // Generate initialization code for globals
 #define SELF_ASSIGN(self_assign_x) ({\
     printf("    mov     $_L%zd, %%eax\n", (size_t)(self_assign_x->_hd[-1].extension));\
@@ -3176,6 +3221,13 @@ void serialize()
 })
     
     printf("_init_globals:\n");
+
+    printf("    mov     $_Lstatic_heap_start, %%eax\n");
+    printf("    mov     %%eax, _static_heap_start\n");
+
+    printf("    mov     $_Lstatic_heap_end, %%eax\n");
+    printf("    mov     %%eax, _static_heap_end\n");
+
     SELF_ASSIGN(global_object);    
     SELF_ASSIGN(roots);
     SELF_ASSIGN(root_arguments);
@@ -3253,6 +3305,12 @@ void serialize()
 void init(ssize_t argc, char *argv[])
 {
     //printf("// init: heap_start = %p, heap_limit = %p, heap_ptr = %p\n", heap_start, heap_limit, heap_ptr);
+
+    void *ebp;
+    asm("movl %%ebp,%0" : "=r"(ebp));
+
+    main_frame = *(void**)ebp;
+
     initTimer();
 
     struct object *s_eval = send(root_symbol, s_intern, "eval");
