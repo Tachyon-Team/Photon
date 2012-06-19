@@ -133,6 +133,7 @@ char *static_heap_end = 0;
 
 char *heap_start = 0;
 char *heap_limit = 0;
+char *heap_end   = 0;
 unsigned long long mem_allocated = 0;      // in Bytes
 unsigned long long exec_mem_allocated = 0; // in Bytes
 
@@ -155,7 +156,8 @@ extern void newHeap()
     assert(heap_start != MAP_FAILED);
 
     heap_limit = heap_start + HEAP_FUDGE;
-    heap_ptr  = heap_start + HEAP_SIZE;
+    heap_ptr = heap_start + HEAP_SIZE;
+    heap_end = heap_ptr;
     //printf("// heap_start = %p, heap_limit = %p, heap_ptr = %p\n", heap_start, heap_limit, heap_ptr);
 }
 
@@ -663,7 +665,7 @@ void forward_stack()
   void **ptr;
   void *ra;
 
-  fprintf(stderr,"forward_stack=%p\n", forward_stack);
+  fprintf(stderr,"forward_stack=%p\n",     forward_stack);
   fprintf(stderr,"static_heap_start=%p\n", static_heap_start);
   fprintf(stderr,"static_heap_end  =%p\n", static_heap_end);
 
@@ -671,7 +673,7 @@ void forward_stack()
     {
       next_frame = (void**)frame[0];
       ra = frame[1];
-      if (((char *)ra >= heap_start && (char *)ra < heap_limit) ||
+      if (((char *)ra >= heap_start && (char *)ra < heap_end) ||
           ((char *)ra >= static_heap_start && (char *)ra < static_heap_end))
         fprintf(stderr, "Photon frame %p\n", frame);
       else
@@ -683,6 +685,8 @@ void forward_stack()
 
       frame = next_frame;
     }
+
+  assert(1 == 0);
 }
 
 extern struct object *garbage_collect(struct object *live)
@@ -1360,7 +1364,8 @@ struct object *function_allocate(
     struct object   *prelude_size, 
     struct object   *payload_size)
 {
-    char *ptr = (char *)ealloc(
+    char *ptr = (char *)raw_calloc(
+        1,
         fx(prelude_size) + fx(payload_size) + sizeof(ssize_t)
     );
 
