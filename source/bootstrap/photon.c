@@ -143,6 +143,8 @@ unsigned long long exec_mem_allocated = 0; // in Bytes
 
 extern void newHeap()
 {
+  //assert(heap_start == 0); // only allocate one heap
+
     //heap_start = (char *)calloc(1, HEAP_SIZE);
     heap_start = (char *)mmap(
         0,
@@ -155,9 +157,9 @@ extern void newHeap()
 
     assert(heap_start != MAP_FAILED);
 
+    heap_end = heap_start + HEAP_SIZE;
     heap_limit = heap_start + HEAP_FUDGE;
-    heap_ptr = heap_start + HEAP_SIZE;
-    heap_end = heap_ptr;
+    heap_ptr = heap_end;
     //printf("// heap_start = %p, heap_limit = %p, heap_ptr = %p\n", heap_start, heap_limit, heap_ptr);
 }
 
@@ -181,9 +183,10 @@ inline char *raw_calloc(size_t nb, size_t size)
 
         if (heap_ptr < heap_limit)
         {
-#ifdef DEBUG_GC_TRACES_not
+#ifdef DEBUG_GC_TRACES
             fprintf(stderr, "*** newHeap called from raw_calloc!\n");
 #endif
+            //exit(1);
             newHeap(); // TODO: use heap_limit_reached
             heap_ptr -= obj_size;
         }
@@ -690,8 +693,8 @@ void forward_stack()
           (ra >= static_heap_start && ra < static_heap_end))
         {
 #ifdef DEBUG_GC_TRACES
+
           fprintf(stderr, "Photon frame %p\n", frame);
-#endif
 
           if (*(unsigned short *)ra == 0xd181) // check for "adcl $dist,%ecx" instruction
             {
@@ -701,6 +704,8 @@ void forward_stack()
             {
               fprintf(stderr, "  return address is NOT properly tagged!\n");
             }
+
+#endif
 
           forward_return_address(&frame[1]);
           forward_multiple("  frame slot[i]", (struct object **)&frame[2], (next_frame - frame) - 2);
@@ -709,8 +714,8 @@ void forward_stack()
         {
           void **ptr = frame;
 #ifdef DEBUG_GC_TRACES
+
           fprintf(stderr, "C frame %p\n", frame);
-#endif
 
           if (*(unsigned short *)ra == 0xd181) // check for "adcl $dist,%ecx" instruction
             {
@@ -720,6 +725,8 @@ void forward_stack()
             {
               fprintf(stderr, "  return address is properly tagged!\n");
             }
+
+#endif
 
           while (ptr < next_frame)
             fprintf(stderr,"  %p\n", *ptr++);
@@ -732,10 +739,10 @@ void forward_stack()
       frame = next_frame;
     }
 
-  assert(1 == 0);
+  //assert(1 == 0);
 }
 
-extern struct object *garbage_collect(struct object *live)
+struct object *garbage_collect(struct object *live)
 {
 #ifdef DEBUG_GC_TRACES
   fprintf(stderr, "------------------------------------------- GC!\n");
@@ -769,14 +776,14 @@ extern struct object *garbage_collect(struct object *live)
 
   newHeap();
 
-#ifdef DEBUG_GC_TRACES_not
+#ifdef DEBUG_GC_TRACES
 fprintf(stderr, "\n------------------------------------------- live objects in heap = %d\n", todo_scan);
 #endif
 
   return live;
 }
 
-extern struct object *heap_limit_reached(struct object *live)
+struct object *heap_limit_reached(struct object *live)
 {
 #ifdef DEBUG_GC_TRACES
   fprintf(stderr, "*** heap_limit_reached!\n");

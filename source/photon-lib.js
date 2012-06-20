@@ -1483,8 +1483,7 @@ PhotonCompiler.context = {
 
         return [
             _op("call", TRY),
-            //TODO: why does the following instruction cause a bus error?
-            //_op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
+            _op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
 
             // CATCH
             this.nop(this.sizeof_ref),
@@ -1510,6 +1509,7 @@ PhotonCompiler.context = {
     {
         var LOOP = _label();
         var END  = _label();
+        var CONT = _label();
 
         return [
             e,
@@ -1517,8 +1517,11 @@ PhotonCompiler.context = {
             _op("mov", _EBP, _ECX), // Start searching for handler
             LOOP,
             _op("mov", _mem(4, _ECX), _EAX), // Retrieve return address pointer
-            _op("cmp", _$(this.nop_cste(4)), _mem(0, _EAX), 32), // Check if it is a handler
+            _op("cmp", _$(0xd181), _mem(0, _EAX), 16), // Check if it is a Photon frame
+            _op("jne", CONT),                // No! keep going
+            _op("cmp", _$(this.nop_cste(4)), _mem(6, _EAX), 32), // Check if it is a handler
             _op("je", END),                  // Yes! jump to handler
+            CONT,
             _op("mov", _mem(0, _ECX), _ECX), // No, check next stack frame
             _op("jmp", LOOP),
             END,
