@@ -263,6 +263,8 @@ struct property {
     struct object     *location;
     struct object     *value_cache;
     struct object     *location_cache;
+    ssize_t           obj_offset;
+    ssize_t           obj_offset2;
 };
 
 //--------------------------------- Object Layouts -----------------------------
@@ -435,6 +437,38 @@ inline ssize_t max(ssize_t a, ssize_t b)
     return (a > b) ? a : b;
 }
 
+#define PAYLOAD_TYPE_OFFSET ((COUNT_BIT_NB + 3))
+#define PAYLOAD_MASK       (0x11 << PAYLOAD_TYPE_OFFSET)
+#define BINARY_PAYLOAD     (0x00 << PAYLOAD_TYPE_OFFSET) 
+#define HYBRID_PAYLOAD     (0x01 << PAYLOAD_TYPE_OFFSET)
+#define STRUCTURED_PAYLOAD (0x10 << PAYLOAD_TYPE_OFFSET)
+#define CUSTOM_PAYLOAD     (0x11 << PAYLOAD_TYPE_OFFSET)
+
+inline ssize_t object_payload_type(struct object *self)
+{
+    return fx(self->_hd[-1].flags) & (0x11 << (COUNT_BIT_NB + 3));
+}
+
+inline void object_payload_type_set_binary(struct object *self)
+{
+    self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) & ((~PAYLOAD_MASK) | BINARY_PAYLOAD));
+}
+
+inline void object_payload_type_set_hybrid(struct object *self)
+{
+    self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) & ((~PAYLOAD_MASK) | HYBRID_PAYLOAD));
+}
+
+inline void object_payload_type_set_structured(struct object *self)
+{
+    self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) & ((~PAYLOAD_MASK) | STRUCTURED_PAYLOAD));
+}
+
+inline void object_payload_type_set_custom(struct object *self)
+{
+    self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) & ((~PAYLOAD_MASK) | CUSTOM_PAYLOAD));
+}
+
 inline ssize_t object_prelude_size(struct object *self)
 {
     return sizeof(struct header) + object_values_size(self)*sizeof(struct object *);
@@ -449,6 +483,7 @@ inline void object_tag(struct object *self)
 {
     self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) | (1<<(COUNT_BIT_NB + 2)));
 }
+
 
 inline ssize_t object_values_count(struct object *self)
 {
@@ -618,6 +653,7 @@ void scan()
     forward("    values[i]", &o->_hd[-1].values[i]);
   }
 }
+
 
 void forward_roots()
 {
@@ -1030,6 +1066,7 @@ struct object *arguments_new(size_t n, struct array *self, struct function *clos
 
     new_args->_hd[-1].map       = base_map((struct object *)self, ARRAY_TYPE);
     new_args->_hd[-1].prototype = (struct object *)self;
+    object_payload_type_set_structured(new_args);
     
     new_args->count = size;
 
@@ -1171,6 +1208,7 @@ struct object *array_new(size_t n, struct array *self, struct function *closure,
 
     new_array->_hd[-1].map       = base_map((struct object *)self, ARRAY_TYPE);
     new_array->_hd[-1].prototype = (struct object *)self;
+    object_payload_type_set_structured(new_array);
     
     ((struct array *)new_array)->count = ref(0);
 
@@ -1291,6 +1329,7 @@ struct object *cell_new(size_t n, struct cell *self, struct function *closure, s
     new_cell->value = val;
     new_cell->_hd[-1].map       = base_map((struct object *)self, CELL_TYPE);
     new_cell->_hd[-1].prototype = (struct object *)self;
+    object_payload_type_set_structured(new_cell);
 
     return (struct object *)new_cell;
 }
@@ -1338,6 +1377,8 @@ struct object *cwrapper_new(
     // jmp %eax
     w->code[5] = 0xff;
     w->code[6] = 0xe0;
+
+    object_payload_type_set_binary(w);
 
     struct object *s_extern = send(root_symbol, s_intern, "__extern__");
     send(w, s_set, s_extern, name); 
@@ -1404,6 +1445,7 @@ struct object *frame_new(
 
     f->_hd[-1].map = base_map((struct object *)self, FRAME_TYPE);
     f->_hd[-1].prototype = (struct object *)self;
+    object_payload_type_set_custom(f);
 
     f->n       = f_n;
     f->self    = rcv;
@@ -1536,7 +1578,7 @@ struct object *function_new(
 
     new_fct->_hd[-1].map->next_offset = ref(-fx(cell_nb) - 1);
     new_fct->_hd[-1].map->type        = FUNCTION_TYPE;
-
+    object_payload_type_set_hybrid(new_fct);
     object_values_count_set(new_fct, fx(cell_nb)); 
 
     ssize_t i = 0;
@@ -1874,6 +1916,7 @@ struct object *map_new(size_t n, struct map *self, struct function *closure)
     new_map->next_offset       = ref(-1);
     new_map->type              = MAP_TYPE;
     new_map->cache             = NIL;
+    object_payload_type_set_custom(new_map);
 
     return (struct object *)new_map;
 }
@@ -2251,6 +2294,7 @@ struct object *object_new(size_t n, struct object *self, struct function *closur
     inc_mem_counter(mem_object, 4, 0);
     child->_hd[-1].map       = base_map(self, OBJECT_TYPE);
     child->_hd[-1].prototype = self;
+    object_payload_type_set_structured(child);
     return child;
 }
 
@@ -2268,7 +2312,7 @@ struct object *object_new_fast(size_t n, struct object *self, struct function *c
     struct object *child = (struct object *)heap_ptr;
     child->_hd[-1].values_size   = ref(4);
     child->_hd[-1].extension     = child;
-    child->_hd[-1].flags         = ref(0);
+    child->_hd[-1].flags         = ref(STRUCTURED_PAYLOAD);
     child->_hd[-1].payload_size  = ref(0);
     child->_hd[-1].map           = object_map_fast; 
     child->_hd[-1].prototype     = self;
@@ -2436,6 +2480,7 @@ struct object *symbol_new(size_t n, struct object *self, struct function *closur
     new_symbol->_hd[-1].prototype = self;
     new_symbol->string[0]        = '\0';
     new_symbol->string[fx(size)] = '\0';
+    object_payload_type_set_binary(new_symbol);
 
     if (!ref_is_fixnum(data))
     {
