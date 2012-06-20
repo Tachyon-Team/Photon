@@ -1509,7 +1509,7 @@ PhotonCompiler.context = {
 
         return [
             _op("call", TRY),
-            _op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
+            this.magic_cookie(),
 
             // CATCH
             this.nop(this.sizeof_ref),
