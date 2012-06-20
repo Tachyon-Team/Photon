@@ -91,6 +91,7 @@ const _$           = x86.Assembler.prototype.immediateValue;
 const _mem         = x86.Assembler.prototype.memory;
 const _label       = asm.CodeBlock.prototype.label;
 const _listing     = asm.CodeBlock.prototype.listing;
+const _deferred    = asm.CodeBlock.prototype.deferred;
 const _lbl_listing = function (label) { return _listing(label.id + ":"); };
 const _FALSE       = 4;
 const _NIL         = 2;
@@ -727,6 +728,24 @@ PhotonCompiler.context = {
             a.codeBlock.extend(this.deferred[i]);
         this.deferred = [];
     },
+
+    fct_ptr_offset:function ()
+    {
+        return _deferred(
+            [function () { return 4; }], 
+            [function (cb, pos) { cb.gen32(pos).
+                                     genListing("(data) FN_PTR_OFFSET");}]
+        );
+    },
+
+    magic_cookie:function ()
+    {
+        return _deferred(
+            [function () { return 6; }], 
+            [function (cb, pos) { cb.gen8(0x81).gen8(0xd1).gen32(pos).
+                                     genListing("adcl $FN_PTR_OFFSET,%ecx // Magic Cookie");}]
+        );
+    },
     
     nop:function (nb)
     {
@@ -1056,8 +1075,9 @@ PhotonCompiler.context = {
             jge(FAST).
             mov(this.gen_mref(photon.variadic_enter), _EAX).
             push(_$(arg_n)).
-            call(_EAX).
-            adc(_$(0x01020304),_ECX). // tag return address (TODO: compute correct distance)
+            call(_EAX);
+            a.codeBlock.extend(this.magic_cookie());
+            a.
             add(_$(4), _ESP).
             // Fast entry point
             label(FAST).
@@ -1436,11 +1456,11 @@ PhotonCompiler.context = {
             _op("push", _$(4)),  // Arg number
             _op("mov", this.gen_mref(bind_helper), _EAX),
             _op("call", _EAX),
-            _op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
+            this.magic_cookie(),
             _op("add", _$(16), _ESP),
             _op("mov", _EAX, _mem(loc + 2 * this.sizeof_ref, _EBP)), // SET CLOSURE
             _op("call", _EAX),
-            _op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
+            this.magic_cookie(),
             _op("add", _$(nb*this.sizeof_ref), _ESP)
         ]);
     },
@@ -1461,7 +1481,7 @@ PhotonCompiler.context = {
             fn, 
             _op("mov", _EAX, _mem(loc + 2 * this.sizeof_ref, _EBP)), 
             _op("call", _EAX), 
-            _op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
+            this.magic_cookie(),
             _op("add", _$(nb*this.sizeof_ref), _ESP)
         ];
     },
@@ -1649,7 +1669,7 @@ PhotonCompiler.context = {
                     return [a, _op("mov", _EAX, _mem(loc + i * that.sizeof_ref, _EBP))]; 
                 }),
                 fn, _op("call", _EAX), 
-                _op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
+                this.magic_cookie(),
                 _op("add", _$(nb*this.sizeof_ref), _ESP)];
     },
 

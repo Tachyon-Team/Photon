@@ -29,7 +29,7 @@ macro header_size()
 macro patch_inline_cache(map, rcv_map, value, head_offset, patch_value)
 {
     return @{(function () {
-              var cache_offset    = -27;
+              var cache_offset    = -31;
               var op_offset       = -8;
               var map_offset      = -14;
 
