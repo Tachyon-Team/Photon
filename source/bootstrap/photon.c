@@ -10,7 +10,7 @@
 #ifndef _PHOTON_H
 #define _PHOTON_H
 
-#define DEBUG_GC_TRACES_not
+#define DEBUG_GC_TRACES
 
 #define HEAP_PTR_IN_REG_not
 
@@ -572,6 +572,15 @@ void forward(const char *msg, struct object **obj)
   }
 }
 
+void forward_multiple(const char *msg, struct object **obj, int n)
+{
+  while (n-- > 0)
+    {
+      forward(msg, obj);
+      obj++;
+    }
+}
+
 void scan()
 {
   struct object *o = todo[todo_scan];
@@ -651,9 +660,18 @@ void forward_roots()
   forward("                    SYMBOL_TYPE", &SYMBOL_TYPE);
 }
 
-void *main_frame = NULL;
+void *main_frame = NULL; // pointer to main's frame (so we know when to stop walking the stack frames)
 
-extern int main(int argc, char**argv);
+void forward_return_address(void **ra_slot)
+{
+  void *ra = *ra_slot;
+
+#ifdef DEBUG_GC_TRACES
+  fprintf(stderr,"  return address = %p\n", ra);
+#endif
+
+  // TODO: ...
+}
 
 void forward_stack()
 {
@@ -662,26 +680,54 @@ void forward_stack()
 
   void **frame = (void**)ebp;
   void **next_frame;
-  void **ptr;
-  void *ra;
-
-  fprintf(stderr,"forward_stack=%p\n",     forward_stack);
-  fprintf(stderr,"static_heap_start=%p\n", static_heap_start);
-  fprintf(stderr,"static_heap_end  =%p\n", static_heap_end);
+  char *ra;
 
   while (frame != main_frame)
     {
       next_frame = (void**)frame[0];
-      ra = frame[1];
-      if (((char *)ra >= heap_start && (char *)ra < heap_end) ||
-          ((char *)ra >= static_heap_start && (char *)ra < static_heap_end))
-        fprintf(stderr, "Photon frame %p\n", frame);
+      ra = (char *)frame[1];
+      if ((ra >= heap_start && ra < heap_end) ||
+          (ra >= static_heap_start && ra < static_heap_end))
+        {
+#ifdef DEBUG_GC_TRACES
+          fprintf(stderr, "Photon frame %p\n", frame);
+#endif
+
+          if (*(unsigned short *)ra == 0xd181) // check for "adcl $dist,%ecx" instruction
+            {
+              fprintf(stderr, "  return address is properly tagged!\n");
+            }
+          else
+            {
+              fprintf(stderr, "  return address is NOT properly tagged!\n");
+            }
+
+          forward_return_address(&frame[1]);
+          forward_multiple("  frame slot[i]", (struct object **)&frame[2], (next_frame - frame) - 2);
+        }
       else
-        fprintf(stderr, "C frame %p\n", frame);
-      ptr = frame;
-      while (ptr < next_frame)
-        fprintf(stderr,"  %p\n", *ptr++);
+        {
+          void **ptr = frame;
+#ifdef DEBUG_GC_TRACES
+          fprintf(stderr, "C frame %p\n", frame);
+#endif
+
+          if (*(unsigned short *)ra == 0xd181) // check for "adcl $dist,%ecx" instruction
+            {
+              fprintf(stderr, "  return address is NOT properly tagged!\n");
+            }
+          else
+            {
+              fprintf(stderr, "  return address is properly tagged!\n");
+            }
+
+          while (ptr < next_frame)
+            fprintf(stderr,"  %p\n", *ptr++);
+        }
+
+#ifdef DEBUG_GC_TRACES
       fprintf(stderr,"\n");
+#endif
 
       frame = next_frame;
     }

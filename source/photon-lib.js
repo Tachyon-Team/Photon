@@ -1057,6 +1057,7 @@ PhotonCompiler.context = {
             mov(this.gen_mref(photon.variadic_enter), _EAX).
             push(_$(arg_n)).
             call(_EAX).
+            adc(_$(0x01020304),_ECX). // tag return address (TODO: compute correct distance)
             add(_$(4), _ESP).
             // Fast entry point
             label(FAST).
@@ -1435,9 +1436,11 @@ PhotonCompiler.context = {
             _op("push", _$(4)),  // Arg number
             _op("mov", this.gen_mref(bind_helper), _EAX),
             _op("call", _EAX),
+            _op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
             _op("add", _$(16), _ESP),
             _op("mov", _EAX, _mem(loc + 2 * this.sizeof_ref, _EBP)), // SET CLOSURE
             _op("call", _EAX),
+            _op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
             _op("add", _$(nb*this.sizeof_ref), _ESP)
         ]);
     },
@@ -1458,6 +1461,7 @@ PhotonCompiler.context = {
             fn, 
             _op("mov", _EAX, _mem(loc + 2 * this.sizeof_ref, _EBP)), 
             _op("call", _EAX), 
+            _op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
             _op("add", _$(nb*this.sizeof_ref), _ESP)
         ];
     },
@@ -1479,6 +1483,8 @@ PhotonCompiler.context = {
 
         return [
             _op("call", TRY),
+            //TODO: why does the following instruction cause a bus error?
+            //_op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
 
             // CATCH
             this.nop(this.sizeof_ref),
@@ -1640,6 +1646,7 @@ PhotonCompiler.context = {
                     return [a, _op("mov", _EAX, _mem(loc + i * that.sizeof_ref, _EBP))]; 
                 }),
                 fn, _op("call", _EAX), 
+                _op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
                 _op("add", _$(nb*this.sizeof_ref), _ESP)];
     },
 

@@ -59,12 +59,15 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
         _op("push", _$(4)),  // Arg number
         _op("mov", this.gen_mref(bind_helper), _EAX),
         _op("call", _EAX),
+        //TODO: why does the following instruction cause a segfault?
+        //_op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
         _op("add", _$(16), _ESP),
 
         CONT, _lbl_listing(CONT),
         //_op("mov", _EAX, _mem(loc + 2 * this.sizeof_ref, _EBP)) 
         0x89, 0x85, _op("gen32", clos_offset), _listing("mov %eax, " + clos_offset + "(%ebp)"), // SET CLOSURE (Fixed encoding)
         _op("call", _EAX),
+        _op("adc", _$(0x01020304), _ECX), // tag return address (TODO: compute correct distance)
         _op("add", _$(nb*this.sizeof_ref), _ESP)
     ];
 };
