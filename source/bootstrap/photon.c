@@ -10,7 +10,7 @@
 #ifndef _PHOTON_H
 #define _PHOTON_H
 
-#define DEBUG_GC_TRACES
+#define DEBUG_GC_TRACES_not
 
 #define HEAP_PTR_IN_REG_not
 
@@ -559,6 +559,47 @@ struct object *todo[1000000];
 int todo_ptr;
 int todo_scan;
 
+void copy_object(struct object **obj)
+{
+  struct object *o = (*obj)->_hd[-1].extension; // replace object by its extension
+
+  ssize_t values_size = fx(o->_hd[-1].values_size);
+  ssize_t object_prelude_size = values_size * sizeof(struct object *) + sizeof(struct header);
+  ssize_t object_size = (object_prelude_size + fx(o->_hd[-1].payload_size) + sizeof(struct object *) - 1) & -sizeof(struct object *);
+
+#ifdef DEBUG_GC_TRACES
+  if (o != *obj)
+    fprintf(stderr, "(*obj)->_hd[-1].extension != *obj   %p  %p\n", o, *obj);
+#endif
+
+#if 0
+  if (object_size > object_prelude_size)
+    {
+      fprintf(stderr, "object_size > object_prelude_size\n");
+    }
+  else
+#endif
+    {
+      struct object *copy;
+
+      heap_ptr -= object_size;
+
+      copy = (struct object *)(heap_ptr + object_prelude_size);
+
+      copy->_hd[-1].values_size   = o->_hd[-1].values_size;
+      copy->_hd[-1].extension     = o;
+      copy->_hd[-1].flags         = o->_hd[-1].flags;
+      copy->_hd[-1].payload_size  = o->_hd[-1].payload_size;
+      copy->_hd[-1].prototype     = o->_hd[-1].prototype;
+      copy->_hd[-1].map           = o->_hd[-1].map;
+
+      // copy payload
+      memcpy((void *)copy, (void *)o, object_size - object_prelude_size);
+
+      *obj = copy;
+    }
+}
+
 void forward(const char *msg, struct object **obj)
 {
   struct object *o = *obj;
@@ -600,16 +641,19 @@ void forward(const char *msg, struct object **obj)
 #ifdef DEBUG_GC_TRACES
 
         fprintf(stderr, "%s %p: MEMORY ALLOCATED OBJECT #%d\n", msg, o, todo_ptr);
+
 #endif
-        o->_hd[-1].values_size = (struct object *)((ref_to_fixnum(o->_hd[-1].values_size)<<16)+(todo_ptr<<1)); // leave forwarding pointer
 
-        if (o->_hd[-1].extension != o)
-          fprintf(stderr, "o->_hd[-1].extension != o   %p  %p\n", o->_hd[-1].extension, o);
+        if (((char *)o >= heap_start && (char *)o <= heap_end) || // movable?
+            o->_hd[-1].extension != o) // must replace object by its extension?
+          {
+            copy_object(&o);
+          }
 
-        o = o->_hd[-1].extension; // replace object by its extension
+        (*obj)->_hd[-1].values_size = (struct object *)((ref_to_fixnum(o->_hd[-1].values_size)<<16)+(todo_ptr<<1)); // leave forwarding pointer
+        todo[todo_ptr++] = o;
 
         *obj = o;
-        todo[todo_ptr++] = o;
       }
     else
       {
@@ -640,6 +684,12 @@ void scan()
   int n = ((int)o->_hd[-1].values_size)>>16;
   struct object *vs = fixnum_to_ref(n);
 
+  ssize_t i;
+  for (i=-n; i < 0; ++i)
+  {
+    forward("    values[i]", &o->_hd[-1].values[i]);
+  }
+
   forward("  values_size", &vs);
   forward("    extension", &o->_hd[-1].extension);
   forward("        flags", &o->_hd[-1].flags);
@@ -647,13 +697,33 @@ void scan()
   forward("          map", (struct object **)&o->_hd[-1].map);
   forward("    prototype", &o->_hd[-1].prototype);
 
-  ssize_t i;
-  for (i=-n; i < 0; ++i)
-  {
-    forward("    values[i]", &o->_hd[-1].values[i]);
-  }
-}
+#ifdef DEBUG_GC_TRACES
+  for (i=0; i<fx(o->_hd[-1].payload_size); i++)
+    fprintf(stderr, "  %02x\n", ((unsigned char *)o)[i]);
+#endif
 
+  if (fx(o->_hd[-1].payload_size) > 7 && ((unsigned char *)o)[0] == 0xb8) // is it a closure?
+    {
+      int ps = fx(o->_hd[-1].payload_size);
+      struct object **p = (struct object **)((char *)o + ps);
+      int n = fx(*--p);
+
+#ifdef DEBUG_GC_TRACES
+
+      for (i=0; i<fx(o->_hd[-1].payload_size); i++)
+        fprintf(stderr, "  %02x\n", ((unsigned char *)o)[i]);
+
+      fprintf(stderr, "closure ps=%d n=%d!!!!!!!!!!!!!\n", ps, n);
+
+#endif
+
+      while (n-- > 0)
+        {
+          int offs = fx(*--p);
+          forward("  ref",(struct object **)((char *)o + offs));
+        }
+    }
+}
 
 void forward_roots()
 {
@@ -721,7 +791,7 @@ void forward_return_address(void **ra_slot)
   fprintf(stderr,"  return address = %p     container_fn = %p     dist = %d\n", ra, container_fn, (int)dist);
 #endif
 
-  //forward("  container_fn", &container_fn);
+  forward("  container_fn", &container_fn);
 
   *ra_slot = (void *)((char *)container_fn + dist); // update return address
 }
@@ -795,20 +865,33 @@ void forward_stack()
 
 struct object *garbage_collect(struct object *live)
 {
-  //fprintf(stderr, "------------------------------------------- GC!\n");
-#ifdef DEBUG_GC_TRACES
+#if defined(DEBUG_GC_TRACES) || 1
   fprintf(stderr, "------------------------------------------- GC!\n");
 #endif
 
   todo_ptr = 0;
   todo_scan = 0;
 
+  // flip semispaces
+
+  if (heap_ptr > heap_start + HEAP_SIZE/2)
+    {
+      heap_limit = heap_start + HEAP_FUDGE;
+      heap_ptr = heap_start + HEAP_SIZE/2;
+    }
+  else
+    {
+      heap_limit = heap_start + HEAP_SIZE/2 + HEAP_FUDGE;
+      heap_ptr = heap_end;
+    }
+
 #ifdef DEBUG_GC_TRACES
   fprintf(stderr, "\n*** ROOTS:\n");
 #endif
 
   forward_roots();
-  forward("                           live", &live);
+
+  forward("live", &live);
 
   forward_stack();
 
@@ -822,13 +905,16 @@ struct object *garbage_collect(struct object *live)
   for (todo_ptr = 0; todo_ptr < todo_scan; todo_ptr++)
     {
       struct object *obj = todo[todo_ptr];
-      int n = ((int)obj->_hd[-1].values_size)>>16;
-      obj->_hd[-1].values_size = fixnum_to_ref(n);
+      struct object *values_size = obj->_hd[-1].values_size;
+      if (!ref_is_fixnum(values_size))
+        {
+          obj->_hd[-1].values_size = fixnum_to_ref(((int)values_size)>>16);
+        }
     }
 
-  newHeap();
+  //newHeap();
 
-#ifdef DEBUG_GC_TRACES
+#if defined(DEBUG_GC_TRACES) || 1
 fprintf(stderr, "\n------------------------------------------- live objects in heap = %d\n", todo_scan);
 #endif
 
@@ -1066,7 +1152,7 @@ struct object *arguments_new(size_t n, struct array *self, struct function *clos
 
     new_args->_hd[-1].map       = base_map((struct object *)self, ARRAY_TYPE);
     new_args->_hd[-1].prototype = (struct object *)self;
-    object_payload_type_set_structured(new_args);
+    object_payload_type_set_structured((struct object *)new_args);
     
     new_args->count = size;
 
@@ -1329,7 +1415,7 @@ struct object *cell_new(size_t n, struct cell *self, struct function *closure, s
     new_cell->value = val;
     new_cell->_hd[-1].map       = base_map((struct object *)self, CELL_TYPE);
     new_cell->_hd[-1].prototype = (struct object *)self;
-    object_payload_type_set_structured(new_cell);
+    object_payload_type_set_structured((struct object *)new_cell);
 
     return (struct object *)new_cell;
 }
@@ -1378,7 +1464,7 @@ struct object *cwrapper_new(
     w->code[5] = 0xff;
     w->code[6] = 0xe0;
 
-    object_payload_type_set_binary(w);
+    object_payload_type_set_binary((struct object *)w);
 
     struct object *s_extern = send(root_symbol, s_intern, "__extern__");
     send(w, s_set, s_extern, name); 
@@ -1445,7 +1531,7 @@ struct object *frame_new(
 
     f->_hd[-1].map = base_map((struct object *)self, FRAME_TYPE);
     f->_hd[-1].prototype = (struct object *)self;
-    object_payload_type_set_custom(f);
+    object_payload_type_set_custom((struct object *)f);
 
     f->n       = f_n;
     f->self    = rcv;
@@ -1916,7 +2002,7 @@ struct object *map_new(size_t n, struct map *self, struct function *closure)
     new_map->next_offset       = ref(-1);
     new_map->type              = MAP_TYPE;
     new_map->cache             = NIL;
-    object_payload_type_set_custom(new_map);
+    object_payload_type_set_custom((struct object *)new_map);
 
     return (struct object *)new_map;
 }
@@ -2147,7 +2233,6 @@ struct object *object_clone_fast(size_t n, struct object *self, struct function 
     //assert(fx(self->_hd[-1].payload_size) == 0);
     self = self->_hd[-1].extension;
 
-
     struct object *clone = (struct object *)heap_ptr;
     clone->_hd[-1].values_size   = self->_hd[-1].values_size;
     clone->_hd[-1].extension     = clone;
@@ -2171,6 +2256,7 @@ struct object *object_clone_fast(size_t n, struct object *self, struct function 
 
     heap_ptr -= object_size;
 
+    //TODO: why is object_prelude_size written *before* the object?  this seems useless
     // Store prelude size before the object
     *((ssize_t *)heap_ptr) = object_prelude_size;
 
@@ -2480,7 +2566,7 @@ struct object *symbol_new(size_t n, struct object *self, struct function *closur
     new_symbol->_hd[-1].prototype = self;
     new_symbol->string[0]        = '\0';
     new_symbol->string[fx(size)] = '\0';
-    object_payload_type_set_binary(new_symbol);
+    object_payload_type_set_binary((struct object *)new_symbol);
 
     if (!ref_is_fixnum(data))
     {
