@@ -88,13 +88,6 @@ macro return_address()
     return @{["code", [_op("mov", _mem(4,_EBP), _EAX)]]}@;
 }
 
-macro current_node()
-{
-    return @{["code", [
-        _op("mov", _mem(4,_EBP), _EAX),
-        _op("sub", _$(35), _EAX) ]]}@;
-}
-
 macro ptr_write(ptr, offset, v)
 {
     return @{["begin",
