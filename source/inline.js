@@ -18,7 +18,7 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
     var clos_offset = loc + 2 * this.sizeof_ref;
 
     return [
-        _op("sub", _$(nb*this.sizeof_ref), _ESP),
+        this.stack_alloc(nb),
         rcv,
         _op("mov", _EAX, _mem(loc + this.sizeof_ref, _EBP), 32),
         args.map(function (a, i) 

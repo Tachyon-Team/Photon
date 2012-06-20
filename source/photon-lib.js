@@ -746,6 +746,16 @@ PhotonCompiler.context = {
                                      genListing("adcl $FN_PTR_OFFSET,%ecx // Magic Cookie");}]
         );
     },
+
+    stack_alloc:function (nb)
+    {
+        var code = [];
+
+        for (var i=0; i<nb; i++)
+            code.push(_op("push", _$(_UNDEFINED)));
+
+        return code;
+    },
     
     nop:function (nb)
     {
@@ -1433,12 +1443,8 @@ PhotonCompiler.context = {
 
         var msg_expr = this.gen_symbol(msg);
 
-        var code = [];
-
-        for (var i=0; i<nb; i++)
-            code.push(_op("push", _$(_UNDEFINED)));
-
-        return code.concat([
+        return [
+            this.stack_alloc(nb),
             rcv,
             _op("mov", _EAX, _mem(loc + this.sizeof_ref, _EBP), 32),
             args.map(function (a, i) 
@@ -1462,7 +1468,7 @@ PhotonCompiler.context = {
             _op("call", _EAX),
             this.magic_cookie(),
             _op("add", _$(nb*this.sizeof_ref), _ESP)
-        ]);
+        ];
     },
 
     gen_call:function (nb, fn, args)
@@ -1471,7 +1477,7 @@ PhotonCompiler.context = {
         var that = this;
 
         return [
-            _op("sub", _$(nb*this.sizeof_ref), _ESP),
+            this.stack_alloc(nb),
             args.map(function (a, i) 
             { 
                 return [a, _op("mov", _EAX, _mem(loc + (i + 3) * that.sizeof_ref, _EBP))]; 
@@ -1646,14 +1652,8 @@ PhotonCompiler.context = {
 
     gen_let:function (nb, es, body)
     {
-        var pushes = [];
-        for (var i = 0; i < nb; ++i)
-        {
-            pushes.push(_op("push", _$(_UNDEFINED)));    
-        }
-
         return [
-            pushes,
+            this.stack_alloc(nb),
             es,
             body,
             _op("add", _$(nb*this.sizeof_ref), _ESP)
@@ -1663,7 +1663,7 @@ PhotonCompiler.context = {
     {
         var loc = -(this.stack_location_nb + nb) * this.sizeof_ref + this.bias;
         var that = this;
-        return [_op("sub", _$(nb*this.sizeof_ref), _ESP),
+        return [this.stack_alloc(nb),
                 args.map(function (a, i) 
                 { 
                     return [a, _op("mov", _EAX, _mem(loc + i * that.sizeof_ref, _EBP))]; 
