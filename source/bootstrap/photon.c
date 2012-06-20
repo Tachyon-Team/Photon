@@ -438,35 +438,35 @@ inline ssize_t max(ssize_t a, ssize_t b)
 }
 
 #define PAYLOAD_TYPE_OFFSET ((COUNT_BIT_NB + 3))
-#define PAYLOAD_MASK       (0x11 << PAYLOAD_TYPE_OFFSET)
-#define BINARY_PAYLOAD     (0x00 << PAYLOAD_TYPE_OFFSET) 
-#define HYBRID_PAYLOAD     (0x01 << PAYLOAD_TYPE_OFFSET)
-#define STRUCTURED_PAYLOAD (0x10 << PAYLOAD_TYPE_OFFSET)
-#define CUSTOM_PAYLOAD     (0x11 << PAYLOAD_TYPE_OFFSET)
+#define PAYLOAD_MASK       (3 << PAYLOAD_TYPE_OFFSET)
+#define BINARY_PAYLOAD     (0 << PAYLOAD_TYPE_OFFSET) 
+#define HYBRID_PAYLOAD     (1 << PAYLOAD_TYPE_OFFSET)
+#define STRUCTURED_PAYLOAD (2 << PAYLOAD_TYPE_OFFSET)
+#define CUSTOM_PAYLOAD     (3 << PAYLOAD_TYPE_OFFSET)
 
 inline ssize_t object_payload_type(struct object *self)
 {
-    return fx(self->_hd[-1].flags) & (0x11 << (COUNT_BIT_NB + 3));
+    return fx(self->_hd[-1].flags) & PAYLOAD_MASK;
 }
 
 inline void object_payload_type_set_binary(struct object *self)
 {
-    self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) & ((~PAYLOAD_MASK) | BINARY_PAYLOAD));
+  self->_hd[-1].flags = ref((fx(self->_hd[-1].flags) & ~PAYLOAD_MASK) | BINARY_PAYLOAD);
 }
 
 inline void object_payload_type_set_hybrid(struct object *self)
 {
-    self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) & ((~PAYLOAD_MASK) | HYBRID_PAYLOAD));
+  self->_hd[-1].flags = ref((fx(self->_hd[-1].flags) & ~PAYLOAD_MASK) | HYBRID_PAYLOAD);
 }
 
 inline void object_payload_type_set_structured(struct object *self)
 {
-    self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) & ((~PAYLOAD_MASK) | STRUCTURED_PAYLOAD));
+  self->_hd[-1].flags = ref((fx(self->_hd[-1].flags) & ~PAYLOAD_MASK) | STRUCTURED_PAYLOAD);
 }
 
 inline void object_payload_type_set_custom(struct object *self)
 {
-    self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) & ((~PAYLOAD_MASK) | CUSTOM_PAYLOAD));
+  self->_hd[-1].flags = ref((fx(self->_hd[-1].flags) & ~PAYLOAD_MASK) | CUSTOM_PAYLOAD);
 }
 
 inline ssize_t object_prelude_size(struct object *self)
@@ -702,26 +702,46 @@ void scan()
     fprintf(stderr, "  %02x\n", ((unsigned char *)o)[i]);
 #endif
 
-  if (fx(o->_hd[-1].payload_size) > 7 && ((unsigned char *)o)[0] == 0xb8) // is it a closure?
+  //  fprintf(stderr,"payload_type=%d\n",(int)object_payload_type(o));
+
+  switch (object_payload_type(o))
     {
-      int ps = fx(o->_hd[-1].payload_size);
-      struct object **p = (struct object **)((char *)o + ps);
-      int n = fx(*--p);
+    case HYBRID_PAYLOAD:
+      {
+        int ps = fx(o->_hd[-1].payload_size);
+        struct object **p = (struct object **)((char *)o + ps);
+        int n = fx(*--p);
 
-#ifdef DEBUG_GC_TRACES
-
-      for (i=0; i<fx(o->_hd[-1].payload_size); i++)
-        fprintf(stderr, "  %02x\n", ((unsigned char *)o)[i]);
-
-      fprintf(stderr, "closure ps=%d n=%d!!!!!!!!!!!!!\n", ps, n);
-
+#if 0
+        for (i=0; i<fx(o->_hd[-1].payload_size); i++)
+          fprintf(stderr, "  %02x\n", ((unsigned char *)o)[i]);
 #endif
 
-      while (n-- > 0)
-        {
-          int offs = fx(*--p);
-          forward("  ref",(struct object **)((char *)o + offs));
-        }
+        while (n-- > 0)
+          {
+            int offs = fx(*--p);
+            if (offs < 0)
+              {
+#if 0
+              fprintf(stderr, "offs = %d\n", offs);
+#endif
+              }
+            else
+              forward("  ref",(struct object **)((char *)o + offs));
+          }
+
+#if 0
+        fprintf(stderr, "\n");
+#endif
+
+        break;
+      }
+
+    case BINARY_PAYLOAD:
+    case STRUCTURED_PAYLOAD:
+    case CUSTOM_PAYLOAD:
+      // TODO: ...
+      break;
     }
 }
 
