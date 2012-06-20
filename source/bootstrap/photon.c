@@ -137,13 +137,13 @@ char *heap_end   = 0;
 unsigned long long mem_allocated = 0;      // in Bytes
 unsigned long long exec_mem_allocated = 0; // in Bytes
 
-#define MB *(1024*1024)
-#define HEAP_SIZE (60 MB)
-#define HEAP_FUDGE 1000
+#define MB (1024*1024)
+#define HEAP_SIZE (64 * MB)
+#define HEAP_FUDGE MB
 
 extern void newHeap()
 {
-  //assert(heap_start == 0); // only allocate one heap
+    //assert(heap_start == 0); // only allocate one heap
 
     //heap_start = (char *)calloc(1, HEAP_SIZE);
     heap_start = (char *)mmap(
@@ -158,10 +158,12 @@ extern void newHeap()
     assert(heap_start != MAP_FAILED);
 
     heap_end = heap_start + HEAP_SIZE;
-    heap_limit = heap_start + HEAP_FUDGE;
+    heap_limit = heap_start + HEAP_SIZE/2 + HEAP_FUDGE;
     heap_ptr = heap_end;
     //printf("// heap_start = %p, heap_limit = %p, heap_ptr = %p\n", heap_start, heap_limit, heap_ptr);
 }
+
+//size_t maxsize = 0;
 
 inline char *raw_calloc(size_t nb, size_t size)
 {
@@ -170,12 +172,14 @@ inline char *raw_calloc(size_t nb, size_t size)
     char *new_ptr = (char *)0;
     mem_allocated += obj_size;
 
-    if (obj_size > (HEAP_SIZE - HEAP_FUDGE))
+    //    if (obj_size > maxsize)
+    //      { maxsize = obj_size; fprintf(stderr, "maxsize=%d\n", (int)maxsize); }/////////////
+
+    if (obj_size > HEAP_FUDGE)
     {
         new_ptr = (char *)calloc(1, obj_size);
         assert(new_ptr != 0);
 
-        assert(heap_ptr >= heap_limit && heap_ptr <= heap_start + HEAP_SIZE);
         return new_ptr;
     } else
     {
@@ -186,7 +190,6 @@ inline char *raw_calloc(size_t nb, size_t size)
 #ifdef DEBUG_GC_TRACES
             fprintf(stderr, "*** newHeap called from raw_calloc!\n");
 #endif
-            //exit(1);
             newHeap(); // TODO: use heap_limit_reached
             heap_ptr -= obj_size;
         }
@@ -564,6 +567,13 @@ void forward(const char *msg, struct object **obj)
         fprintf(stderr, "%s %p: MEMORY ALLOCATED OBJECT #%d\n", msg, o, todo_ptr);
 #endif
         o->_hd[-1].values_size = (struct object *)((ref_to_fixnum(o->_hd[-1].values_size)<<16)+(todo_ptr<<1)); // leave forwarding pointer
+
+        if (o->_hd[-1].extension != o)
+          fprintf(stderr, "o->_hd[-1].extension != o   %p  %p\n", o->_hd[-1].extension, o);
+
+        o = o->_hd[-1].extension; // replace object by its extension
+
+        *obj = o;
         todo[todo_ptr++] = o;
       }
     else
@@ -668,12 +678,16 @@ void *main_frame = NULL; // pointer to main's frame (so we know when to stop wal
 void forward_return_address(void **ra_slot)
 {
   void *ra = *ra_slot;
+  long dist = *(long *)((char *)ra + 2);
+  struct object *container_fn = (struct object *)((char *)ra - dist);
 
 #ifdef DEBUG_GC_TRACES
-  fprintf(stderr,"  return address = %p\n", ra);
+  fprintf(stderr,"  return address = %p     container_fn = %p     dist = %d\n", ra, container_fn, (int)dist);
 #endif
 
-  // TODO: ...
+  //forward("  container_fn", &container_fn);
+
+  *ra_slot = (void *)((char *)container_fn + dist); // update return address
 }
 
 void forward_stack()
@@ -712,8 +726,9 @@ void forward_stack()
         }
       else
         {
-          void **ptr = frame;
 #ifdef DEBUG_GC_TRACES
+
+          void **ptr = frame;
 
           fprintf(stderr, "C frame %p\n", frame);
 
@@ -726,10 +741,10 @@ void forward_stack()
               fprintf(stderr, "  return address is properly tagged!\n");
             }
 
-#endif
-
           while (ptr < next_frame)
             fprintf(stderr,"  %p\n", *ptr++);
+
+#endif
         }
 
 #ifdef DEBUG_GC_TRACES
@@ -744,6 +759,7 @@ void forward_stack()
 
 struct object *garbage_collect(struct object *live)
 {
+  //fprintf(stderr, "------------------------------------------- GC!\n");
 #ifdef DEBUG_GC_TRACES
   fprintf(stderr, "------------------------------------------- GC!\n");
 #endif
