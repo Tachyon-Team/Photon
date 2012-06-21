@@ -3718,6 +3718,8 @@ void serialize()
 
 void gc_test()
 {
+    bootstrap(); // Comment this line to use the serialized image instead 
+
     struct object *o     = send(root_object, s_new);
     struct object *s_foo = send(root_symbol, s_intern, "foo"); 
     send(o, s_set, s_foo, fixnum_to_ref(42)); 
