@@ -446,6 +446,9 @@ inline ssize_t max(ssize_t a, ssize_t b)
 #define STRUCTURED_PAYLOAD (2 << PAYLOAD_TYPE_OFFSET)
 #define CUSTOM_PAYLOAD     (3 << PAYLOAD_TYPE_OFFSET)
 
+#define GC_FORWARDED  (1 << (COUNT_BIT_NB + 5))
+#define OBJ_TAGGED    (1 << (COUNT_BIT_NB + 2))
+
 inline ssize_t object_payload_type(struct object *self)
 {
     return fx(self->_hd[-1].flags) & PAYLOAD_MASK;
@@ -484,6 +487,21 @@ inline ssize_t object_tagged(struct object *self)
 inline void object_tag(struct object *self)
 {
     self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) | (1<<(COUNT_BIT_NB + 2)));
+}
+
+inline ssize_t object_flag_get(struct object *self, ssize_t mask)
+{
+    return fx(self->_hd[-1].flags) & mask;
+}
+
+inline void object_flag_set(struct object *self, ssize_t mask)
+{
+    self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) | mask);
+}
+
+inline void object_flag_unset(struct object *self, ssize_t mask)
+{
+    self->_hd[-1].flags = ref(fx(self->_hd[-1].flags) & ~mask);
 }
 
 
@@ -656,6 +674,7 @@ void forward(const char *msg, struct object **obj)
           }
 
         (*obj)->_hd[-1].values_size = (struct object *)((ref_to_fixnum(o->_hd[-1].values_size)<<16)+(todo_ptr<<1)); // leave forwarding pointer
+        object_flag_set(o, GC_FORWARDED);
         todo[todo_ptr++] = o;
 
         *obj = o;
@@ -807,10 +826,10 @@ void scan()
       forward(             "         map cache", &m->cache);
       for (i=0; i < fx(m->count); ++i)
       {
-          forward(         "     map prop name", &m->properties[i].name);
-          forward(         "     map prop loc ", &m->properties[i].location);
-          forward_indirect("map prop val cache", &m->properties[i].value_cache);
-          forward_indirect("map prop loc cache", &m->properties[i].location_cache);
+          forward(         "       map prop name", &m->properties[i].name);
+          forward(         "       map prop loc ", &m->properties[i].location);
+          forward_indirect("  map prop val cache", &m->properties[i].value_cache);
+          forward_indirect("  map prop loc cache", &m->properties[i].location_cache);
       }
       break;
     }
@@ -954,6 +973,8 @@ void forward_stack()
   //assert(1 == 0);
 }
 
+ssize_t GC_RUNNING = 0;
+void serialize();
 struct object *garbage_collect(struct object *live)
 {
 #if defined(DEBUG_GC_TRACES) || 1
@@ -1008,6 +1029,9 @@ struct object *garbage_collect(struct object *live)
     }
 
   //newHeap();
+
+  GC_RUNNING = 1;
+  serialize();
 
   // zap fromspace to better detect GC bugs
   while (fromspace_start < fromspace_end)
@@ -2205,8 +2229,8 @@ struct object *map_serialize(size_t n, struct object *self, struct function *clo
         object_serialize_ref(self_map->properties[i].location, stack);
         object_serialize_ref(NIL, stack);
         object_serialize_ref(NIL, stack);
-        printf(".long %zd\n", self_map->properties[i].obj_offset);
-        printf(".long %zd\n", self_map->properties[i].obj_offset2);
+        printf("    .long %zd\n", self_map->properties[i].obj_offset);
+        printf("    .long %zd\n", self_map->properties[i].obj_offset2);
     }
 
     object_tag(orig);
@@ -3542,6 +3566,17 @@ void serialize()
         if (!object_tagged(obj))
         {
             send(obj, s_serialize, stack);
+        }
+
+
+        // Using the serializer for debugging the GC
+        if (GC_RUNNING)
+        {
+            if(!object_flag_get(obj, GC_FORWARDED))
+            {
+                fprintf(stderr, "NON-FORWARDED OBJECT: %p %s\n", obj, (char*)obj);
+                assert(1 == 0);
+            }
         }
     }
 
