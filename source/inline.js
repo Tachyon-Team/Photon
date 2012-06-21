@@ -49,7 +49,7 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
         _op("jmp", CONT),
         0,0,0,0, _listing("(data) NEXT"),     // next     node in list
         0,0,0,0, _listing("(data) PREVIOUS"), // previous node in list
-        this.fct_ptr_offset(),
+        this.cache_position(-8),
 
         BIND, _lbl_listing(BIND),
         // Bind

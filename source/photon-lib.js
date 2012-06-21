@@ -729,11 +729,11 @@ PhotonCompiler.context = {
         this.deferred = [];
     },
 
-    fct_ptr_offset:function ()
+    cache_position:function (offset)
     {
         return _deferred(
             [function () { return 4; }], 
-            [function (cb, pos) { cb.gen32(pos).
+            [function (cb, pos) { cb.gen32(pos+offset).
                                      genListing("(data) FN_PTR_OFFSET");}]
         );
     },

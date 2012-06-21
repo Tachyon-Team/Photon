@@ -687,34 +687,26 @@ void forward_indirect(const char* msg, struct object **cache)
 #endif
       return;
     }
-#ifdef DEBUG_GC_TRACES
-    ssize_t i;
-    for (i=0; i<12; i++)
-      fprintf(stderr, "  %02x\n", ((unsigned char *)*cache)[i]);
-#endif
 
     ssize_t offset = ((ssize_t *)*cache)[2];
 #ifdef DEBUG_GC_TRACES
-      fprintf(stderr, "%s %p: OFFSET %zd\n", msg, cache, offset);
+    fprintf(stderr, "%s %p: NEXT     %p\n", msg, cache, ((void **)*cache)[0]);
+    fprintf(stderr, "%s %p: PREVIOUS %p\n", msg, cache, ((void **)*cache)[1]);
+    fprintf(stderr, "%s %p: OFFSET   %zd\n", msg, cache, offset);
 #endif
-    struct object *obj = (struct object *)((char *)(*cache) - offset + 8);
-#ifdef DEBUG_GC_TRACES
-    for (i=-20; i<20; ++i)
+    struct object *obj = (struct object *)((char *)(*cache) - offset);
+
+#if 0 
+    ssize_t i;
+    for (i=-6; i<=0; ++i)
     {
       fprintf(stderr, "%p : %p %s\n", &((struct object **)obj)[i], ((struct object **)obj)[i], (i==0)?"*":" ");
     }
       //fprintf(stderr, "%s %p: OLD OBJECT %p\n", msg, cache, obj);
 #endif
+
     forward("FORWARDING %p", &obj);
-    /*
-#ifdef DEBUG_GC_TRACES
-      fprintf(stderr, "%s %p: FORWARDED OBJECT %p\n", msg, cache, obj);
-#endif
     *cache = (struct object *)(((char *)obj) + offset);
-#ifdef DEBUG_GC_TRACES
-      fprintf(stderr, "%s %p: FORWARDED OBJECT %p\n", msg, cache, *cache);
-#endif
-    */
 }
 
 void scan()
@@ -729,7 +721,7 @@ void scan()
   int n = ((int)o->_hd[-1].values_size)>>16;
   struct object *vs = fixnum_to_ref(n);
 
-  ssize_t i;
+  int i;
   for (i=-n; i < 0; ++i)
   {
     forward("    values[i]", &o->_hd[-1].values[i]);
@@ -812,16 +804,11 @@ void scan()
     case CUSTOM_PAYLOAD:
       // TODO: For now only map objects will be collected
       m = (struct map *)o;
-      forward("   map cache", &m->cache);
+      forward(             "         map cache", &m->cache);
       for (i=0; i < fx(m->count); ++i)
       {
-          forward("    map prop name", &m->properties[i].name);
-          forward("    map prop loc ", &m->properties[i].location);
-
-#ifdef DEBUG_GC_TRACES
-          fprintf(stderr, "  %08x\n", (unsigned int)m->properties[i].value_cache);
-          fprintf(stderr, "  %08x\n", (unsigned int)m->properties[i].location_cache);
-#endif
+          forward(         "     map prop name", &m->properties[i].name);
+          forward(         "     map prop loc ", &m->properties[i].location);
           forward_indirect("map prop val cache", &m->properties[i].value_cache);
           forward_indirect("map prop loc cache", &m->properties[i].location_cache);
       }
@@ -2033,8 +2020,8 @@ struct object *map_create(size_t n, struct map *self, struct function *closure, 
     new_map->properties[fx(new_map->count)].location       = new_map->next_offset;
     new_map->properties[fx(new_map->count)].value_cache    = NIL;
     new_map->properties[fx(new_map->count)].location_cache = NIL;
-    new_map->properties[fx(new_map->count)].obj_offset     = sizeof(struct map) + fx(new_map->count)*sizeof(struct property) + 4*sizeof(struct object *); 
-    new_map->properties[fx(new_map->count)].obj_offset2    = sizeof(struct map) + fx(new_map->count)*sizeof(struct property) + 5*sizeof(struct object *); 
+    new_map->properties[fx(new_map->count)].obj_offset     = sizeof(struct map) + fx(new_map->count)*sizeof(struct property) + 2*sizeof(struct object *); 
+    new_map->properties[fx(new_map->count)].obj_offset2    = sizeof(struct map) + fx(new_map->count)*sizeof(struct property) + 3*sizeof(struct object *); 
 
     new_map->count       = ref(fx(new_map->count) + 1);
     new_map->next_offset = ref(fx(new_map->next_offset) - 1);
@@ -2176,10 +2163,11 @@ struct object *map_remove(size_t n, struct map *self, struct function *closure, 
             // slot.
             new_map->properties[i]                = self->properties[fx(new_map->count)];
             new_map->properties[i].location       = self->properties[i].location;
+            // TODO: Check that the logic is correct!!!
             new_map->properties[i].value_cache    = self->properties[i].value_cache;
             new_map->properties[i].location_cache = self->properties[i].location_cache;
-            new_map->properties[i].obj_offset     = sizeof(struct map) + i*sizeof(struct property) + 4*sizeof(struct object *);
-            new_map->properties[i].obj_offset2    = sizeof(struct map) + i*sizeof(struct property) + 4*sizeof(struct object *);
+            new_map->properties[i].obj_offset     = sizeof(struct map) + i*sizeof(struct property) + 2*sizeof(struct object *);
+            new_map->properties[i].obj_offset2    = sizeof(struct map) + i*sizeof(struct property) + 3*sizeof(struct object *);
         }
     }
 
@@ -2250,8 +2238,8 @@ struct object *map_set(size_t n, struct map *self, struct function *closure, str
             self->properties[fx(self->count)].location       = self->next_offset;
             self->properties[fx(self->count)].value_cache    = NIL;
             self->properties[fx(self->count)].location_cache = NIL;
-            self->properties[fx(self->count)].obj_offset     = sizeof(struct map) + fx(self->count)*sizeof(struct property) + 4*sizeof(struct object *);
-            self->properties[fx(self->count)].obj_offset2    = sizeof(struct map) + fx(self->count)*sizeof(struct property) + 5*sizeof(struct object *);
+            self->properties[fx(self->count)].obj_offset     = sizeof(struct map) + fx(self->count)*sizeof(struct property) + 2*sizeof(struct object *);
+            self->properties[fx(self->count)].obj_offset2    = sizeof(struct map) + fx(self->count)*sizeof(struct property) + 3*sizeof(struct object *);
             self->count = ref(fx(self->count) + 1);
 
             // Add value on self
@@ -3044,8 +3032,8 @@ struct object *bt_map_set(size_t n, struct map *self, struct function *closure, 
         self->properties[fx(self->count)].location       = self->next_offset;
         self->properties[fx(self->count)].value_cache    = NIL;
         self->properties[fx(self->count)].location_cache = NIL;
-        self->properties[fx(self->count)].obj_offset     = sizeof(struct map) + fx(self->count)*sizeof(struct property) + 4*sizeof(struct object *);
-        self->properties[fx(self->count)].obj_offset2    = sizeof(struct map) + fx(self->count)*sizeof(struct property) + 5*sizeof(struct object *);
+        self->properties[fx(self->count)].obj_offset     = sizeof(struct map) + fx(self->count)*sizeof(struct property) + 2*sizeof(struct object *);
+        self->properties[fx(self->count)].obj_offset2    = sizeof(struct map) + fx(self->count)*sizeof(struct property) + 3*sizeof(struct object *);
         self->count = ref(fx(self->count) + 1);
 
         // Add value on self
@@ -3172,29 +3160,29 @@ void bootstrap()
     root_object->_hd[-1].map->properties[0].location       = ref(-1);
     root_object->_hd[-1].map->properties[0].value_cache    = NIL;
     root_object->_hd[-1].map->properties[0].location_cache = NIL;
-    root_object->_hd[-1].map->properties[0].obj_offset     = sizeof(struct map) + 4*sizeof(struct object *); 
-    root_object->_hd[-1].map->properties[0].obj_offset2    = sizeof(struct map) + 5*sizeof(struct object *); 
+    root_object->_hd[-1].map->properties[0].obj_offset     = sizeof(struct map) + 2*sizeof(struct object *); 
+    root_object->_hd[-1].map->properties[0].obj_offset2    = sizeof(struct map) + 3*sizeof(struct object *); 
 
     root_object->_hd[-1].map->properties[1].name           = s_clone;
     root_object->_hd[-1].map->properties[1].location       = ref(-2);
     root_object->_hd[-1].map->properties[1].value_cache    = NIL;
     root_object->_hd[-1].map->properties[1].location_cache = NIL;
-    root_object->_hd[-1].map->properties[1].obj_offset     = sizeof(struct map) + sizeof(struct property) + 4*sizeof(struct object *); 
-    root_object->_hd[-1].map->properties[1].obj_offset2    = sizeof(struct map) + sizeof(struct property) + 5*sizeof(struct object *); 
+    root_object->_hd[-1].map->properties[1].obj_offset     = sizeof(struct map) + sizeof(struct property) + 2*sizeof(struct object *); 
+    root_object->_hd[-1].map->properties[1].obj_offset2    = sizeof(struct map) + sizeof(struct property) + 3*sizeof(struct object *); 
 
     root_object->_hd[-1].map->properties[2].name           = s_init;
     root_object->_hd[-1].map->properties[2].location       = ref(-3);
     root_object->_hd[-1].map->properties[2].value_cache    = NIL;
     root_object->_hd[-1].map->properties[2].location_cache = NIL;
-    root_object->_hd[-1].map->properties[2].obj_offset     = sizeof(struct map) + 2*sizeof(struct property) + 4*sizeof(struct object *); 
-    root_object->_hd[-1].map->properties[2].obj_offset2    = sizeof(struct map) + 2*sizeof(struct property) + 5*sizeof(struct object *); 
+    root_object->_hd[-1].map->properties[2].obj_offset     = sizeof(struct map) + 2*sizeof(struct property) + 2*sizeof(struct object *); 
+    root_object->_hd[-1].map->properties[2].obj_offset2    = sizeof(struct map) + 2*sizeof(struct property) + 3*sizeof(struct object *); 
     
     root_object->_hd[-1].map->properties[3].name           = s_set;
     root_object->_hd[-1].map->properties[3].location       = ref(-4);
     root_object->_hd[-1].map->properties[3].value_cache    = NIL;
     root_object->_hd[-1].map->properties[3].location_cache = NIL;
-    root_object->_hd[-1].map->properties[3].obj_offset     = sizeof(struct map) + 3*sizeof(struct property) + 4*sizeof(struct object *); 
-    root_object->_hd[-1].map->properties[3].obj_offset2    = sizeof(struct map) + 3*sizeof(struct property) + 5*sizeof(struct object *); 
+    root_object->_hd[-1].map->properties[3].obj_offset     = sizeof(struct map) + 3*sizeof(struct property) + 2*sizeof(struct object *); 
+    root_object->_hd[-1].map->properties[3].obj_offset2    = sizeof(struct map) + 3*sizeof(struct property) + 3*sizeof(struct object *); 
 
     root_object->_hd[-1].map->count       = ref(4);
     root_object->_hd[-1].map->next_offset = ref(-5);
