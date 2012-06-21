@@ -582,6 +582,9 @@ int todo_scan;
 char *fromspace_start = 0;
 char *fromspace_end   = 0;
 
+int with_payload = 0;
+int without_payload = 0;
+
 void copy_object(struct object **obj)
 {
   struct object *o = (*obj)->_hd[-1].extension; // replace object by its extension
@@ -605,7 +608,14 @@ void copy_object(struct object **obj)
     {
       struct object *copy;
 
-      heap_ptr -= object_size;
+      ssize_t payload_len = object_size - object_prelude_size;
+
+      if (payload_len > 0)
+        with_payload++;
+      else
+        without_payload++;
+
+      heap_ptr -= object_size + sizeof(struct object *);
 
       copy = (struct object *)(heap_ptr + object_prelude_size);
 
@@ -617,7 +627,9 @@ void copy_object(struct object **obj)
       copy->_hd[-1].map           = o->_hd[-1].map;
 
       // copy payload
-      memcpy((void *)copy, (void *)o, object_size - object_prelude_size);
+      memcpy((void *)copy, (void *)o, payload_len);
+
+      *(struct object **)((char *)copy + payload_len) = fixnum_to_ref(payload_len);
 
       *obj = copy;
     }
@@ -824,6 +836,17 @@ void scan()
       // TODO: For now only map objects will be collected
       m = (struct map *)o;
       forward(             "         map cache", &m->cache);
+
+struct map {
+    struct header      _hd[0];
+    struct object     *type;
+    struct object     *count;
+    struct object     *next_offset;
+    struct object     *cache;
+    struct property    properties[0];
+};
+
+
       for (i=0; i < fx(m->count); ++i)
       {
           forward(         "       map prop name", &m->properties[i].name);
@@ -981,6 +1004,9 @@ struct object *garbage_collect(struct object *live)
   fprintf(stderr, "------------------------------------------- GC!\n");
 #endif
 
+  with_payload = 0;
+  without_payload = 0;
+
   todo_ptr = 0;
   todo_scan = 0;
 
@@ -1031,17 +1057,19 @@ struct object *garbage_collect(struct object *live)
   //newHeap();
 
   GC_RUNNING = 1;
-  serialize();
+  //serialize();
 
+#if 0
   // zap fromspace to better detect GC bugs
   while (fromspace_start < fromspace_end)
     {
       *(long*)fromspace_start = 0;
       fromspace_start += sizeof(long);
     }
+#endif
 
 #if defined(DEBUG_GC_TRACES) || 1
-fprintf(stderr, "\n------------------------------------------- live objects in heap = %d\n", todo_scan);
+  fprintf(stderr, "\n------------------------------------------- live objects in heap = %d  with_payload = %d  without_payload = %d\n", todo_scan, with_payload, without_payload);
 #endif
 
   return live;
@@ -1711,6 +1739,7 @@ struct object *function_clone(size_t n, struct function *self, struct function *
                     object_values_size((struct object *)self), 
                     fx(self->_hd[-1].payload_size));
 
+    clone->_hd[-1].flags        = self->_hd[-1].flags;
     clone->_hd[-1].map          = self->_hd[-1].map;
     clone->_hd[-1].prototype    = self->_hd[-1].prototype;
 
@@ -2357,6 +2386,7 @@ struct object *object_clone(size_t n, struct object *self, struct function *clos
         clone->_hd[-1].values[-i] = self->_hd[-1].values[-i];
     }
 
+    clone->_hd[-1].flags     = self->_hd[-1].flags;
     clone->_hd[-1].map       = self->_hd[-1].map;
     clone->_hd[-1].prototype = self->_hd[-1].prototype;
 
@@ -3565,6 +3595,7 @@ void serialize()
         struct object *obj = send0(stack, s_pop);
         if (!object_tagged(obj))
         {
+          printf("// OBJECT PAYLOAD TYPE = %d\n", (int)object_payload_type(obj));
             send(obj, s_serialize, stack);
         }
 
@@ -3575,7 +3606,7 @@ void serialize()
             if(!object_flag_get(obj, GC_FORWARDED))
             {
                 fprintf(stderr, "NON-FORWARDED OBJECT: %p %s\n", obj, (char*)obj);
-                assert(1 == 0);
+                //assert(1 == 0);
             }
         }
     }
