@@ -10,7 +10,7 @@
 #ifndef _PHOTON_H
 #define _PHOTON_H
 
-#define DEBUG_GC_TRACES_not
+#define DEBUG_GC_TRACES
 
 #define HEAP_PTR_IN_REG_not
 
@@ -697,6 +697,7 @@ void forward(const char *msg, struct object **obj)
 #ifdef DEBUG_GC_TRACES
         fprintf(stderr, "%s %p: FORWARDED MEMORY ALLOCATED OBJECT #%d\n", msg, o, ((int)(o->_hd[-1].values_size) & ~(-1<<16)) >> 1);
 #endif
+        *obj = todo[(((int)(o->_hd[-1].values_size) & ~(-1<<16)) >> 1)];
       }
   }
 }
@@ -837,16 +838,6 @@ void scan()
       // TODO: For now only map objects will be collected
       m = (struct map *)o;
       forward(             "         map cache", &m->cache);
-
-struct map {
-    struct header      _hd[0];
-    struct object     *type;
-    struct object     *count;
-    struct object     *next_offset;
-    struct object     *cache;
-    struct property    properties[0];
-};
-
 
       for (i=0; i < fx(m->count); ++i)
       {
@@ -1070,7 +1061,7 @@ struct object *garbage_collect(struct object *live)
   fprintf(stderr, "\n------------------------------------------- live objects in heap = %d  with_payload = %d  without_payload = %d\n", todo_scan, with_payload, without_payload);
 #endif
 
-  GC_RUNNING = 1;
+  //GC_RUNNING = 1;
   //serialize();
 
   return live;
@@ -3727,6 +3718,7 @@ void gc_test()
 
     printf("o               %p PAYLOAD_TYPE %zd\n", o, object_payload_type(o));
     printf("o.__extension__ %p PAYLOAD_TYPE %zd\n", o->_hd[-1].extension, object_payload_type(o->_hd[-1].extension));
+    printf("o.__map__       %p PAYLOAD_TYPE %zd\n", o->_hd[-1].map, object_payload_type(o->_hd[-1].map));
 
     o = garbage_collect(o);
 
@@ -3736,8 +3728,8 @@ void gc_test()
 
     assert(object_flag_get(o,                     GC_FORWARDED));
     assert(object_flag_get(o->_hd[-1].map,        GC_FORWARDED));
-    assert(object_flag_get(o->_hd[-1].prototype,  GC_FORWARDED));
     assert(o->_hd[-1].prototype == root_object);
+    assert(object_flag_get(root_object,           GC_FORWARDED));
     assert(root_object->_hd[-1].prototype == NIL);
     assert(o->_hd[-1].extension == o);
 
