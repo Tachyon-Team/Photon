@@ -129,11 +129,12 @@ inline ssize_t ref_is_object(struct object *obj);
 
 
 char *static_heap_start = 0;
-char *static_heap_end = 0;
+char *static_heap_end   = 0;
 
 char *heap_start = 0;
-char *heap_limit = 0;
+char *heap_mid   = 0;
 char *heap_end   = 0;
+char *heap_limit = 0;
 unsigned long long mem_allocated = 0;      // in Bytes
 unsigned long long exec_mem_allocated = 0; // in Bytes
 
@@ -157,8 +158,9 @@ extern void newHeap()
 
     assert(heap_start != MAP_FAILED);
 
+    heap_mid = heap_start + HEAP_SIZE/2;
     heap_end = heap_start + HEAP_SIZE;
-    heap_limit = heap_start + HEAP_SIZE/2 + HEAP_FUDGE;
+    heap_limit = heap_mid + HEAP_FUDGE;
     heap_ptr = heap_end;
     //printf("// heap_start = %p, heap_limit = %p, heap_ptr = %p\n", heap_start, heap_limit, heap_ptr);
 }
@@ -558,6 +560,9 @@ inline char byte(ssize_t i, struct object *obj)
 struct object *todo[1000000];
 int todo_ptr;
 int todo_scan;
+
+char *fromspace_start = 0;
+char *fromspace_end   = 0;
 
 void copy_object(struct object **obj)
 {
@@ -973,14 +978,18 @@ struct object *garbage_collect(struct object *live)
 
   // flip semispaces
 
-  if (heap_ptr > heap_start + HEAP_SIZE/2)
+  if (heap_ptr > heap_mid)
     {
+      fromspace_start = heap_mid;
+      fromspace_end = heap_end;
       heap_limit = heap_start + HEAP_FUDGE;
-      heap_ptr = heap_start + HEAP_SIZE/2;
+      heap_ptr = heap_mid;
     }
   else
     {
-      heap_limit = heap_start + HEAP_SIZE/2 + HEAP_FUDGE;
+      fromspace_start = heap_start;
+      fromspace_end = heap_mid;
+      heap_limit = heap_mid + HEAP_FUDGE;
       heap_ptr = heap_end;
     }
 
@@ -1012,6 +1021,13 @@ struct object *garbage_collect(struct object *live)
     }
 
   //newHeap();
+
+  // zap fromspace to better detect GC bugs
+  while (fromspace_start < fromspace_end)
+    {
+      *(long*)fromspace_start = 0;
+      fromspace_start += sizeof(long);
+    }
 
 #if defined(DEBUG_GC_TRACES) || 1
 fprintf(stderr, "\n------------------------------------------- live objects in heap = %d\n", todo_scan);
