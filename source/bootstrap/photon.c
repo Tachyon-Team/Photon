@@ -1056,9 +1056,6 @@ struct object *garbage_collect(struct object *live)
 
   //newHeap();
 
-  GC_RUNNING = 1;
-  //serialize();
-
 #if 0
   // zap fromspace to better detect GC bugs
   while (fromspace_start < fromspace_end)
@@ -1071,6 +1068,10 @@ struct object *garbage_collect(struct object *live)
 #if defined(DEBUG_GC_TRACES) || 1
   fprintf(stderr, "\n------------------------------------------- live objects in heap = %d  with_payload = %d  without_payload = %d\n", todo_scan, with_payload, without_payload);
 #endif
+
+  GC_RUNNING = 1;
+  serialize();
+
 
   return live;
 }
@@ -2233,7 +2234,6 @@ struct object *map_serialize(size_t n, struct object *self, struct function *clo
     self = self->_hd[-1].extension;
     struct map * self_map = (struct map *)self;
 
-    // Invalidate caches
     ssize_t i = -(object_values_size(self) + sizeof(struct header) / sizeof(struct object *));
     struct object **s = (struct object **)self;
 
@@ -3595,20 +3595,27 @@ void serialize()
         struct object *obj = send0(stack, s_pop);
         if (!object_tagged(obj))
         {
-          printf("// OBJECT PAYLOAD TYPE = %d\n", (int)object_payload_type(obj));
+            printf("// OBJECT PAYLOAD TYPE = %d\n", (int)object_payload_type(obj));
+
+            // Using the serializer for debugging the GC
+            if (GC_RUNNING)
+            {
+                if(!object_flag_get(obj, GC_FORWARDED))
+                {
+                    fprintf(stderr, "NON-FORWARDED OBJECT: %p\n", obj);
+                    //assert(1 == 0);
+                }
+
+                if(!ref_is_fixnum(obj->_hd[-1].values_size))
+                {
+                    fprintf(stderr, "NON-CLEANED FORWARDED OBJECT: %p\n", obj);
+                    obj->_hd[-1].values_size = fixnum_to_ref(((int)obj->_hd[-1].values_size)>>16);
+                }
+            }
             send(obj, s_serialize, stack);
         }
 
 
-        // Using the serializer for debugging the GC
-        if (GC_RUNNING)
-        {
-            if(!object_flag_get(obj, GC_FORWARDED))
-            {
-                fprintf(stderr, "NON-FORWARDED OBJECT: %p %s\n", obj, (char*)obj);
-                //assert(1 == 0);
-            }
-        }
     }
 
     printf("_Lstatic_heap_end:\n");
