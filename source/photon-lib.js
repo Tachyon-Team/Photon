@@ -1001,11 +1001,15 @@ PhotonCompiler.context = {
         //print("Flattened Code AST");
         //print(clean(code).toString());
         var codeBlock = _asm(code).codeBlock;
+
+        codeBlock.align(this.sizeof_ref);
+        codeBlock.genListing("// Filling bytes for alignment");
         //print("assemble");
         codeBlock.assemble();
         //print(codeBlock.code.toString());
         //print("listing");
         print(codeBlock.listingString());
+
 
         ref_labels.sort(function (a, b)
         {
