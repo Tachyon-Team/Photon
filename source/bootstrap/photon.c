@@ -3592,11 +3592,14 @@ void serialize()
 
     printf("_Lstatic_heap_start:\n");
 
+    ssize_t serialized_count = 0;
+
     while (fx(send(stack, s_get, s_length)) > 0)
     {
         struct object *obj = send0(stack, s_pop);
         if (!object_tagged(obj))
         {
+            serialized_count++;
             printf("// OBJECT PAYLOAD TYPE = %d\n", (int)object_payload_type(obj));
 
             // Using the serializer for debugging the GC
@@ -3708,7 +3711,50 @@ void serialize()
     printf("    mov $0, %%eax\n");
     printf("    popl %%ebp\n");
     printf("    ret\n");
+
+    printf("// Stats:\n");
+    printf("//     object nb: %zd\n", serialized_count);
 }
+
+void gc_test()
+{
+    struct object *o     = send(root_object, s_new);
+    struct object *s_foo = send(root_symbol, s_intern, "foo"); 
+    send(o, s_set, s_foo, fixnum_to_ref(42)); 
+    assert(send(o, s_get, s_foo) == fixnum_to_ref(42));
+
+    printf("o               %p PAYLOAD_TYPE %zd\n", o, object_payload_type(o));
+    printf("o.__extension__ %p PAYLOAD_TYPE %zd\n", o->_hd[-1].extension, object_payload_type(o->_hd[-1].extension));
+
+    o = garbage_collect(o);
+
+    printf("o               %p PAYLOAD_TYPE %zd\n", o, object_payload_type(o));
+    printf("o.__extension__ %p PAYLOAD_TYPE %zd\n", o->_hd[-1].extension, object_payload_type(o->_hd[-1].extension));
+    printf("o.__map__       %p PAYLOAD_TYPE %zd\n", o->_hd[-1].map, object_payload_type(o->_hd[-1].map));
+
+    assert(object_flag_get(o,                     GC_FORWARDED));
+    assert(object_flag_get(o->_hd[-1].map,        GC_FORWARDED));
+    assert(object_flag_get(o->_hd[-1].prototype,  GC_FORWARDED));
+    assert(o->_hd[-1].prototype == root_object);
+    assert(root_object->_hd[-1].prototype == NIL);
+    assert(o->_hd[-1].extension == o);
+
+    assert(object_flag_get(o->_hd[-1].map->_hd[-1].prototype, GC_FORWARDED));
+    assert(object_flag_get(o->_hd[-1].map->_hd[-1].map,       GC_FORWARDED));
+
+    assert(object_flag_get(o->_hd[-1].extension,  GC_FORWARDED));
+    assert(object_flag_get(root_symbol,           GC_FORWARDED));
+    assert(object_flag_get(s_intern,              GC_FORWARDED));
+    assert(object_flag_get(s_get,                 GC_FORWARDED));
+    assert(object_flag_get(s_lookup,              GC_FORWARDED));
+    assert(object_flag_get(root_map,              GC_FORWARDED));
+
+
+    // Retrieving foo again because the GC will have moved it
+    s_foo = send(root_symbol, s_intern, "foo"); 
+    assert(send(o, s_get, s_foo) == fixnum_to_ref(42));
+}
+
 
 void init(ssize_t argc, char *argv[])
 {
@@ -3732,7 +3778,10 @@ void init(ssize_t argc, char *argv[])
         {
             ++i;
             break;
-        } 
+        } else if (!strcmp(argv[i], "--gc-test"))
+        {
+            gc_test();
+        }
     }
 
     struct object *arguments   = send(root_array, s_new, ref(argc-i));
