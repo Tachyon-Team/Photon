@@ -990,11 +990,6 @@ PhotonCompiler.context = {
             cell_nb = 0;
         }
 
-        if (print === undefined)
-        {
-            print = function () {};
-        } 
-
         //print("Code AST");
         //print(code.toString());
         code = flatten(code);
@@ -1008,7 +1003,11 @@ PhotonCompiler.context = {
         codeBlock.assemble();
         //print(codeBlock.code.toString());
         //print("listing");
-        print(codeBlock.listingString());
+
+        if (print !== undefined)
+        {
+            print(codeBlock.listingString());
+        }
 
 
         ref_labels.sort(function (a, b)
