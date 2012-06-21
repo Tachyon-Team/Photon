@@ -615,6 +615,7 @@ void copy_object(struct object **obj)
       else
         without_payload++;
 
+      //TODO: if this is a big object it should be allocated with calloc
       heap_ptr -= object_size + sizeof(struct object *);
 
       copy = (struct object *)(heap_ptr + object_prelude_size);
@@ -1056,7 +1057,7 @@ struct object *garbage_collect(struct object *live)
 
   //newHeap();
 
-#if 0
+#if 1
   // zap fromspace to better detect GC bugs
   while (fromspace_start < fromspace_end)
     {
@@ -1070,8 +1071,7 @@ struct object *garbage_collect(struct object *live)
 #endif
 
   GC_RUNNING = 1;
-  serialize();
-
+  //serialize();
 
   return live;
 }
@@ -1385,6 +1385,7 @@ struct array *array_extend(struct array *orig, ssize_t size)
     );
     inc_mem_counter(mem_array, object_values_size(self), sizeof(struct array) + size * sizeof(struct object *));
 
+    copy->_hd[-1].flags     = self->_hd[-1].flags;
     copy->_hd[-1].map       = self->_hd[-1].map;
     copy->_hd[-1].prototype = self->_hd[-1].prototype;
 
@@ -2635,6 +2636,7 @@ struct object *object_set(size_t n, struct object *self, struct function *closur
             ssize_t size = object_values_size(self) == 0 ? 2 : 2*object_values_size(self);
             copy = send(self, s_init, ref(size), self->_hd[-1].payload_size);
             inc_mem_counter(mem_object, size, fx(self->_hd[-1].payload_size));
+            copy->_hd[-1].flags     = self->_hd[-1].flags;
             copy->_hd[-1].map       = self->_hd[-1].map;
             copy->_hd[-1].prototype = self->_hd[-1].prototype;
 
