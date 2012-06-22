@@ -758,8 +758,10 @@ void scan()
   fprintf(stderr, "\nSCANNING %p MEMORY ALLOCATED OBJECT #%d\n", o, todo_scan);
 #endif
 
-  ssize_t n = fx(o->_hd[-1].values_size);
-  struct object *vs = fixnum_to_ref(n);
+  struct object *vs = o->_hd[-1].values_size;
+  // Objects from the static heap have a forwarding pointer but copied objects do not
+  ssize_t n = ref_is_fixnum(vs) ? fx(o->_hd[-1].values_size) : ((ssize_t)o->_hd[-1].values_size) >> 16; 
+  vs = fixnum_to_ref(n);
 
   ssize_t i;
   for (i=-n; i < 0; ++i)
@@ -3719,7 +3721,7 @@ void serialize()
 
 void gc_test()
 {
-    bootstrap(); // Comment this line to use the serialized image instead 
+    //bootstrap(); // Comment this line to use the serialized image instead 
 
     struct object *o     = send(root_object, s_new);
     struct object *s_foo = send(root_symbol, s_intern, "foo"); 
