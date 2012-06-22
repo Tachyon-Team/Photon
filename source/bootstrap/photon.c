@@ -620,6 +620,7 @@ void copy_object(struct object **obj)
 
       copy = (struct object *)(heap_ptr + object_prelude_size);
 
+      // TODO: Should compact unused slots in objects
       ssize_t i = 0;
       for (i = -fx(o->_hd[-1].values_size); i < 0; ++i)
       {
@@ -757,10 +758,10 @@ void scan()
   fprintf(stderr, "\nSCANNING %p MEMORY ALLOCATED OBJECT #%d\n", o, todo_scan);
 #endif
 
-  int n = fx((int)o->_hd[-1].values_size);
+  ssize_t n = fx(o->_hd[-1].values_size);
   struct object *vs = fixnum_to_ref(n);
 
-  int i;
+  ssize_t i;
   for (i=-n; i < 0; ++i)
   {
     forward("    values[i]", &o->_hd[-1].values[i]);
@@ -841,14 +842,14 @@ void scan()
       }
       break;
     case CUSTOM_PAYLOAD:
-      // TODO: For now only map objects will be collected
+      // TODO: For now only map objects will be collected, should support frame objects
       m = (struct map *)o;
       forward(             "         map cache", &m->cache);
 
       for (i=0; i < fx(m->count); ++i)
       {
 #if 1
-          fprintf(stderr,  "       map prop name: %s\n", m->properties[i].name);
+          fprintf(stderr,  "       map prop name: %s\n", (char*)m->properties[i].name);
 #endif
           forward(         "       map prop name", &m->properties[i].name);
           forward(         "       map prop loc ", &m->properties[i].location);
