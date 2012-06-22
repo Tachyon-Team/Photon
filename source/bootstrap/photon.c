@@ -620,6 +620,12 @@ void copy_object(struct object **obj)
 
       copy = (struct object *)(heap_ptr + object_prelude_size);
 
+      ssize_t i = 0;
+      for (i = -fx(o->_hd[-1].values_size); i < 0; ++i)
+      {
+          copy->_hd[-1].values[i]   = o->_hd[-1].values[i];
+      }
+
       copy->_hd[-1].values_size   = o->_hd[-1].values_size;
       copy->_hd[-1].extension     = o;
       copy->_hd[-1].flags         = o->_hd[-1].flags;
@@ -751,7 +757,7 @@ void scan()
   fprintf(stderr, "\nSCANNING %p MEMORY ALLOCATED OBJECT #%d\n", o, todo_scan);
 #endif
 
-  int n = ((int)o->_hd[-1].values_size)>>16;
+  int n = fx((int)o->_hd[-1].values_size);
   struct object *vs = fixnum_to_ref(n);
 
   int i;
@@ -841,6 +847,9 @@ void scan()
 
       for (i=0; i < fx(m->count); ++i)
       {
+#if 1
+          fprintf(stderr,  "       map prop name: %s\n", m->properties[i].name);
+#endif
           forward(         "       map prop name", &m->properties[i].name);
           forward(         "       map prop loc ", &m->properties[i].location);
           forward_indirect("  map prop val cache", &m->properties[i].value_cache);
@@ -3716,33 +3725,7 @@ void gc_test()
     send(o, s_set, s_foo, fixnum_to_ref(42)); 
     assert(send(o, s_get, s_foo) == fixnum_to_ref(42));
 
-    printf("o               %p PAYLOAD_TYPE %zd\n", o, object_payload_type(o));
-    printf("o.__extension__ %p PAYLOAD_TYPE %zd\n", o->_hd[-1].extension, object_payload_type(o->_hd[-1].extension));
-    printf("o.__map__       %p PAYLOAD_TYPE %zd\n", o->_hd[-1].map, object_payload_type(o->_hd[-1].map));
-
     o = garbage_collect(o);
-
-    printf("o               %p PAYLOAD_TYPE %zd\n", o, object_payload_type(o));
-    printf("o.__extension__ %p PAYLOAD_TYPE %zd\n", o->_hd[-1].extension, object_payload_type(o->_hd[-1].extension));
-    printf("o.__map__       %p PAYLOAD_TYPE %zd\n", o->_hd[-1].map, object_payload_type(o->_hd[-1].map));
-
-    assert(object_flag_get(o,                     GC_FORWARDED));
-    assert(object_flag_get(o->_hd[-1].map,        GC_FORWARDED));
-    assert(o->_hd[-1].prototype == root_object);
-    assert(object_flag_get(root_object,           GC_FORWARDED));
-    assert(root_object->_hd[-1].prototype == NIL);
-    assert(o->_hd[-1].extension == o);
-
-    assert(object_flag_get(o->_hd[-1].map->_hd[-1].prototype, GC_FORWARDED));
-    assert(object_flag_get(o->_hd[-1].map->_hd[-1].map,       GC_FORWARDED));
-
-    assert(object_flag_get(o->_hd[-1].extension,  GC_FORWARDED));
-    assert(object_flag_get(root_symbol,           GC_FORWARDED));
-    assert(object_flag_get(s_intern,              GC_FORWARDED));
-    assert(object_flag_get(s_get,                 GC_FORWARDED));
-    assert(object_flag_get(s_lookup,              GC_FORWARDED));
-    assert(object_flag_get(root_map,              GC_FORWARDED));
-
 
     // Retrieving foo again because the GC will have moved it
     s_foo = send(root_symbol, s_intern, "foo"); 
@@ -3775,6 +3758,7 @@ void init(ssize_t argc, char *argv[])
         } else if (!strcmp(argv[i], "--gc-test"))
         {
             gc_test();
+            exit(0);
         }
     }
 
