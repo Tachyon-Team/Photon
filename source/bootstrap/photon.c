@@ -10,7 +10,9 @@
 #ifndef _PHOTON_H
 #define _PHOTON_H
 
-#define DEBUG_GC_TRACES
+#define DEBUG_GC_TRACES_not
+
+#define PROFILE_GC_TRACES
 
 #define HEAP_PTR_IN_REG_not
 
@@ -23,6 +25,11 @@ register char *heap_ptr asm ("esi");
 char *heap_ptr = 0;
 
 #endif // HEAP_PTR_IN_REG
+
+
+#if defined(PROFILE_GC_TRACES)
+    ssize_t total_gc_time = 0;
+#endif
 
 /*
  * The PP_NARG macro evaluates to the number of arguments that have been
@@ -182,6 +189,10 @@ inline char *raw_calloc(size_t nb, size_t size)
         new_ptr = (char *)calloc(1, obj_size);
         assert(new_ptr != 0);
 
+#if defined(DEBUG_GC_TRACES) || 1
+            fprintf(stderr, "*** calloc called from raw_calloc!\n");
+#endif
+
         return new_ptr;
     } else
     {
@@ -189,7 +200,7 @@ inline char *raw_calloc(size_t nb, size_t size)
 
         if (heap_ptr < heap_limit)
         {
-#ifdef DEBUG_GC_TRACES
+#if defined(DEBUG_GC_TRACES) || 1
             fprintf(stderr, "*** newHeap called from raw_calloc!\n");
 #endif
             newHeap(); // TODO: use heap_limit_reached
@@ -382,6 +393,9 @@ struct object *FUNCTION_TYPE = (struct object *)0;
 struct object *MAP_TYPE      = (struct object *)0;
 struct object *OBJECT_TYPE   = (struct object *)0;
 struct object *SYMBOL_TYPE   = (struct object *)0;
+
+#define TEMPS_SIZE 2
+struct object *temps[TEMPS_SIZE];
 
 ssize_t BOOTSTRAP = 0;
 
@@ -690,6 +704,10 @@ void forward(const char *msg, struct object **obj)
         if (((char *)o >= heap_start && (char *)o <= heap_end) || // movable?
             o->_hd[-1].extension != o) // must replace object by its extension?
           {
+
+#ifdef DEBUG_GC_TRACES
+            fprintf(stderr, "COPYING %p MEMORY ALLOCATED OBJECT %d\n", o, todo_ptr);
+#endif
             copy_object(&o);
           }
 
@@ -850,8 +868,14 @@ void scan()
 
       for (i=0; i < fx(m->count); ++i)
       {
-#if 1
-          fprintf(stderr,  "       map prop name: %s\n", (char*)m->properties[i].name);
+#if 0
+          if (ref_is_fixnum(m->properties[i].name))
+          {
+              fprintf(stderr,  "       map prop name: %zd\n", fx(m->properties[i].name));
+          } else
+          {
+              fprintf(stderr,  "       map prop name: %s\n", (char *)m->properties[i].name);
+          }
 #endif
           forward(         "       map prop name", &m->properties[i].name);
           forward(         "       map prop loc ", &m->properties[i].location);
@@ -914,6 +938,9 @@ void forward_roots()
   forward("                       MAP_TYPE", &MAP_TYPE);
   forward("                    OBJECT_TYPE", &OBJECT_TYPE);
   forward("                    SYMBOL_TYPE", &SYMBOL_TYPE);
+
+  forward_multiple(
+          "                          TEMPS", temps, TEMPS_SIZE);
 }
 
 void *main_frame = NULL; // pointer to main's frame (so we know when to stop walking the stack frames)
@@ -1004,8 +1031,12 @@ ssize_t GC_RUNNING = 0;
 void serialize();
 struct object *garbage_collect(struct object *live)
 {
-#if defined(DEBUG_GC_TRACES) || 1
+#if defined(DEBUG_GC_TRACES) || 0
   fprintf(stderr, "------------------------------------------- GC!\n");
+#endif
+
+#if defined(PROFILE_GC_TRACES)
+    ssize_t time_start = photonCurrentTimeMillis();
 #endif
 
   with_payload = 0;
@@ -1071,6 +1102,11 @@ struct object *garbage_collect(struct object *live)
 
 #if defined(DEBUG_GC_TRACES) || 1
   fprintf(stderr, "\n------------------------------------------- live objects in heap = %d  with_payload = %d  without_payload = %d\n", todo_scan, with_payload, without_payload);
+#endif
+
+#if defined(PROFILE_GC_TRACES)
+  //fprintf(stderr, "\n------------------------------------------- gc time %zd\n", photonCurrentTimeMillis() - time_start);
+  total_gc_time += photonCurrentTimeMillis() - time_start;
 #endif
 
   //GC_RUNNING = 1;
@@ -1356,6 +1392,35 @@ struct object *arguments_set(
     }
 
     return value;
+}
+
+struct object *array_clone_fast(size_t n, struct object *self, struct function *closure)
+{
+    //assert(fx(self->_hd[-1].payload_size) == 0);
+    self = self->_hd[-1].extension;
+
+    struct object *clone = (struct object *)(heap_ptr - fx(self->_hd[-1].payload_size));
+    ssize_t values_size = fx(self->_hd[-1].values_size);
+    ssize_t object_prelude_size = values_size * sizeof(struct object *) + sizeof(struct header);
+    ssize_t object_size = object_prelude_size + fx(self->_hd[-1].payload_size);
+
+    assert(object_size <= HEAP_FUDGE);
+
+    ssize_t i;
+    ssize_t payload_ref_nb = fx(self->_hd[-1].payload_size) / sizeof(struct object *);
+    for (i=-(object_prelude_size / sizeof(struct object *)); i < payload_ref_nb; ++i)
+    {
+        ((struct object **)clone)[i] = ((struct object **)self)[i];
+    }
+
+    clone->_hd[-1].extension = clone;
+
+    heap_ptr -= object_size;
+
+    if (heap_ptr < heap_limit)
+      return heap_limit_reached(clone);   
+    else
+      return clone;
 }
 
 struct object *array_delete(size_t n, struct array *self, struct function *closure, struct object *name)
@@ -2408,7 +2473,7 @@ struct object *object_clone_fast(size_t n, struct object *self, struct function 
     clone->_hd[-1].flags         = self->_hd[-1].flags;
     clone->_hd[-1].payload_size  = self->_hd[-1].payload_size;
     clone->_hd[-1].map           = self->_hd[-1].map; 
-    clone->_hd[-1].prototype     = self;
+    clone->_hd[-1].prototype     = self->_hd[-1].prototype;
 
     ssize_t i;
     for (i=-object_values_size(self); i < 0; ++i)
@@ -2427,7 +2492,7 @@ struct object *object_clone_fast(size_t n, struct object *self, struct function 
 
     //TODO: why is object_prelude_size written *before* the object?  this seems useless
     // Store prelude size before the object
-    *((ssize_t *)heap_ptr) = object_prelude_size;
+    //*((ssize_t *)heap_ptr) = object_prelude_size;
 
     if (heap_ptr < heap_limit)
       return heap_limit_reached(clone);   
@@ -2578,24 +2643,12 @@ struct object *object_new_fast(size_t n, struct object *self, struct function *c
     *((ssize_t *)heap_ptr) = OBJ_NEW_FAST_PRELUDE_SIZE;
 
     if (heap_ptr < heap_limit)
-      return heap_limit_reached(child);
-        /*
-        // Copy object to new heap
-        struct object **dest = (struct object **)heap_ptr;
-        struct object **src  = (struct object **)child;
-        dest[-1] = src[-1];
-        dest[-2] = src[-2];
-        dest[-3] = src[-3];
-        dest[-4] = src[-4];
-        dest[-5] = src[-5];
-        dest[-6] = src[-6];
-        // Skip property values since they are undefined 
-        dest[-11] = src[-11]; // Copy prelude size
-        child = (struct object *)heap_ptr;
-        heap_ptr -= OBJ_NEW_FAST_SIZE;
-        */
-    else
-      return child;
+    {
+        return heap_limit_reached(child);
+    } else
+    {
+        return child;
+    }
 }
 
 struct object *object_print(size_t n, struct object *self, struct function *closure)
@@ -3565,6 +3618,7 @@ void bootstrap()
 
     name = send(root_symbol, s_intern, "__clone_fast__");
     send(root_object, s_set, name, wrap((method_t)object_clone_fast, "object_clone_fast"));
+    send(root_array,  s_set, name, wrap((method_t)array_clone_fast,  "array_clone_fast"));
 
 
     _log("Bootstrap done\n");
@@ -3719,6 +3773,7 @@ void serialize()
     printf("//     object nb: %zd\n", serialized_count);
 }
 
+
 void gc_test()
 {
     //bootstrap(); // Comment this line to use the serialized image instead 
@@ -3733,6 +3788,20 @@ void gc_test()
     // Retrieving foo again because the GC will have moved it
     s_foo = send(root_symbol, s_intern, "foo"); 
     assert(send(o, s_get, s_foo) == fixnum_to_ref(42));
+
+
+    temps[0] = send(root_object, s_new);                    
+    temps[1] = send(root_symbol, s_intern, "__clone_fast__");
+
+    ssize_t i,j;
+    for (j = 0; j < 100; ++j)
+    {
+        for (i = 0; i < 100000; ++i)
+        {
+            send(temps[0], temps[1]);
+        }
+        printf("Iteration %zd\n", j);
+    }
 }
 
 
@@ -3746,6 +3815,10 @@ void init(ssize_t argc, char *argv[])
     main_frame = *(void**)ebp;
 
     initTimer();
+
+#if defined(PROFILE_GC_TRACES)
+    ssize_t exec_start_time = 0;
+#endif 
 
     struct object *s_eval = send(root_symbol, s_intern, "eval");
     struct object *script;
@@ -3791,6 +3864,12 @@ void init(ssize_t argc, char *argv[])
     }
 
     init(0, global_object, (struct object *)init);
+
+#if defined(PROFILE_GC_TRACES)
+    ssize_t exec_time = photonCurrentTimeMillis() - exec_start_time;
+    fprintf(stderr, "\n------------------------------------------- total gc time: %zd, total exec time: %zd, %% gc time: %zd\n", 
+                     total_gc_time, exec_time, (total_gc_time*100/exec_time));
+#endif
 }
 
 #endif // #ifndef _PHOTON_H

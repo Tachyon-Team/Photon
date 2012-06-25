@@ -6,27 +6,31 @@ function init()
         this.value = value;
     }
 
+    function EmptyNode()
+    {
+
+    }
+
     var n = Number(this["arguments"][0]);
     var x = null;
     var o = {};
 
-    /*
-    // 25% slower
+    /* 
+    // 1.8x slower  GC prop: 50% 
     for (var i = 0; i < n; ++i)
     {
         x = {};     
     }
     */
 
-    /* 
-    // ~ 7x slower
+    /*
+    // Before: ~10.5x slower GC prop: N/A (object.__new__ should use GC!!!)
     for (var i = 0; i < n; ++i)
     {
         x = Object.create(o);
     }
 
-    */
-    // Before: ~63x slower After: 2.0x slower
+    // Before: ~63x slower After: 4.41x slower GC prop: 20%
     var m = n/10;
     for (var i = 0; i < m; ++i)
     {
@@ -37,7 +41,6 @@ function init()
         }
     }
 
-    /*
     // Before: ~6.33x slower
     var obj = {next:x, value:1};
     for (var i = 0; i < n; ++i)
@@ -46,7 +49,7 @@ function init()
         obj.value = i; 
     }
 
-    // > 100x slower
+    // Before: > 100x slower After: 
     var m = n/10;
     for (var i = 0; i < m; ++i)
     {
@@ -56,22 +59,32 @@ function init()
             x = new Node(x, 1);
         }
     }
+    */
+    // Before: ~56x slower After: 
+    var m = n/10;
+    for (var i = 0; i < m; ++i)
+    {
+        x = null;
+        for (var j = 0; j < 10; ++j)
+        {
+            x = new EmptyNode();
+        }
+    }
 
-    // Before: ~30x slower After: ~x slower
+    /*
+    // Before: ~30x slower After: ~3x slower
     for (var i = 0; i < n; ++i)
     {
         x = []; 
     }
-    */
 
-    /*
-    // > 100x slower
+    // > 100x slower after: ~14x slower
     for (var i = 0; i < n; ++i)
     {
         x = [0,1,2,3,4,5,6,7,8,9,10];
     }
 
-    // ~ 17x slower
+    // Before: ~ 17x slower After: ~2.15x slower
     for (var i = 0; i < n; ++i)
     {
         x = [[0],[1]];

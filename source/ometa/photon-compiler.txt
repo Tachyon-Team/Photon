@@ -602,12 +602,13 @@ ometa PhotonDesugar <: PhotonASTCopy {
                                                                                     b[2]];}))
                                                                     .concat([[#get, o]]))]},
   arr      trans*:xs                                          -> {var a = gensym(); 
+                                                                  var clone = self.context.getArrayClone(xs.length);
                                                                   [#let, _new_context(), 
                                                                     [#begin, 
-                                                                        [#var, a, [#send, "__new__", [#ref, photon.array], [#number, xs.length]]]],
+                                                                        [#var, a, [#send, "__clone_fast__", [#ref, clone]]]],
                                                                     [#begin]
-                                                                    .concat(xs.map(function (x) {
-                                                                     return [#send, "__push__", [#get, a], x];}))
+                                                                    .concat(xs.map(function (x, i) {
+                                                                     return [#send, "__set__", [#get, a], [#number, i], x];}))
                                                                     .concat([[#get, a]])]},
   call     = [#getp [#super trans:rcv] ( [#string :msg] 
                                        | { error("Super send need a static message name"); } ) ] 
@@ -643,6 +644,7 @@ PhotonDesugar.context =
         that.scope = null;
         that.previous_scopes = [];
         that.littDictRoot = {};
+        that.arrLittClones = [];
         return that;
     }, 
     enter_function_scope:function ()
@@ -724,6 +726,19 @@ PhotonDesugar.context =
         }
 
         return dict[hash];
+    },
+    getArrayClone:function (size)
+    {
+        var arr = this.arrLittClones;
+
+        if (arr[size] === undefined)
+        {
+            var a = photon.send(photon.array, "__new__", size);
+            photon.send(a, "__set__", "length", size);
+            arr[size] = a;
+        }
+
+        return arr[size];
     }
 };
 

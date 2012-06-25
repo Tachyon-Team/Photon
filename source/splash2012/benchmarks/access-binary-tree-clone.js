@@ -33,7 +33,7 @@ var newTreeNode;
 
     newTreeNode = function (left,right,item)
     {
-        var that = node.__clone__(0);
+        var that = node.__clone_fast__();
         that.left  = left;
         that.right = right;
         that.item  = item;
