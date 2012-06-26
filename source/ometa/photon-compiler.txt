@@ -59,7 +59,8 @@ ometa PhotonASTTraversal {
   super_send :msg trans:rcv trans*:args,
   closure end,
   arguments trans:i,
-  arguments_length end
+  arguments_length end,
+  condTypeof :type trans:o trans:t trans:e
 }
 
 ometa PhotonASTCopy {
@@ -116,7 +117,8 @@ ometa PhotonASTCopy {
   super_send :msg trans:rcv trans*:args         -> [#super_send, msg, rcv].concat(args),
   closure end                                   -> [#closure],
   arguments trans:i                             -> [#arguments, i],
-  arguments_length end                          -> [#arguments_length]
+  arguments_length end                          -> [#arguments_length],
+  condTypeof :type trans:o trans:t trans:e      -> [#condTypeof, type, o, t, e]
 }
 
 ometa PhotonPrettyPrinter 
@@ -190,8 +192,8 @@ ometa PhotonPrettyPrinter
   closure                                                          -> ("$closure"),
   super_send :msg trans:recv trans*:args                           -> ("super(" + recv + ")." + msg + "(" + args.join(" ,") + ")"),
   arguments trans:i end                                            -> ("$arguments[@" + i + "]"),
-  arguments_length end                                             -> ("$arguments_length")
-
+  arguments_length end                                             -> ("$arguments_length"),
+  condTypeof :type trans:o trans:t trans:e                         -> ("(typeof " + o + " === " + type.toProgramString() + ") ? " + t + " : " + e)
 }
 
 PhotonPrettyPrinter.initialize = function ()
@@ -583,12 +585,7 @@ ometa PhotonDesugar <: PhotonASTCopy {
                                                                       [#begin,
                                                                           [#set, [#get, o], [#send, "__new_default__", [#send, "__get__", [#get, f], [#string, "prototype"]]]],
                                                                           [#set, [#get, r], [#send, "call", [#get, f], [#get, o]].concat(args)],
-                                                                          [#condExpr,
-                                                                              [#binop, "===", 
-                                                                                  [#send, "__typeof__",  [#get, r]],
-                                                                                  [#string, "object"]],
-                                                                              [#get, r],
-                                                                              [#get, o]]]]},
+                                                                          [#condTypeof, "object", [#get, r], [#get, r], [#get, o]]]]},
   json     trans*:props                                       -> {var o     = gensym();
                                                                   var names = props.map(function (b) { return b[1][1]; });
                                                                   var clone = self.context.getClone(names);
@@ -1067,6 +1064,18 @@ ometa PhotonCompiler {
                                                                   [cond, _listing("TRUE:"), 
                                                                          t, _op("jmp", END), FALSE, _listing("FALSE:"), 
                                                                          e, END, _listing("END:")];},
+  condTypeof #object trans:o trans:t trans:e                  -> {var END   = _label();
+                                                                  var FALSE = _label();
+                                                                  [o,
+                                                                   _op("mov", _EAX, _ECX),
+                                                                   _op("and", _$(1), _ECX),
+                                                                   _op("jne", FALSE),
+                                                                   _op("cmp", _$(10), _EAX),
+                                                                   _op("jle", FALSE),
+                                                                   t, 
+                                                                   _op("jmp", END), 
+                                                                   FALSE,  _lbl_listing(FALSE),
+                                                                   e, END, _lbl_listing(END)];},
   condExpr trans:cond trans:t trans:e                         -> {var END   = _label(); 
                                                                   var FALSE = _label();
                                                                  [cond, _op("cmp", _$(_TRUE), _EAX), 
