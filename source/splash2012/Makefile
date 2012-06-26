@@ -23,7 +23,7 @@ STDLIB_FILES = \
         ../stdlib/string.js \
         ../stdlib/math.js
 
-CREATE_EXEC = /usr/bin/gcc -m32 -O3 -Wl,-no_pie -segprot __TEXT rwx rwx ../bootstrap/photon.c
+CREATE_EXEC = /usr/bin/gcc -m32 -O3 -g -Wl,-no_pie -segprot __TEXT rwx rwx ../bootstrap/photon.c
 
 PRECOMPILED_NOIC = \
     bin/cfr-noic \

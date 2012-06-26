@@ -98,13 +98,10 @@ Object.prototype.__typeof__ = function ()
 
 Object.create = function (obj)
 {
-    return obj.__new__();
+    return obj.__new_default__();
 };
 
-Object.prototype.__new_default__ = function ()
-{
-    return this.__new__();   
-};
+Object.prototype.__new_default__ = Object.prototype.__new_fast__; 
 
 Object.prototype.__itr__ = function ()
 {

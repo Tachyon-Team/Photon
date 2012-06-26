@@ -316,6 +316,7 @@ struct map {
     struct object     *count;
     struct object     *next_offset;
     struct object     *cache;
+    struct object     *new_map;
     struct property    properties[0];
 };
 
@@ -865,6 +866,7 @@ void scan()
       // TODO: For now only map objects will be collected, should support frame objects
       m = (struct map *)o;
       forward(             "         map cache", &m->cache);
+      forward(             "       map new_map", &m->new_map);
 
       for (i=0; i < fx(m->count); ++i)
       {
@@ -1611,24 +1613,32 @@ struct map *base_map(struct object *self, struct object *TYPE)
     struct map *new_map;
     if (!BOOTSTRAP)
     {
-        if (send(self, s_hasOwnProperty, s_base_map) == TRUE)
+        if (self->_hd[-1].map->new_map != NIL)
         {
-            new_map       = (struct map *)send(self, s_get, s_base_map);
+            return (struct map *)self->_hd[-1].map->new_map;
         } else
         {
-            new_map        = (struct map *)send0(self->_hd[-1].map, s_new);
-            new_map->type  = TYPE;
-            send(self, s_set, s_base_map, new_map);
-
-            new_map->cache = send(root_array, s_new, ref(0));
+            // Create a new family containing only the prototype object
+            // to store on the prototype object's map the map used to create
+            // new children
+            struct map *map_clone = (struct map *)send(
+                self->_hd[-1].map, 
+                s_clone, 
+                self->_hd[-1].map->_hd[-1].payload_size
+            );
+            new_map = (struct map *)send0(map_clone->_hd[-1].map, s_new);
+            map_clone->new_map = (struct object *)new_map;
+            self->_hd[-1].map = map_clone;
+            new_map->cache   = send(root_array, s_new, ref(0));
+            map_clone->cache = send(root_array, s_new, ref(0));
+            return new_map;
         }
     } else 
     {
         new_map       = (struct map *)send0(self->_hd[-1].map, s_new);
         new_map->type  = TYPE;
+        return new_map;
     }
-
-    return new_map;
 }
 
 struct object *cell_new(size_t n, struct cell *self, struct function *closure, struct object *val)
@@ -2082,10 +2092,11 @@ struct object *map_clone(size_t n, struct map *self, struct function *closure, s
     ssize_t i;
 
     struct map* new_map = (struct map *)super_send(self, s_clone, payload_size);
-    new_map->count = self->count;
+    new_map->count   = self->count;
     new_map->next_offset = self->next_offset; 
-    new_map->type  = self->type;
-    new_map->cache = NIL;
+    new_map->type    = self->type;
+    new_map->cache   = NIL;
+    new_map->new_map = NIL;
 
     for (i=0; i < fx(self->count); ++i)
     {
@@ -2229,6 +2240,7 @@ struct object *map_new(size_t n, struct map *self, struct function *closure)
     new_map->next_offset       = ref(-1);
     new_map->type              = MAP_TYPE;
     new_map->cache             = NIL;
+    new_map->new_map           = NIL;
     object_payload_type_set_custom((struct object *)new_map);
 
     return (struct object *)new_map;
@@ -2273,6 +2285,7 @@ struct object *map_remove(size_t n, struct map *self, struct function *closure, 
     new_map->count       = ref(fx(self->count) - 1);
     new_map->next_offset = ref(fx(self->next_offset) + 1);
     new_map->cache       = NIL;    
+    new_map->new_map     = NIL;    
 
     for (i=0; i < fx(new_map->count); ++i)
     {
@@ -2320,6 +2333,7 @@ struct object *map_serialize(size_t n, struct object *self, struct function *clo
     object_serialize_ref(self_map->count, stack);
     object_serialize_ref(self_map->next_offset, stack);
     object_serialize_ref(self_map->cache, stack);
+    object_serialize_ref(self_map->new_map, stack);
 
     for (i=0; i < fx(self_map->count); ++i)
     {
@@ -2618,23 +2632,19 @@ struct object *object_new(size_t n, struct object *self, struct function *closur
     return child;
 }
 
-struct map *object_map_fast = (struct map *)0;
-void object_new_fast_init()
-{
-    struct object *obj = object_new(0, root_object, (struct function *)NIL); 
-    object_map_fast    = obj->_hd[-1].map;
-}
-
 #define OBJ_NEW_FAST_PRELUDE_SIZE 40
 #define OBJ_NEW_FAST_SIZE 44
 struct object *object_new_fast(size_t n, struct object *self, struct function *closure)
 {
+    if (self->_hd[-1].map->new_map == NIL)
+        return object_new(n, self, closure);
+
     struct object *child = (struct object *)heap_ptr;
     child->_hd[-1].values_size   = ref(4);
     child->_hd[-1].extension     = child;
     child->_hd[-1].flags         = ref(STRUCTURED_PAYLOAD);
     child->_hd[-1].payload_size  = ref(0);
-    child->_hd[-1].map           = object_map_fast; 
+    child->_hd[-1].map           = (struct map *)self->_hd[-1].map->new_map;
     child->_hd[-1].prototype     = self;
 
     heap_ptr -= OBJ_NEW_FAST_SIZE;
@@ -2868,269 +2878,6 @@ void _log(const char* s)
     //printf("%s", s); 
 }
 
-/*
-//--------------------------------- Memory Management --------------------------
-char *from_start = 0;
-char *from_end   = 0;
-
-struct object *shallow_copy(struct object *self)
-{
-    ssize_t prelude_size = object_prelude_size(self);
-    ssize_t payload_size = fx(self->_hd[-1].payload_size);
-
-    struct object *copy = object_allocate(
-        2, 
-        NIL, 
-        (struct function *)NIL, 
-        ref(prelude_size), 
-        ref(payload_size)
-    );
-
-    memcpy(
-        ((void *)((ssize_t)copy - prelude_size)), 
-        ((void *)((ssize_t)self - prelude_size)),
-        (size_t)(prelude_size + payload_size)
-    );
-    
-    return copy;
-}
-
-struct object *forward(struct object *self)
-{
-    if (self >= method_min && self <= method_max)
-    {
-        // This is a C function
-        return self;
-    } else if (ref_is_fixnum(self) || fx(self) < fx(RESERVED))
-    {
-        return self;
-    } else if ((ssize_t)self->_hd[-1].map & 1 == 1)
-    {
-        return (struct object *)((ssize_t)self->_hd[-1].map & -2);
-    } else
-    {
-        self->_hd[-1].map = (struct map *)((ssize_t)shallow_copy(self) | 1);
-        return (struct object *)((ssize_t)self->_hd[-1].map & -2);
-    }
-}
-
-struct object *array_inner_forward(size_t n, struct array *self, struct function *closure)
-{
-    ssize_t i;
-    struct object **a = (struct object **)self;
-    ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
-    ssize_t payload_length = fx(self->count) + sizeof(struct array) / sizeof(struct object *);
-
-    for (i = -prelude_length; i < payload_length; ++i)
-    {
-        a[i] = forward(a[i]);
-    }
-
-    return (struct object *)self;
-}
-
-struct object *cell_inner_forward(size_t n, struct cell *self, struct function *closure)
-{
-    ssize_t i;
-    struct object **a = (struct object **)self;
-    ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
-    ssize_t payload_length = sizeof(struct cell) / sizeof(struct object *);
-
-    for (i = -prelude_length; i < payload_length; ++i)
-    {
-        a[i] = forward(a[i]);
-    }
-
-    return (struct object *)self;
-}
-
-struct object *fixnum_inner_forward(size_t n, struct object *self, struct function *closure)
-{
-    return self;
-}
-
-struct object *function_inner_forward(size_t n, struct function *self, struct function *closure)
-{
-    ssize_t i;
-    struct object **a = (struct object **)self;
-    ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
-    ssize_t payload_length = sizeof(struct function) / sizeof(struct object *);
-
-    for (i = -prelude_length; i < payload_length; ++i)
-    {
-        a[i] = forward(a[i]);
-    }
-
-    // TODO: forward also pointers in function's code
-
-    return (struct object *)self;
-}
-
-struct object *map_inner_forward(size_t n, struct map *self, struct function *closure)
-{
-    ssize_t i;
-    struct object **a = (struct object **)self;
-    ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
-    ssize_t payload_length = (fx(self->count) * sizeof(struct property) + sizeof(struct map)) 
-                             / sizeof(struct object *);
-
-    for (i = -prelude_length; i < payload_length; ++i)
-    {
-        a[i] = forward(a[i]);
-    }
-
-    return (struct object *)self;
-}
-
-struct object *object_inner_forward(size_t n, struct object *self, struct function *closure)
-{
-    ssize_t i;
-    struct object **a = (struct object **)self;
-    ssize_t prelude_length = (object_prelude_size((struct object *)self) / sizeof(struct object *));
-    ssize_t payload_length = 0;
-
-    for (i = -prelude_length; i < payload_length; ++i)
-    {
-        a[i] = forward(a[i]);
-    }
-
-    return (struct object *)self;
-}
-
-method_t inner_forward[] = {
-    (method_t)array_inner_forward,
-    (method_t)cell_inner_forward,
-    (method_t)fixnum_inner_forward,
-    (method_t)function_inner_forward,
-    (method_t)map_inner_forward,
-    (method_t)object_inner_forward,
-    (method_t)object_inner_forward
-};
-
-struct object *object_scan(struct object *self)
-{
-    ssize_t type = fx(self->_hd[-1].map->type);
-
-    printf("object_scan %p type %zd\n", self, type);
-
-    if (type >= 7 || type < 0)
-    {
-        printf("Unsupported type number '%zd'\n", type);
-        exit(1);
-    }
-    return inner_forward[type](0, self, NIL);
-}
-
-// TODO: Make sure values are always initialized to UNDEFINED for object fields
-void mm_test()
-{
-    ssize_t i;
-
-    from_start = heap_start;
-    from_end   = end;
-
-    struct object *roots[3];
-
-    // Creating some objects
-    roots[0] = send0(root_object, s_new);
-    roots[1] = send(root_symbol, s_intern, (struct object *)"foo");
-    roots[2] = send(root_symbol, s_intern, (struct object *)"bar");
-    roots[3] = send(root_array, s_new, ref(10));
-    
-    // Initializing members to some values
-    send(roots[0], s_set, roots[1], ref(42)); 
-    send(roots[0], s_set, roots[2], roots[3]);
-    send(roots[3], s_push, ref(1));
-    send(roots[3], s_push, ref(2));
-    send(roots[3], s_push, roots[0]);
-
-    // Check initial working of the object model
-    assert(send(roots[0], s_get, roots[1]) == ref(42)); 
-    assert(send(roots[0], s_get, roots[2]) == roots[3]);
-    assert(send(roots[3], s_get, ref(0))   == ref(1));
-    assert(send(roots[3], s_get, ref(1))   == ref(2));
-    assert(send(roots[3], s_get, ref(2))   == roots[0]);
-
-    // Create a new memory location for forwarded objects
-    newHeap();
-
-    _log("Forwarding roots\n");
-    char *scan = heap_ptr;
-
-    for (i = 0; i < 4; ++i)
-    {
-        roots[i] = forward(roots[i]);
-    }
-    
-    roots_names    = forward(roots_names);
-    root_array     = forward(root_array);
-    root_arguments = forward(root_array);
-    root_cell      = forward(root_cell);
-    root_fixnum    = forward(root_fixnum);
-    root_function  = forward(root_function);
-    root_map       = forward(root_map);
-    root_object    = forward(root_object);
-    root_symbol    = forward(root_symbol);
-
-    s_add       = forward(s_add);
-    s_allocate  = forward(s_allocate);
-    s_clone     = forward(s_clone);
-    s_create    = forward(s_create);
-    s_delete    = forward(s_delete);
-    s_get       = forward(s_get);
-    s_get_cell  = forward(s_get_cell);
-    s_init      = forward(s_init);
-    s_intern    = forward(s_intern);
-    s_length    = forward(s_length);
-    s_lookup    = forward(s_lookup);
-    s_new       = forward(s_new);
-    s_prototype = forward(s_prototype);
-    s_push      = forward(s_push);
-    s_remove    = forward(s_remove);
-    s_set       = forward(s_set);
-    s_set_cell  = forward(s_set_cell);
-    s_symbols   = forward(s_symbols);
-
-
-    _log("Beginning scan\n");
-    while (scan < end && scan < heap_ptr)
-    {
-        // Ajust for prelude size
-        ssize_t size = *((ssize_t *)scan); 
-        scan = (char *)((ssize_t)scan + size + sizeof(ssize_t));
-
-        // Scan object
-        object_scan((struct object *)scan);
-
-        // Adjust for payload_size, align on a word boundary
-        size = fx(((struct object *)scan)->_hd[-1].payload_size);
-        size = (size + sizeof(struct object *) - 1) & -sizeof(struct object *);
-        scan = (char *)((ssize_t)scan + size);
-    }
-
-    _log("Erasing initial memory page\n");
-    scan = from_start;
-    while (scan < from_end)
-    {
-        *scan = (char)0;
-        scan += 1;
-    }
-
-    _log("Testing object model\n");
-    assert(scan < end);
-    assert(send(roots[0], s_get, roots[1]) == ref(42)); 
-    assert(send(roots[0], s_get, roots[2]) == roots[3]);
-    assert(send(roots[3], s_get, ref(0))   == ref(1));
-    assert(send(roots[3], s_get, ref(1))   == ref(2));
-    assert(send(roots[3], s_get, ref(2))   == roots[0]);
-    assert(send(root_symbol, s_intern, (struct object *)"foo") == roots[1]);
-    assert(send(root_symbol, s_intern, (struct object *)"bar") == roots[2]);
-
-    _log("Memory management test succeeded\n");
-
-}
-*/
-
 //--------------------------------- Bootstrap ----------------------------------
 struct object *bt_map_set(size_t n, struct map *self, struct function *closure, struct object *name, struct object* value)
 {
@@ -3198,6 +2945,7 @@ void bootstrap()
     ((struct map *)root_map)->next_offset = ref(-1);
     ((struct map *)root_map)->type        = MAP_TYPE;
     ((struct map *)root_map)->cache       = NIL;
+    ((struct map *)root_map)->new_map     = NIL;
     object_payload_type_set_custom(root_map);
 
     _log("Initializing Root Map\n");
@@ -3300,6 +3048,7 @@ void bootstrap()
     root_object->_hd[-1].map->next_offset = ref(-5);
     root_object->_hd[-1].map->type        = OBJECT_TYPE;
     root_object->_hd[-1].map->cache       = NIL;
+    root_object->_hd[-1].map->new_map     = NIL;
     object_payload_type_set_custom((struct object *)root_object->_hd[-1].map);
 
     object_values_count_set(root_object, 4);
@@ -3318,6 +3067,7 @@ void bootstrap()
     root_object_map_map->next_offset = ref(-1);
     root_object_map_map->type        = MAP_TYPE;
     root_object_map_map->cache       = NIL;
+    root_object_map_map->new_map     = NIL;
     map_values_set_immutable(root_object_map_map);
     object_payload_type_set_custom((struct object *)root_object_map_map);
 
@@ -3601,21 +3351,7 @@ void bootstrap()
     _log("Experimenting with fast object allocation");
 
     name = send(root_symbol, s_intern, "__new_fast__"); 
-    struct object *fn = send(root_object, s_get, s_new);
-    send(root_object, s_set, name, fn); 
-
-    if (object_map_fast == (struct map *)0)
-    {
-        object_new_fast_init();
-
-        send(roots, s_push, object_map_fast); 
-        name = send(root_symbol, s_intern, "default_object_map");
-        send(roots_names, s_push, name); 
-
-        name = send(root_symbol, s_intern, "__new_fast__");
-        send(root_object, s_set, name, wrap((method_t)object_new_fast, "object_new_fast"));
-    }
-
+    send(root_object, s_set, name, wrap((method_t)object_new_fast, "object_new_fast"));
     name = send(root_symbol, s_intern, "__clone_fast__");
     send(root_object, s_set, name, wrap((method_t)object_clone_fast, "object_clone_fast"));
     send(root_array,  s_set, name, wrap((method_t)array_clone_fast,  "array_clone_fast"));
@@ -3734,16 +3470,6 @@ void serialize()
     SELF_ASSIGN(s_hasOwnProperty);
     SELF_ASSIGN(s_lookup_and_flush_all);
     SELF_ASSIGN(s_lookup_and_flush_value_cache);
-
-
-    if (object_map_fast != (struct map *)0)
-    {
-        SELF_ASSIGN(object_map_fast);
-    } else
-    {
-        printf("    movl $0, %%eax\n");
-        printf("    movl %%eax, _object_map_fast\n");
-    }
 
     printf("    ret\n");
 
