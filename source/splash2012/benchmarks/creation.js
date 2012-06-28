@@ -48,9 +48,11 @@ function init()
         obj.next  = i;
         obj.value = i; 
     }
+    */
 
-    // Before: > 100x slower After: ~13x slower 
-    var m = 2*n;
+    /*
+    // Before: > 100x slower After: ~5x slower 
+    var m = n;
     for (var i = 0; i < m; ++i)
     {
         x = null;
@@ -59,18 +61,7 @@ function init()
             x = new Node(x, 1);
         }
     }
-    */
 
-    var m = 80*n
-    for (var i = 0; i < m; ++i)
-    {
-        if (i < 2)
-        {
-            1;
-        }
-    }
-
-    /*
     // Before: ~56x slower After: ~3.36x slower (but incorrect behavior when returning litteral strings from constructor) GC prop: 25%
     var m = n/10;
     for (var i = 0; i < m; ++i)
@@ -81,12 +72,14 @@ function init()
             x = new EmptyNode();
         }
     }
+    */
     // Before: ~30x slower After: ~3x slower
     for (var i = 0; i < n; ++i)
     {
         x = []; 
     }
 
+    /*
     // > 100x slower after: ~14x slower
     for (var i = 0; i < n; ++i)
     {

@@ -1073,6 +1073,8 @@ ometa PhotonCompiler {
                                                                    _op("push", _EAX), y, op, _op("add", _$(4), _ESP), END]},
   return   trans:x                                            -> [x, self.context.gen_epilogue(self.context.arg_nb)],
 
+  if_binop :op push(1):x trans:y pop(1) 
+                         trans:t trans:e align(5):nb pop(nb)  -> self.context.gen_if_binop(nb, op, x, y, t, e),
   if_binop_rel_nb   :op :n trans:x trans:t trans:e            -> [x, self.context.gen_if_binop_rel_nb(op, n, t, e)],
   if_binop_cmp_cste :op :cste trans:x trans:t trans:e         -> [x, self.context.gen_if_binop_cmp_cste(op, cste, t, e)],
 

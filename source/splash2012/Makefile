@@ -202,6 +202,13 @@ perf-noic: $(PRECOMPILED_NOIC) $(PRECOMPILED)
 	time bin/tree-clone-noic -- $(NOIC_NB)
 
 
+
+MICRO_BENCHMARKS = micro-benchmarks/*.js
+#MICRO_BENCHMARKS = micro-benchmarks/set-prop.js
+microb: bin/photon
+	for i in $(MICRO_BENCHMARKS); do echo "----------------"$$i"-------------------"; echo "photon:"; bin/photon $$i; echo "v8:"; d8 $$i; done
+
+
 COMP_TIME_FILE = benchmarks/controlflow-recursive.js benchmarks/access-nsieve.js
 comp-time: comp_time.js bin/photon bin/photon-noic 
 	time $(JS_VM) $(BS_FILES) photon.js -- -report $(COMP_TIME_FILE)

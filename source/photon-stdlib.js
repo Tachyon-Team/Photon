@@ -573,14 +573,15 @@ function mirror(o)
 }
 
 photon = {};
-photon.object      = mirror(@{["ref", photon.object]}@)
-photon.array       = mirror(@{["ref", photon.array]}@);
-photon["function"] = mirror(@{["ref", photon.function]}@);
-photon.global      = mirror(@{["ref", photon.global]}@);
-photon.cell        = mirror(@{["ref", photon.cell]}@);
-photon.map         = mirror(@{["ref", photon.map]}@);
-photon.symbol      = mirror(@{["ref", photon.symbol]}@);
-photon.fixnum      = mirror(@{["ref", photon.fixnum]}@); 
+photon.object       = mirror(@{["ref", photon.object]}@)
+photon.array        = mirror(@{["ref", photon.array]}@);
+photon["function"]  = mirror(@{["ref", photon.function]}@);
+photon.global       = mirror(@{["ref", photon.global]}@);
+photon.cell         = mirror(@{["ref", photon.cell]}@);
+photon.map          = mirror(@{["ref", photon.map]}@);
+photon.symbol       = mirror(@{["ref", photon.symbol]}@);
+photon.fixnum       = mirror(@{["ref", photon.fixnum]}@); 
+photon.symbol_table = mirror(@{["ref", photon.symbol_table]}@); 
 
 photon.bind       = mirror(@{["ref", photon.bind]}@);
 photon.super_bind = mirror(@{["ref", photon.super_bind]}@);

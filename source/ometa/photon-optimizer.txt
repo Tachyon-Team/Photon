@@ -6,9 +6,9 @@ ometa PhotonOptimizer <: PhotonASTCopy {
                                         | [#get #false]     -> false 
                                         | [#get #undefined] -> undefined 
                                         | [#get #null]      -> null):cste] trans:t trans:e   -> [#if_binop_cmp_cste, op, cste, x, t, e],
+    if [#binop ('<'|'<='|'>'|'>='|'==='|'!=='):op trans:x trans:y] trans:t trans:e           -> [#if_binop, op, x, y, t, e],
     if trans:cond trans:t trans:e                                                            -> [#if, cond, t, e],
-    //if [#binop :op trans:x trans:y] trans:t :trans:e                                         -> [#if_binop, op, x, y, t, e],
-    binop ('+'|'-'):op trans:x [#number :n]                                                  -> [#binop_cste, op, n, x],
+    binop ('+'|'-'|'&'):op trans:x [#number :n]                                                  -> [#binop_cste, op, n, x],
     binop :op trans:x trans:y                                                                -> [#binop, op, x, y],
     gets trans:x ( [#number :n]                                                              -> [#geto, n, x]
                  | trans:fd                                                                  -> [#gets, x, fd]),
