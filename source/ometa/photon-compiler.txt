@@ -50,6 +50,7 @@ ometa PhotonASTTraversal {
 
   ref      :s,
   gets     trans:x trans:fd,
+  geto     :n trans:x,
   mreturn  trans:x trans:y,
   code     :c,
   super    trans:e,
@@ -60,7 +61,8 @@ ometa PhotonASTTraversal {
   closure end,
   arguments trans:i,
   arguments_length end,
-  condTypeof :type trans:o trans:t trans:e
+  condTypeof :type trans:o trans:t trans:e,
+  binop_cste :op :n trans:x
 }
 
 ometa PhotonASTCopy {
@@ -108,6 +110,7 @@ ometa PhotonASTCopy {
 
   ref      :s                                   -> [#ref, s],
   gets     trans:x trans:fd                     -> [#gets, x, fd],
+  geto     :n trans:x                           -> [#geto, n, x],
   mreturn  trans:x trans:y                      -> [#mreturn, x, y],
   code     :c                                   -> [#code, c],
   super    trans:e                              -> [#super, e],
@@ -118,7 +121,8 @@ ometa PhotonASTCopy {
   closure end                                   -> [#closure],
   arguments trans:i                             -> [#arguments, i],
   arguments_length end                          -> [#arguments_length],
-  condTypeof :type trans:o trans:t trans:e      -> [#condTypeof, type, o, t, e]
+  condTypeof :type trans:o trans:t trans:e      -> [#condTypeof, type, o, t, e],
+  binop_cste :op :n trans:x                     -> [#binop_cste, op, n, x]
 }
 
 ometa PhotonPrettyPrinter 
@@ -181,6 +185,7 @@ ometa PhotonPrettyPrinter
   global_return    trans:x                                         -> ("global_return " +  x),
   ref      :s                                                      -> ("@{[#ref, " +  (s.hasOwnProperty("pp") && (typeof s.pp) === "function" ? s.pp() : "[object]") +  "]}@"),
   gets     trans:x trans:fd                                        -> (x +  "[@" +  fd +  "]"),
+  geto     :n trans:x                                              -> (x +  "[@" +  n  +  "]"),
   mreturn  :x :y                                                   -> ("@{[#mreturn, " +  x +  ", " +  y + "]}@"),
   code     :c                                                      -> ("@{[#code, " +  c.map(function (e) { return "[native code]"; }).join("\n") +  "]}@"),
   super    trans:e                                                 -> ("super(" +  e + ")"),
@@ -193,7 +198,8 @@ ometa PhotonPrettyPrinter
   super_send :msg trans:recv trans*:args                           -> ("super(" + recv + ")." + msg + "(" + args.join(" ,") + ")"),
   arguments trans:i end                                            -> ("$arguments[@" + i + "]"),
   arguments_length end                                             -> ("$arguments_length"),
-  condTypeof :type trans:o trans:t trans:e                         -> ("(typeof " + o + " === " + type.toProgramString() + ") ? " + t + " : " + e)
+  condTypeof :type trans:o trans:t trans:e                         -> ("(typeof " + o + " === " + type.toProgramString() + ") ? " + t + " : " + e),
+  binop_cste :op :n trans:x                                        -> ("(" + x + " " + op + " " + n + ")")
 }
 
 PhotonPrettyPrinter.initialize = function ()
@@ -500,6 +506,7 @@ ometa PhotonDesugar <: PhotonASTCopy {
                  ( [#get #undefined]                          -> [#begin]
                  | trans:val                                  -> [#set, [#get, name], val]),
   unop     ( 'typeof' trans:x                                 -> [#send, "__typeof__",  x]
+           | '-' [#number :n]                                 -> [#number, -n]
            | 'delete' ( [#getp trans:x trans:f]               -> [#send, "__delete__",  x, f]
                       | [#get :n]                             -> [#get, #false])
            | ^unop), 
@@ -827,7 +834,8 @@ ometa PhotonVarScopeBinding <: PhotonASTCopy {
                                                                        [#begin, [#var, f, [#send, "__clone__", [#func, args, ctxt, body]]]],
                                                                        [#begin]
                                                                        .concat(self.context.gen_cell_capture(cs, os, f))
-                                                                       .concat([[#send, "__set__", [#get, f], [#string, "length"], [#number, args.length]], [#get, f]])]},
+                                                                       .concat([[#get, f]]) 
+                                                                       ]},
   try :ctxt trans:x :name 
             {self.context.enter_let_scope(ctxt.scope)} 
             {self.context.scope._escaping}:es
@@ -1003,6 +1011,7 @@ ometa PhotonCompiler {
             | #undefined -> _$(_UNDEFINED)
             | #null      -> _$(_NIL)):x                       -> _op("mov", x, _EAX)
            | :x                                               -> self.context.gen_get_local(x)),
+  geto     :n trans:x                                         -> [x, _op("mov", _mem(self.context.sizeof_ref*n, _EAX), _EAX)],
   gets     push(1):x  trans:fd pop(1)                         -> [x, _op("push", _EAX), fd, _op("dec", _EAX), _op("pop", _ECX), 
                                                                   _op("mov", _mem(0, _ECX, _EAX, 2), _EAX)],
   set      ( [#get :x]                      trans:rhs         -> self.context.gen_set_local(x, rhs)
@@ -1010,6 +1019,10 @@ ometa PhotonCompiler {
            | [#arguments_length]            trans:rhs         -> self.context.gen_set_arguments_length(rhs)
            | [#this]                        trans:rhs         -> self.context.gen_set_this(rhs)
            | [#closure]                     trans:rhs         -> self.context.gen_set_closure(rhs)
+           | [#geto :n push(1):rcv]         trans:rhs pop(1)  -> [rcv, _op("push", _EAX), 
+                                                                  rhs,
+                                                                  _op("pop", _ECX),
+                                                                  _op("mov", _EAX, _mem(self.context.sizeof_ref*n, _ECX))]
            | [#gets push(1):rcv push(1):fd] trans:rhs pop(2)  -> [rcv, _op("push", _EAX), 
                                                                   fd,  _op("dec", _EAX), _op("push", _EAX), 
                                                                   rhs,
@@ -1025,6 +1038,7 @@ ometa PhotonCompiler {
                               _op("mov", _$(_FALSE), _ECX),
                               _op("cmovz", _ECX, _EAX)]):op 
              trans:x                                          -> [x, op],
+  binop_cste :op :n trans:x              align(5):nb pop(nb)  -> [x, self.context.gen_arith_cste(nb, op, n)],
 
   binop      '+' push(1):x trans:y pop(1) align(5):nb pop(nb) -> [x, _op("push", _EAX), y, self.context.gen_add(nb)],
   binop    ( '-'   ({"sub"}):name -> [self.context.gen_arith("sub", false), _op("inc", _EAX)]    
@@ -1058,6 +1072,10 @@ ometa PhotonCompiler {
                                                                   [x, _op("cmp", _$(skip), _EAX), _op("je", END),
                                                                    _op("push", _EAX), y, op, _op("add", _$(4), _ESP), END]},
   return   trans:x                                            -> [x, self.context.gen_epilogue(self.context.arg_nb)],
+
+  if_binop_rel_nb   :op :n trans:x trans:t trans:e            -> [x, self.context.gen_if_binop_rel_nb(op, n, t, e)],
+  if_binop_cmp_cste :op :cste trans:x trans:t trans:e         -> [x, self.context.gen_if_binop_cmp_cste(op, cste, t, e)],
+
   if       (empty -> _label()):FALSE 
            (trans:cond                   -> [cond, _op("cmp", _$(_TRUE), _EAX), _op("jne", FALSE)]):cond                      
            trans:t trans:e                                    -> {var END = _label(); 

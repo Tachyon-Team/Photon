@@ -90,7 +90,7 @@ function _compile(s, print)
         });
         //print("Pretty Printing");
         //print(ast);
-        print(PhotonPrettyPrinter.match(ast, "trans"));
+        //print(PhotonPrettyPrinter.match(ast, "trans"));
 
 
         var comp, code, f;

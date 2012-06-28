@@ -148,6 +148,26 @@ macro ptr_write(ptr, offset, v)
         return set_cache[pos_offset];
     }
 
+    function setp_unknown(new_map, offset)
+    {
+        var physical_offset = offset - header_size();
+
+        return function (p, v)
+        {
+            var that = this[@-5];
+
+            if ((that[@-4] & 0xFFFF) < that[@-6])
+            {
+                that[@-1] = new_map;
+                that[@-4]++;
+                return that[@physical_offset] = v;
+            } else
+            {
+                return orig_set.call(this, p, v);
+            }
+        };
+    }
+
     function get_map(o, p)
     {
         var rcv = o;
@@ -302,7 +322,32 @@ macro ptr_write(ptr, offset, v)
                         head_offset, 
                         patch_method_value()
                     );
-                }
+                } 
+            }
+        } 
+        else
+        {
+            if ($arguments_length > 2 && 
+                $arguments[@2] === true)
+            {
+                var map = get_map(this, "__set__");
+
+                if (map !== undefined)
+                {
+                    //"// patch __set__ for map modification".__print__();
+                    var next_map = l_rcv[@-1].__create__(p);
+                    var l_offset = next_map.__lookup__(p);
+                    var head_offset = map.__value_cache_offset__("__set__");
+                    var f = setp_unknown(next_map, l_offset);
+
+                    patch_inline_cache(
+                        map,
+                        l_rcv[@-1], 
+                        f,
+                        head_offset, 
+                        patch_method_value()
+                    );
+                } 
             }
         }
 

@@ -1069,6 +1069,7 @@ PhotonCompiler.context = {
             _op("mov", _$(addr_to_num(f.__addr_bytes__()), label), _EAX),
             _op("jmp", _EAX)
         ], ref_labels, cell_nb);
+        photon.send(c, "__set__", "length", photon.send(f, "__get__", "length"));
 
         return _op("mov", this.gen_mref(c), _EAX); 
     },
@@ -1223,6 +1224,66 @@ PhotonCompiler.context = {
         return a.codeBlock.code;
     },
 
+    gen_arith_cste:function (nb, op, cste)
+    {
+        var a = new (x86.Assembler)(x86.target.x86);
+        var END       = _label("END");
+        var OVF       = _label("OVF");
+        var TYPE_FAIL = _label("TYPE_FAIL");
+
+        if (op === "+")
+        {
+            var handler = photon.handlers.add;
+        } else if (op === "-")
+        {
+            var handler = photon.handlers.sub;
+        }
+
+        a.
+        mov(_EAX, _ECX).
+        and(_$(1), _ECX).
+        je(TYPE_FAIL);
+
+        if (op === "+")
+        {
+            a.add(_$(_ref(cste) - 1), _EAX);
+        } else if (op === "-")
+        {
+            a.sub(_$(_ref(cste) - 1), _EAX);
+        }
+
+        a.
+        jo(OVF).
+        label(END);
+
+        var a2 = new (x86.Assembler)(x86.target.x86);
+
+        a2.
+        label(TYPE_FAIL).
+        mov(_EAX, _ECX);
+
+        if (handler !== undefined)
+        {
+            a2.codeBlock.extend(this.gen_call(
+                nb, 
+                _op("mov", this.gen_mref(photon.handlers.add), _EAX),
+                [_op("mov", _$(_ref(cste)), _EAX), _op("mov", _ECX, _EAX)]));
+        }
+
+        a2.
+        jmp(END).
+        label(OVF);
+
+        a2.codeBlock.extend(this.gen_throw(this.gen_symbol("Cste arithmetic overflow")));
+
+        a2.
+        jmp(END);
+
+        this.defer(a2.codeBlock.code);
+
+        return a.codeBlock.code;
+    },
+
     gen_add:function (nb)
     {
         var a = new (x86.Assembler)(x86.target.x86);
@@ -1264,6 +1325,116 @@ PhotonCompiler.context = {
 
         return a.codeBlock.code;
     },
+
+    gen_if_binop_cmp_cste:function (op, cste, true_branch, else_branch)
+    {
+        var a = new (x86.Assembler)(x86.target.x86);
+        var FALSE     = _label("FALSE");
+        var END       = _label("END");
+
+        if (typeof cste === "number")
+        {
+            var imm = _ref(cste);
+        } else if (cste === true)
+        {
+            var imm = _TRUE;
+        } else if (cste === false)
+        {
+            var imm = _FALSE;
+        } else if (cste === null)
+        {
+            var imm = _NIL
+        } else if (cste === undefined)
+        {
+            var imm = _UNDEFINED;
+        } else
+        {
+            error("Invalid cste");
+        }
+
+        if (op === "===")
+        {
+            var op = "jne";
+        } else if (op === "!==")
+        {
+            var op = "je";
+        } else 
+        {
+            error("Invalid op value");
+        }
+    
+        a.
+        cmp(_$(imm), _EAX)
+        [op](FALSE);
+
+        a.codeBlock.extend(true_branch);
+
+        a.
+        jmp(END).
+        label(FALSE);
+
+        a.codeBlock.extend(else_branch);
+
+        a.label(END);
+        return a.codeBlock.code;
+    },
+
+    gen_if_binop_rel_nb:function (op, cste, true_branch, else_branch)
+    {
+        var a = new (x86.Assembler)(x86.target.x86);
+        var FALSE     = _label("FALSE");
+        var END       = _label("END");
+        var TYPE_FAIL = _label("TYPE_FAIL");
+
+        var imm = _ref(cste);
+
+        if (op === "<")
+        {
+            var op = "jge";
+        } else if (op === "<=")
+        {
+            var op = "jg";
+        } else if (op === ">")
+        {
+            var op = "jle";
+        } else if (op === ">=")
+        {
+            var op = "jl";
+        } else 
+        {
+            error("Invalid op value");
+        }
+    
+        a.
+        mov(_EAX, _ECX).
+        and(_$(1), _ECX).
+        je(TYPE_FAIL).
+        cmp(_$(imm), _EAX)
+        [op](FALSE);
+
+        a.codeBlock.extend(true_branch);
+
+        a.
+        jmp(END).
+        label(FALSE);
+
+        a.codeBlock.extend(else_branch);
+
+        a.label(END);
+
+        var a2 = new (x86.Assembler)(x86.target.x86);
+
+        a2.
+        label(TYPE_FAIL);
+
+        a2.codeBlock.extend(this.gen_throw(this.gen_symbol("Invalid operand type for if_binop_rel_nb")));
+
+
+        this.defer(a2.codeBlock.code);
+
+        return a.codeBlock.code;
+    },
+
 
     gen_arith:function (op, commut)
     {

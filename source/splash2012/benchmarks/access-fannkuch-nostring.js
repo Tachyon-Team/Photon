@@ -71,4 +71,3 @@ function init()
         var ret = fannkuch(n);
     }
 }
-

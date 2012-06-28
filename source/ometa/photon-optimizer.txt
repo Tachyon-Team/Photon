@@ -1,7 +1,18 @@
 
 ometa PhotonOptimizer <: PhotonASTCopy {
-    send ( #__get__ trans:rcv [#string :id]    -> [#send, "__get__", rcv, [#string, id],    [#get, photon.optimize_get ? #true : #false]]
-         | #__set__ trans:rcv [#string :id] trans:v -> [#send, "__set__", rcv, [#string, id], v, [#get, photon.optimize_set ? #true : #false]]
+    if [#binop ('<'|'<='|'>'|'>='):op trans:x [#number :n]] trans:t trans:e -> {[#if_binop_rel_nb, op, n, x, t, e]},
+    if [#binop ('==='|'!=='):op trans:x ( [#number :n]      -> n
+                                        | [#get #true]      -> true 
+                                        | [#get #false]     -> false 
+                                        | [#get #undefined] -> undefined 
+                                        | [#get #null]      -> null):cste] trans:t trans:e   -> [#if_binop_cmp_cste, op, cste, x, t, e],
+    if trans:cond trans:t trans:e                                                            -> [#if, cond, t, e],
+    //if [#binop :op trans:x trans:y] trans:t :trans:e                                         -> [#if_binop, op, x, y, t, e],
+    binop ('+'|'-'):op trans:x [#number :n]                                                  -> [#binop_cste, op, n, x],
+    binop :op trans:x trans:y                                                                -> [#binop, op, x, y],
+    gets trans:x ( [#number :n]                                                              -> [#geto, n, x]
+                 | trans:fd                                                                  -> [#gets, x, fd]),
+    send ( #__get__ trans:rcv [#string :id]                                                  -> [#send, "__get__", rcv, [#string, id],    [#get, photon.optimize_get ? #true : #false]]
+         | #__set__ trans:rcv [#string :id] trans:v                                          -> [#send, "__set__", rcv, [#string, id], v, [#get, photon.optimize_set ? #true : #false]]
          | ^send)
 }
-(1);

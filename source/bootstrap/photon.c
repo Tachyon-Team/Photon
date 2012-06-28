@@ -315,6 +315,8 @@ struct map {
     struct object     *type;
     struct object     *count;
     struct object     *next_offset;
+    struct object     *next_name;
+    struct object     *next_map;
     struct object     *cache;
     struct object     *new_map;
     struct property    properties[0];
@@ -867,6 +869,8 @@ void scan()
       m = (struct map *)o;
       forward(             "         map cache", &m->cache);
       forward(             "       map new_map", &m->new_map);
+      forward(             "     map next_name", &m->next_name);
+      forward(             "      map next_map", &m->next_map);
 
       for (i=0; i < fx(m->count); ++i)
       {
@@ -1102,7 +1106,7 @@ struct object *garbage_collect(struct object *live)
     }
 #endif
 
-#if defined(DEBUG_GC_TRACES) || 1
+#if defined(DEBUG_GC_TRACES) || 0
   fprintf(stderr, "\n------------------------------------------- live objects in heap = %d  with_payload = %d  without_payload = %d\n", todo_scan, with_payload, without_payload);
 #endif
 
@@ -1819,6 +1823,11 @@ struct object *function_clone(size_t n, struct function *self, struct function *
                     object_values_size((struct object *)self), 
                     fx(self->_hd[-1].payload_size));
 
+    for (i = -object_values_count((struct object *)self); i < 0; ++i)
+    {
+        clone->_hd[-1].values[i] = self->_hd[-1].values[i];
+    }
+
     clone->_hd[-1].flags        = self->_hd[-1].flags;
     clone->_hd[-1].map          = self->_hd[-1].map;
     clone->_hd[-1].prototype    = self->_hd[-1].prototype;
@@ -2094,9 +2103,11 @@ struct object *map_clone(size_t n, struct map *self, struct function *closure, s
     struct map* new_map = (struct map *)super_send(self, s_clone, payload_size);
     new_map->count   = self->count;
     new_map->next_offset = self->next_offset; 
-    new_map->type    = self->type;
-    new_map->cache   = NIL;
-    new_map->new_map = NIL;
+    new_map->next_name = NIL;
+    new_map->next_map  = NIL;
+    new_map->type      = self->type;
+    new_map->cache     = NIL;
+    new_map->new_map   = NIL;
 
     for (i=0; i < fx(self->count); ++i)
     {
@@ -2118,6 +2129,11 @@ struct object *map_create(size_t n, struct map *self, struct function *closure, 
 
     if (self->cache != NIL)
     {
+        if (name == self->next_name)
+        {
+            return self->next_map;
+        }
+
         struct object *l = send(self->cache, s_get, s_length);
         assert(l != UNDEFINED);
 
@@ -2128,6 +2144,8 @@ struct object *map_create(size_t n, struct map *self, struct function *closure, 
             if (n == name)
             {   struct object *r = send(self->cache, s_get, ref(i+1));
                 //printf("Found %s in map cache returning %p\n", (char*)name, r);
+                self->next_name = name;
+                self->next_map  = r;
                 return r; 
             }
         }
@@ -2238,6 +2256,8 @@ struct object *map_new(size_t n, struct map *self, struct function *closure)
     new_map->_hd[-1].prototype = self->_hd[-1].map->_hd[-1].prototype;
     new_map->count             = ref(0);
     new_map->next_offset       = ref(-1);
+    new_map->next_name         = NIL;
+    new_map->next_map          = NIL;
     new_map->type              = MAP_TYPE;
     new_map->cache             = NIL;
     new_map->new_map           = NIL;
@@ -2284,6 +2304,8 @@ struct object *map_remove(size_t n, struct map *self, struct function *closure, 
 
     new_map->count       = ref(fx(self->count) - 1);
     new_map->next_offset = ref(fx(self->next_offset) + 1);
+    new_map->next_name   = NIL;
+    new_map->next_map    = NIL;
     new_map->cache       = NIL;    
     new_map->new_map     = NIL;    
 
@@ -2332,6 +2354,8 @@ struct object *map_serialize(size_t n, struct object *self, struct function *clo
     object_serialize_ref(self_map->type, stack);
     object_serialize_ref(self_map->count, stack);
     object_serialize_ref(self_map->next_offset, stack);
+    object_serialize_ref(self_map->next_name, stack);
+    object_serialize_ref(self_map->next_map, stack);
     object_serialize_ref(self_map->cache, stack);
     object_serialize_ref(self_map->new_map, stack);
 
@@ -2719,9 +2743,15 @@ struct object *object_set(size_t n, struct object *self, struct function *closur
         }
 
         i = fx(self->_hd[-1].map->next_offset);
-        
-        new_map = (struct map *)send(self->_hd[-1].map, s_create, name);
-        self->_hd[-1].map = new_map;  
+
+        if (self->_hd[-1].map->next_name == name)
+        {
+            self->_hd[-1].map = (struct map *)self->_hd[-1].map->next_map;
+        } else
+        {
+            new_map = (struct map *)send(self->_hd[-1].map, s_create, name);
+            self->_hd[-1].map = new_map;  
+        }
         object_values_count_inc(self);
 
         return self->_hd[-1].values[i] = value;
@@ -2943,6 +2973,8 @@ void bootstrap()
     root_map->_hd[-1].prototype = NIL;
     ((struct map *)root_map)->count       = ref(0);
     ((struct map *)root_map)->next_offset = ref(-1);
+    ((struct map *)root_map)->next_name   = NIL;
+    ((struct map *)root_map)->next_map    = NIL;
     ((struct map *)root_map)->type        = MAP_TYPE;
     ((struct map *)root_map)->cache       = NIL;
     ((struct map *)root_map)->new_map     = NIL;
@@ -3046,6 +3078,8 @@ void bootstrap()
 
     root_object->_hd[-1].map->count       = ref(4);
     root_object->_hd[-1].map->next_offset = ref(-5);
+    root_object->_hd[-1].map->next_name   = NIL;
+    root_object->_hd[-1].map->next_map    = NIL;
     root_object->_hd[-1].map->type        = OBJECT_TYPE;
     root_object->_hd[-1].map->cache       = NIL;
     root_object->_hd[-1].map->new_map     = NIL;
@@ -3065,6 +3099,8 @@ void bootstrap()
     root_object_map_map->_hd[-1].map = root_object_map_map;
     root_object_map_map->count       = ref(0);
     root_object_map_map->next_offset = ref(-1);
+    root_object_map_map->next_name   = NIL;
+    root_object_map_map->next_map    = NIL;
     root_object_map_map->type        = MAP_TYPE;
     root_object_map_map->cache       = NIL;
     root_object_map_map->new_map     = NIL;
