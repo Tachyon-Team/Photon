@@ -1106,7 +1106,7 @@ struct object *garbage_collect(struct object *live)
     }
 #endif
 
-#if defined(DEBUG_GC_TRACES) || 0
+#if defined(DEBUG_GC_TRACES) || 1
   fprintf(stderr, "\n------------------------------------------- live objects in heap = %d  with_payload = %d  without_payload = %d\n", todo_scan, with_payload, without_payload);
 #endif
 
