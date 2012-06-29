@@ -1994,6 +1994,11 @@ struct object *global_currentTimeMillis(size_t n, struct object *self, struct fu
     return ref(photonCurrentTimeMillis());
 }
 
+struct object *global_exit(size_t n, struct object *self, struct function *closure, struct object *code)
+{
+    exit(fx(code));
+}
+
 struct object *global_readFile(size_t n, struct object *self, struct function *closure, struct object *name)
 {
     char *fileName = (char *)name;
@@ -3272,6 +3277,9 @@ void bootstrap()
     _log("Adding global methods\n");
     name = send(root_symbol, s_intern, "currentTimeMillis");
     send(global_object, s_set, name, wrap((method_t)global_currentTimeMillis, "global_currentTimeMillis"));
+
+    name = send(root_symbol, s_intern, "exit");
+    send(global_object, s_set, name, wrap((method_t)global_exit, "global_exit"));
 
     name = send(root_symbol, s_intern, "readFile");
     send(global_object, s_set, name, wrap((method_t)global_readFile, "global_readFile"));

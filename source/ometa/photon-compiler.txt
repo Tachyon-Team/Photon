@@ -496,7 +496,8 @@ ometa PhotonDesugar <: PhotonASTCopy {
                                                                         e,
                                                                         [#begin, 
                                                                             [#call, [#get, "print"], [#string, "Unhandled exception:"]],
-                                                                            [#call, [#get, "print"], [#get, e]]],
+                                                                            [#call, [#get, "print"], [#get, e]],
+                                                                            [#call, [#get, "exit"],  [#number, 1]]],
                                                                         [#get, #undefined]]]},
   func     :args :ctxt 
            {self.context.enter_function_scope(); self.context.args(args);} 
