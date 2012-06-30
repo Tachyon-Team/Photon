@@ -3004,7 +3004,7 @@ struct object *symtab_intern_string(struct object *self, char *string)
         probe = length-1;
     }
 
-  struct object *new_symbol = send(root_symbol, s_new, ref(strlen(string)+1));
+  struct object *new_symbol = send(root_symbol, s_new, ref(strlen(string)));
   strcpy((char *)new_symbol, string);
 
   send(symbols, s_set, ref(probe), new_symbol);
