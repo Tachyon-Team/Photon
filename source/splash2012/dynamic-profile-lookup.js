@@ -6,6 +6,11 @@ function init() {
 
     var flag = true;
     var call_dict = {};
+
+    function foo()
+    {
+        return 42;
+    }
     map.__lookup__ = function (name)
     {
         if (flag)
@@ -14,8 +19,18 @@ function init() {
             // Prefixing with ' ' to avoid clash with meta-methods
             // which would modify the behavior of call_dict object
             call_dict[" " + name] = true; 
-            flag = true;
-        }
+
+            if (name === "foo")
+            {
+                print("__lookup__ returning foo");
+                flag = true;
+                return foo;
+            } else
+            {
+                flag = true;
+            }
+        } 
+        
        
         // Static call defined at compile time
         return @{["ccall",
@@ -32,6 +47,7 @@ function init() {
         {foo:1, bar:function () {}}.bar();
 
     }
+    print({foo:function () {}}.foo());
     // End of example code
     // Stop profiling
     map.__lookup__ = l;
