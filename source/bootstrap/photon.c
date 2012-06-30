@@ -464,6 +464,7 @@ inline ssize_t max(ssize_t a, ssize_t b)
 #define CUSTOM_PAYLOAD     (3 << PAYLOAD_TYPE_OFFSET)
 
 #define GC_FORWARDED  (1 << (COUNT_BIT_NB + 5))
+#define GC_WEAK_REFS  (1 << (COUNT_BIT_NB + 6))
 #define OBJ_TAGGED    (1 << (COUNT_BIT_NB + 2))
 
 inline ssize_t object_payload_type(struct object *self)
@@ -777,6 +778,13 @@ void scan()
 
 #ifdef DEBUG_GC_TRACES
   fprintf(stderr, "\nSCANNING %p MEMORY ALLOCATED OBJECT #%d\n", o, todo_scan);
+#endif
+
+#if 0
+  if (object_flag_get(o, GC_WEAK_REFS))
+    {
+      fprintf(stderr, "WEAK REFS\n");
+    }
 #endif
 
   struct object *vs = o->_hd[-1].values_size;
@@ -2910,6 +2918,9 @@ void symbol_table_resize(struct object *self)
 
   ssize_t new_length = (n + 1) * 3;
   struct object *new_symbols = send(root_array, s_new, ref(new_length));
+#if 0
+  object_flag_set(new_symbols, GC_WEAK_REFS);
+#endif
 
   send(new_symbols, s_set, s_length, ref(new_length));
   send(self, s_set, s_symbols, new_symbols);
@@ -3242,6 +3253,9 @@ void bootstrap()
 
     _log("Add string values to symbols\n");
     struct object *symbols = send(root_array, s_new, ref(0));
+#if 0
+    object_flag_set(symbols, GC_WEAK_REFS);
+#endif
     send(symbol_table, s_set, s_symbols, symbols); 
     send(symbols, s_push, ref(0)); // number of symbols in table
 
