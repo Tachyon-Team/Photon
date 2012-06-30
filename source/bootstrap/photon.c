@@ -1037,7 +1037,7 @@ ssize_t GC_RUNNING = 0;
 void serialize();
 struct object *garbage_collect(struct object *live)
 {
-#if defined(DEBUG_GC_TRACES) || 0
+#if defined(DEBUG_GC_TRACES) || 1
   fprintf(stderr, "------------------------------------------- GC!\n");
 #endif
 
@@ -1106,7 +1106,7 @@ struct object *garbage_collect(struct object *live)
     }
 #endif
 
-#if defined(DEBUG_GC_TRACES) || 1
+#if defined(DEBUG_GC_TRACES) || 0
   fprintf(stderr, "\n------------------------------------------- live objects in heap = %d  with_payload = %d  without_payload = %d\n", todo_scan, with_payload, without_payload);
 #endif
 
@@ -2886,25 +2886,125 @@ struct object *binary_serialize(size_t n, struct object *self, struct function *
     return self;
 }
 
-struct object *symbol_table_intern(size_t n, struct object *self, struct function *closure, char *string)
+int hash_string(char *string)
 {
-    ssize_t i; 
-    struct object *symbols = send(self, s_get, s_symbols);
-    ssize_t length = fx(send(symbols, s_get, s_length));
-    struct object *s;
+#define HASH_STEP(h,c) ((((h)>>8) + (c)) * 331804471) & ((1<<30)-1)
 
-    for (i = 0; i < length; ++i)
+  int h = 0;
+
+  while (*string != '\0')
     {
-        s = send(symbols, s_get, ref(i));
-        if (!strcmp(string, (char *)s))
-            return s;
+      h = HASH_STEP(h, (unsigned char)*string++);
     }
 
-    struct object *new_symbol = send(root_symbol, s_new, ref(strlen(string)));
-    strcpy((char *)new_symbol, string);
-    send(symbols, s_push, new_symbol);
-   
-    return new_symbol;
+  return h;
+}
+
+void symbol_table_resize(struct object *self)
+{
+  ssize_t i;
+  struct object *symbols = send(self, s_get, s_symbols);
+  ssize_t length = fx(send(symbols, s_get, s_length));
+  ssize_t n = fx(send(symbols, s_get, ref(0)));
+  ssize_t probe;
+
+  ssize_t new_length = (n + 1) * 3;
+  struct object *new_symbols = send(root_array, s_new, ref(new_length));
+
+  send(new_symbols, s_set, s_length, ref(new_length));
+  send(self, s_set, s_symbols, new_symbols);
+
+  // rehash table
+  for (i=1; i<length; i++)
+    {
+      struct object *tmp = send(symbols, s_get, ref(i));
+      if ((unsigned int)tmp > 1) // not UNDEFINED or fixnum 0
+        {
+          probe = hash_string((char *)tmp) % (new_length-1) + 1;
+          while ((unsigned int)send(new_symbols, s_get, ref(probe)) > 0) // not UNDEFINED
+            {
+              if (--probe == 0)
+                probe = new_length-1;
+            }
+          send(new_symbols, s_set, ref(probe), tmp);
+        }
+    }
+}
+
+void symtab_intern_symbol(struct object *self, struct map *empty_map, struct object *root_symbol, struct object *sym)
+{
+  sym->_hd[-1].map       = empty_map;
+  sym->_hd[-1].prototype = root_symbol;
+  object_payload_type_set_binary(sym);
+
+  struct object *symbols = send(self, s_get, s_symbols);
+  ssize_t length = fx(send(symbols, s_get, s_length));
+  ssize_t n = fx(send(symbols, s_get, ref(0)));
+  ssize_t probe;
+
+  if (n+1 > length/2)
+    {
+      symbol_table_resize(self);
+      symbols = send(self, s_get, s_symbols);
+      length = fx(send(symbols, s_get, s_length));
+    }
+
+  probe = hash_string((char *)sym) % (length-1) + 1;
+  while ((unsigned int)send(symbols, s_get, ref(probe)) > 1) // not UNDEFINED or fixnum 0
+    {
+      if (--probe == 0)
+        probe = length-1;
+    }
+
+  send(symbols, s_set, ref(probe), sym);
+  send(symbols, s_set, ref(0), ref(n+1));
+}
+
+struct object *symtab_intern_string(struct object *self, char *string)
+{
+  struct object *symbols = send(self, s_get, s_symbols);
+  ssize_t length = fx(send(symbols, s_get, s_length));
+  ssize_t probe = hash_string(string) % (length-1) + 1;
+  struct object *sym;
+
+  while ((unsigned int)(sym = send(symbols, s_get, ref(probe))) > 0) // not UNDEFINED
+    {
+      if ((unsigned int)sym > 1 && // not fixnum 0 (deleted symbol)
+          !strcmp(string, (char *)sym))
+        return sym;
+      if (--probe == 0)
+        probe = length-1;
+    }
+
+  ssize_t n = fx(send(symbols, s_get, ref(0)));
+
+  if (n+1 > length/2)
+    {
+      symbol_table_resize(self);
+      symbols = send(self, s_get, s_symbols);
+      length = fx(send(symbols, s_get, s_length));
+    }
+
+  probe = hash_string(string) % (length-1) + 1;
+
+  while ((unsigned int)(sym = send(symbols, s_get, ref(probe))) > 1) // not UNDEFINED or fixnum 0
+    {
+      if (--probe == 0)
+        probe = length-1;
+    }
+
+  struct object *new_symbol = send(root_symbol, s_new, ref(strlen(string)+1));
+  strcpy((char *)new_symbol, string);
+
+  send(symbols, s_set, ref(probe), new_symbol);
+  send(symbols, s_set, ref(0), ref(n+1));
+
+  return new_symbol;
+}
+
+struct object *symbol_table_intern(size_t n, struct object *self, struct function *closure, char *string)
+{
+  return symtab_intern_string(self, string);
 }
 
 
@@ -2951,7 +3051,6 @@ void bootstrap()
     initTimer();
 
     BOOTSTRAP = 1;
-    ssize_t i;
     g_bind       = (bind_t)bind;
     g_super_bind = (bind_t)super_bind;
 
@@ -3144,25 +3243,7 @@ void bootstrap()
     _log("Add string values to symbols\n");
     struct object *symbols = send(root_array, s_new, ref(0));
     send(symbol_table, s_set, s_symbols, symbols); 
-    
-    send(symbols, s_push, s_add);
-    send(symbols, s_push, s_allocate);
-    send(symbols, s_push, s_clone);
-    send(symbols, s_push, s_create);
-    send(symbols, s_push, s_delete);
-    send(symbols, s_push, s_get);
-    send(symbols, s_push, s_get_cell);
-    send(symbols, s_push, s_init);
-    send(symbols, s_push, s_intern);
-    send(symbols, s_push, s_length);
-    send(symbols, s_push, s_lookup);
-    send(symbols, s_push, s_new);
-    send(symbols, s_push, s_prototype);
-    send(symbols, s_push, s_push);
-    send(symbols, s_push, s_remove);
-    send(symbols, s_push, s_set);
-    send(symbols, s_push, s_set_cell);
-    send(symbols, s_push, s_symbols);
+    send(symbols, s_push, ref(0)); // number of symbols in table
 
     struct map *empty_map = (struct map *)send0(
         root_symbol->_hd[-1].map,
@@ -3170,15 +3251,24 @@ void bootstrap()
     );
     empty_map->type = SYMBOL_TYPE;
 
-    ssize_t l = fx(send(symbols, s_get, s_length));
-    struct object *s = 0;
-    for (i = 0; i < l; ++i)
-    {
-        s = send(symbols, s_get, ref(i));
-        s->_hd[-1].map       = empty_map;
-        s->_hd[-1].prototype = root_symbol;
-        object_payload_type_set_binary(s);
-    }
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_add);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_allocate);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_clone);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_create);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_delete);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_get);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_get_cell);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_init);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_intern);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_length);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_lookup);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_new);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_prototype);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_push);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_remove);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_set);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_set_cell);
+    symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_symbols);
 
     _log("Add primitive methods on Root Symbol\n");
     send(symbol_table, s_set, s_intern, register_function((struct object *)symbol_table_intern));
