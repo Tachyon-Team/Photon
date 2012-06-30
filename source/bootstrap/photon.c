@@ -596,6 +596,7 @@ inline char byte(ssize_t i, struct object *obj)
 struct object *todo[1000000];
 int todo_ptr;
 int todo_scan;
+int todo_scan_at_end_of_pass1;
 
 char *fromspace_start = 0;
 char *fromspace_end   = 0;
@@ -731,6 +732,66 @@ void forward(const char *msg, struct object **obj)
   }
 }
 
+int forward_weak(const char *msg, struct object **obj)
+{
+  struct object *o = *obj;
+
+  if (o == UNDEFINED)
+    {
+#ifdef DEBUG_GC_TRACES
+      fprintf(stderr, "%s %p: UNDEFINED\n", msg, o);
+#endif
+    }
+  else if (o == NIL)
+    {
+#ifdef DEBUG_GC_TRACES
+      fprintf(stderr, "%s %p: NIL\n", msg, o);
+#endif
+    }
+  else if (o == TRUE)
+    {
+#ifdef DEBUG_GC_TRACES
+      fprintf(stderr, "%s %p: TRUE\n", msg, o);
+#endif
+    }
+  else if (o == FALSE)
+    {
+#ifdef DEBUG_GC_TRACES
+      fprintf(stderr, "%s %p: FALSE\n", msg, o);
+#endif
+    }
+  else if (ref_is_fixnum(o))
+    {
+#ifdef DEBUG_GC_TRACES
+      fprintf(stderr, "%s %p: FIXNUM (%d)\n", msg, o, (int)ref_to_fixnum(o));
+#endif
+    }
+  else
+  {
+    if (ref_is_fixnum(o->_hd[-1].values_size)) // not forwarded yet
+      {
+        // this code assumes that only symbol table arrays are weak
+
+#ifdef DEBUG_GC_TRACES
+        fprintf(stderr, "%s %p: WEAK REF TO UNFORWARDED MEMORY ALLOCATED OBJECT %s\n", msg, o, (char *)o);
+#endif
+
+        *obj = ref(0); // replace original reference by fixnum 0
+
+        return 1; // a weak reference was removed from its container
+      }
+    else
+      {
+#ifdef DEBUG_GC_TRACES
+        fprintf(stderr, "%s %p: FORWARDED MEMORY ALLOCATED OBJECT #%d\n", msg, o, ((int)(o->_hd[-1].values_size) & ~(-1<<16)) >> 1);
+#endif
+        *obj = todo[(((int)(o->_hd[-1].values_size) & ~(-1<<16)) >> 1)];
+      }
+  }
+
+  return 0;
+}
+
 void forward_multiple(const char *msg, struct object **obj, int n)
 {
   while (n-- > 0)
@@ -771,20 +832,12 @@ void forward_indirect(const char* msg, struct object **cache)
     *cache = (struct object *)(((char *)obj) + offset);
 }
 
-void scan()
+void scan(struct object *o)
 {
-  struct object *o = todo[todo_scan];
   struct map *m;
 
 #ifdef DEBUG_GC_TRACES
   fprintf(stderr, "\nSCANNING %p MEMORY ALLOCATED OBJECT #%d\n", o, todo_scan);
-#endif
-
-#if 0
-  if (object_flag_get(o, GC_WEAK_REFS))
-    {
-      fprintf(stderr, "WEAK REFS\n");
-    }
 #endif
 
   struct object *vs = o->_hd[-1].values_size;
@@ -867,10 +920,31 @@ void scan()
       // Nothing to do
       break;
     case STRUCTURED_PAYLOAD:
-      for (i=(fx(o->_hd[-1].payload_size)/sizeof(struct object *)) - 1; i >= 0; --i)
-      {
-        forward("    payload[i]", &(((struct object **)o)[i]));
-      }
+      if (object_flag_get(o, GC_WEAK_REFS))
+        {
+          // this code assumes that only symbol table arrays are weak
+
+#ifdef DEBUG_GC_TRACES
+          fprintf(stderr, "PASS 2 : SCANNING %p MEMORY ALLOCATED WEAK OBJECT #%d\n", o, todo_scan);
+#endif
+
+          for (i=(fx(o->_hd[-1].payload_size)/sizeof(struct object *)) - 1; i >= 0; --i)
+            {
+              if (forward_weak("    payload[i]", &(((struct object **)o)[i])))
+                {
+                  // remove one symbol from symbol table array
+                  ssize_t n = fx(((struct object **)o)[0]);
+                  ((struct object **)o)[0] = ref(n-1);
+                }
+            }
+        }
+      else
+        {
+          for (i=(fx(o->_hd[-1].payload_size)/sizeof(struct object *)) - 1; i >= 0; --i)
+            {
+              forward("    payload[i]", &(((struct object **)o)[i]));
+            }
+        }
       break;
     case CUSTOM_PAYLOAD:
       // TODO: For now only map objects will be collected, should support frame objects
@@ -1045,7 +1119,7 @@ ssize_t GC_RUNNING = 0;
 void serialize();
 struct object *garbage_collect(struct object *live)
 {
-#if defined(DEBUG_GC_TRACES) || 1
+#if defined(DEBUG_GC_TRACES) || 0
   fprintf(stderr, "------------------------------------------- GC!\n");
 #endif
 
@@ -1057,7 +1131,6 @@ struct object *garbage_collect(struct object *live)
   without_payload = 0;
 
   todo_ptr = 0;
-  todo_scan = 0;
 
   // flip semispaces
 
@@ -1086,9 +1159,30 @@ struct object *garbage_collect(struct object *live)
 
   forward_stack();
 
+  todo_scan = 0;
+
   while (todo_scan < todo_ptr)
     {
-      scan();
+      struct object *o = todo[todo_scan];
+
+      if (!object_flag_get(o, GC_WEAK_REFS))
+        scan(o);
+
+      todo_scan++;
+    }
+
+  todo_scan_at_end_of_pass1 = todo_scan;
+
+  todo_scan = 0;
+
+  while (todo_scan < todo_ptr)
+    {
+      struct object *o = todo[todo_scan];
+
+      if (todo_scan >= todo_scan_at_end_of_pass1 ||
+          object_flag_get(o, GC_WEAK_REFS))
+        scan(o);
+
       todo_scan++;
     }
 
@@ -2916,11 +3010,9 @@ void symbol_table_resize(struct object *self)
   ssize_t n = fx(send(symbols, s_get, ref(0)));
   ssize_t probe;
 
-  ssize_t new_length = (n + 1) * 3;
+  ssize_t new_length = (n+1)*3;
   struct object *new_symbols = send(root_array, s_new, ref(new_length));
-#if 0
   object_flag_set(new_symbols, GC_WEAK_REFS);
-#endif
 
   send(new_symbols, s_set, s_length, ref(new_length));
   send(self, s_set, s_symbols, new_symbols);
@@ -2953,7 +3045,7 @@ void symtab_intern_symbol(struct object *self, struct map *empty_map, struct obj
   ssize_t n = fx(send(symbols, s_get, ref(0)));
   ssize_t probe;
 
-  if (n+1 > length/2)
+  if ((n+1)*2 >= length || (n+1)*4 <= length )
     {
       symbol_table_resize(self);
       symbols = send(self, s_get, s_symbols);
@@ -2989,7 +3081,7 @@ struct object *symtab_intern_string(struct object *self, char *string)
 
   ssize_t n = fx(send(symbols, s_get, ref(0)));
 
-  if (n+1 > length/2)
+  if ((n+1)*2 >= length || (n+1)*4 <= length )
     {
       symbol_table_resize(self);
       symbols = send(self, s_get, s_symbols);
@@ -3253,9 +3345,7 @@ void bootstrap()
 
     _log("Add string values to symbols\n");
     struct object *symbols = send(root_array, s_new, ref(0));
-#if 0
     object_flag_set(symbols, GC_WEAK_REFS);
-#endif
     send(symbol_table, s_set, s_symbols, symbols); 
     send(symbols, s_push, ref(0)); // number of symbols in table
 
