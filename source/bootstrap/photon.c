@@ -10,6 +10,8 @@
 #ifndef _PHOTON_H
 #define _PHOTON_H
 
+#define GC_UNUSED_SYMBOLS
+
 #define DEBUG_GC_TRACES_not
 
 #define PROFILE_GC_TRACES
@@ -146,7 +148,7 @@ unsigned long long mem_allocated = 0;      // in Bytes
 unsigned long long exec_mem_allocated = 0; // in Bytes
 
 #define MB (1024*1024)
-#define HEAP_SIZE (64 * MB)
+#define HEAP_SIZE (128 * MB)
 #define HEAP_FUDGE MB
 
 extern void newHeap()
@@ -201,7 +203,7 @@ inline char *raw_calloc(size_t nb, size_t size)
         if (heap_ptr < heap_limit)
         {
 #if defined(DEBUG_GC_TRACES) || 1
-            fprintf(stderr, "*** newHeap called from raw_calloc!\n");
+            fprintf(stderr, "*** newHeap called from raw_calloc! obj_size=%d\n", (int)obj_size);
 #endif
             newHeap(); // TODO: use heap_limit_reached
             heap_ptr -= obj_size;
@@ -1165,11 +1167,15 @@ struct object *garbage_collect(struct object *live)
     {
       struct object *o = todo[todo_scan];
 
+#ifdef GC_UNUSED_SYMBOLS
       if (!object_flag_get(o, GC_WEAK_REFS))
+#endif
         scan(o);
 
       todo_scan++;
     }
+
+#ifdef GC_UNUSED_SYMBOLS
 
   todo_scan_at_end_of_pass1 = todo_scan;
 
@@ -1185,6 +1191,8 @@ struct object *garbage_collect(struct object *live)
 
       todo_scan++;
     }
+
+#endif
 
   // clean up forwarding pointers
   for (todo_ptr = 0; todo_ptr < todo_scan; todo_ptr++)
