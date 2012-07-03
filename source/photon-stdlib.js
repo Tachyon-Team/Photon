@@ -324,7 +324,8 @@ Function.prototype.call = function ()
                 _op("jg", LOOP),
 
                 _op("mov", _mem(2*sizeof_ref, _ECX), _EAX),
-                _op("call", _EAX)]];
+                _op("call", _EAX),
+                PhotonCompiler.context.magic_cookie()]];
 
         // Stack cleanup is implicit in the function return
     })();}@;
