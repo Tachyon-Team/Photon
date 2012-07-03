@@ -278,14 +278,41 @@ Function.prototype.call = function ()
         var shft       = Math.log(sizeof_ref)/Math.log(2);
         var LOOP       = _label();
         var END        = _label();
+        
+        var ARG_LOOP   = _label();
+        var ALIGN      = _label();
+        var ALIGN_END  = _label();
+
         return ["code",
                [_op("mov", _EAX, _ECX),
                 _op("mov", _mem(0, _ECX), _EDX),   // retrieve n
+                _op("sar", _$(1), _EDX),           // unbox n
                 _op("mov", _EDX, _EAX),            // Compute space needed on stack
                 _op("add", _$(3), _EAX),           // Add space for n, self, closure
-                _op("sal", _$(shft), _EAX),        // Compute the number of bytes needed
-                _op("sub", _EAX, _ESP),            // Adjust stack pointer
-                _op("and", _$(-16), _ESP),         // Align stack pointer 
+
+                ARG_LOOP,                          // Reserve space on stack,
+                _op("cmp", _$(0), _EAX),           // initialize to UNDEFINED for proper GC support
+                _op("je", ALIGN),
+                _op("push", _$(_UNDEFINED)),
+                _op("dec", _EAX),
+                _op("jmp", ARG_LOOP),
+
+                ALIGN,
+                _op("mov", _ESP, _EAX),
+
+                _op("and", _$(0xF), _EAX),          // Non-aligned by 1 word
+                _op("je", ALIGN_END),
+                _op("push", _$(_UNDEFINED)),
+                _op("sub", _$(sizeof_ref), _EAX),
+                _op("cmp", _$(0), _EAX),            // Non-aligned by 2 word
+                _op("je", ALIGN_END),
+                _op("push", _$(_UNDEFINED)),
+                _op("sub", _$(sizeof_ref), _EAX),
+                _op("cmp", _$(0), _EAX),            // Non-aligned by 3 word
+                _op("je", ALIGN_END),
+                _op("push", _$(_UNDEFINED)),
+                ALIGN_END,
+
                 _op("mov", _EDX, _mem(0, _ESP)),   // Store argument number 
                 _op("add", _$(2), _EDX),           // Add extra arguments
            

@@ -12,7 +12,7 @@
 
 #define GC_UNUSED_SYMBOLS
 
-#define DEBUG_GC_TRACES_not
+#define DEBUG_GC_TRACES
 
 #define PROFILE_GC_TRACES
 
@@ -300,7 +300,7 @@ struct cell {
 
 struct frame {
     struct header      _hd[0];
-    size_t             n;
+    struct object     *n;
     struct object     *self;
     struct function   *closure;
     struct object     *arguments[0];
@@ -664,6 +664,10 @@ void copy_object(struct object **obj)
       copy->_hd[-1].prototype     = o->_hd[-1].prototype;
       copy->_hd[-1].map           = o->_hd[-1].map;
 
+#ifdef DEBUG_GC_TRACES
+      assert((ssize_t)abs(((ssize_t)copy - (ssize_t)o)) > payload_len); // Make sure that memory zones do not overlap
+#endif
+
       // copy payload
       memcpy((void *)copy, (void *)o, payload_len);
 
@@ -958,12 +962,14 @@ void scan(struct object *o)
         }
       break;
     case CUSTOM_PAYLOAD:
-      // TODO: For now only map objects will be collected, should support frame objects
       m = (struct map *)o;
-      forward(             "         map cache", &m->cache);
-      forward(             "       map new_map", &m->new_map);
+      forward(             "          map type", &m->type);
+      forward(             "         map count", &m->count);
+      forward(             "   map next offset", &m->next_offset);
       forward(             "     map next_name", &m->next_name);
       forward(             "      map next_map", &m->next_map);
+      forward(             "         map cache", &m->cache);
+      forward(             "       map new_map", &m->new_map);
 
       for (i=0; i < fx(m->count); ++i)
       {
@@ -1933,9 +1939,9 @@ struct object *frame_new(
 
     f->_hd[-1].map = base_map((struct object *)self, FRAME_TYPE);
     f->_hd[-1].prototype = (struct object *)self;
-    object_payload_type_set_custom((struct object *)f);
+    object_payload_type_set_structured((struct object *)f);
 
-    f->n       = f_n;
+    f->n       = fixnum_to_ref(f_n);
     f->self    = rcv;
     f->closure = fn;
 
@@ -1952,7 +1958,7 @@ struct object *frame_print(
     struct frame    *self, 
     struct function *closure)
 {
-    printf("frame n:%zd, self:%p, closure:%p\n", self->n, self->self, self->closure); 
+    printf("frame n:%p, self:%p, closure:%p\n", self->n, self->self, self->closure); 
     
     return UNDEFINED;
 }
