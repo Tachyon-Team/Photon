@@ -12,7 +12,7 @@
 
 #define GC_UNUSED_SYMBOLS
 
-#define DEBUG_GC_TRACES
+#define DEBUG_GC_TRACES_not
 
 #define PROFILE_GC_TRACES
 
@@ -1755,7 +1755,7 @@ struct object *array_set(
 
         assert(c >= 0);
 
-        if (i >= array_indexed_values_size(self))
+        if (c >= array_indexed_values_size(self))
         {
             self = array_extend(orig, max(c, 2*array_indexed_values_size(self)));
         }
@@ -3714,11 +3714,13 @@ void serialize()
     while (fx(send(stack, s_get, s_length)) > 0)
     {
         struct object *obj = send0(stack, s_pop);
+
         if (!object_tagged(obj))
         {
             serialized_count++;
             printf("// OBJECT PAYLOAD TYPE = %d\n", (int)object_payload_type(obj));
 
+#if defined(DEBUG_GC_TRACES) || 0
             // Using the serializer for debugging the GC
             if (GC_RUNNING)
             {
@@ -3734,6 +3736,7 @@ void serialize()
                     obj->_hd[-1].values_size = fixnum_to_ref(((int)obj->_hd[-1].values_size)>>16);
                 }
             }
+#endif
             send(obj, s_serialize, stack);
         }
 
