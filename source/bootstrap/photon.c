@@ -148,7 +148,7 @@ unsigned long long mem_allocated = 0;      // in Bytes
 unsigned long long exec_mem_allocated = 0; // in Bytes
 
 #define MB (1024*1024)
-#define HEAP_SIZE (512 * MB)
+#define HEAP_SIZE (256 * MB)
 #define HEAP_FUDGE MB
 
 extern void newHeap()
@@ -604,10 +604,15 @@ int todo_ptr;
 int todo_scan;
 int todo_scan_at_end_of_pass1;
 
-struct object *gcprot[1000000];
-int gcprot_ptr = 0;
-#define GCPROTPUSH(o) gcprot[gcprot_ptr++] = (o)
-#define GCPROTPOP() gcprot[--gcprot_ptr]
+struct gcprot_cell { struct object *obj; struct gcprot_cell *next; };
+
+#define GCPROTBEGIN(name) struct gcprot_cell name ## _gcprot_cell; name ## _gcprot_cell.obj = UNDEFINED; name ## _gcprot_cell.next = gcprot_head; gcprot_head = &name ## _gcprot_cell
+
+#define GCPROTEND(name) gcprot_head = name ## _gcprot_cell.next
+
+#define GCPROT(name) name ## _gcprot_cell.obj
+
+struct gcprot_cell *gcprot_head = NULL;
 
 char *fromspace_start = 0;
 char *fromspace_end   = 0;
@@ -1132,11 +1137,23 @@ void forward_stack()
   //assert(1 == 0);
 }
 
+void forward_gcprot()
+{
+  struct gcprot_cell *ptr = gcprot_head;
+
+  while (ptr != NULL)
+    {
+      forward("gcprot", &ptr->obj);
+      ptr = ptr->next;
+    }
+}
+
+
 ssize_t GC_RUNNING = 0;
 void serialize();
 struct object *garbage_collect_live(struct object *live)
 {
-#if defined(DEBUG_GC_TRACES) || 0
+#if defined(DEBUG_GC_TRACES) || 1
   fprintf(stderr, "------------------------------------------- GC!\n");
 #endif
 
@@ -1176,7 +1193,7 @@ struct object *garbage_collect_live(struct object *live)
 
   forward_stack();
 
-  forward_multiple("gcprot[i]", gcprot, gcprot_ptr);
+  forward_gcprot();
 
   todo_scan = 0;
 
@@ -1478,8 +1495,10 @@ struct object *arguments_new(size_t n, struct array *self, struct function *clos
     assert(ref_is_fixnum(size));
     assert(fx(size) >= 0);
 
-    GCPROTPUSH((struct object *)self);
-    GCPROTPUSH(size);
+    GCPROTBEGIN(self);
+    // size need not be protected because it is a fixnum
+
+    GCPROT(self) = (struct object *)self;
 
     struct array *new_args = (struct array *)send(
         self, 
@@ -1488,8 +1507,9 @@ struct object *arguments_new(size_t n, struct array *self, struct function *clos
         ref(fx(size)*sizeof(struct object *) + sizeof(struct array))
     );
 
-    size = GCPROTPOP();
-    self = (struct array *)GCPROTPOP();
+    GCPROTBEGIN(new_args);
+
+    self = (struct array *)GCPROT(self);
 
     inc_mem_counter(mem_arguments, 5, fx(size)*sizeof(struct object *) + sizeof(struct array));
 
@@ -1501,16 +1521,16 @@ struct object *arguments_new(size_t n, struct array *self, struct function *clos
 
     for (i = 0; i < fx(size); ++i)
     {
-      GCPROTPUSH((struct object *)new_args);
-      GCPROTPUSH(size);
+      GCPROT(new_args) = (struct object *)new_args;
 
       struct object *result = send(root_cell, s_new, UNDEFINED);
 
-      size = GCPROTPOP();
-      new_args = (struct array *)GCPROTPOP();
+      new_args = (struct array *)GCPROT(new_args);
 
       new_args->indexed_values[i] = result;
     }
+
+    GCPROTEND(self);
 
     return (struct object *)new_args;
 }
@@ -1602,8 +1622,11 @@ struct array *array_extend(struct array *orig, ssize_t size)
 
     struct object *self = orig->_hd[-1].extension;
 
-    GCPROTPUSH((struct object *)orig);
-    GCPROTPUSH(self);
+    GCPROTBEGIN(orig);
+    GCPROTBEGIN(self);
+
+    GCPROT(orig) = (struct object *)orig;
+    GCPROT(self) = self;
 
     struct object *copy = send(
         self,
@@ -1612,8 +1635,8 @@ struct array *array_extend(struct array *orig, ssize_t size)
         ref(sizeof(struct array) + size * sizeof(struct object *))
     );
 
-    self = GCPROTPOP();
-    orig = (struct array *)GCPROTPOP();
+    self = GCPROT(self);
+    orig = (struct array *)GCPROT(orig);
 
     inc_mem_counter(mem_array, object_values_size(self), sizeof(struct array) + size * sizeof(struct object *));
 
@@ -1630,6 +1653,8 @@ struct array *array_extend(struct array *orig, ssize_t size)
     memcpy((void *)copy, (void *)self, fx(self->_hd[-1].payload_size));
 
     orig->_hd[-1].extension = copy;
+
+    GCPROTEND(orig);
 
     return (struct array *)copy;
 }
@@ -1671,8 +1696,10 @@ struct object *array_new(size_t n, struct array *self, struct function *closure,
     );
     */
 
-    GCPROTPUSH((struct object *)self);
-    GCPROTPUSH(size);
+    GCPROTBEGIN(self);
+    // size need not be protected because it is a fixnum
+
+    GCPROT(self) = (struct object *)self;
 
     struct object *new_array = object_init_static(
         2,
@@ -1682,8 +1709,7 @@ struct object *array_new(size_t n, struct array *self, struct function *closure,
         ref(fx(size)*sizeof(struct object *) + sizeof(struct array))
     );
 
-    size = GCPROTPOP();
-    self = (struct array *)GCPROTPOP();
+    self = (struct array *)GCPROT(self);
 
     inc_mem_counter(mem_array, 0, fx(size)*sizeof(struct object *) + sizeof(struct array));
 
@@ -1692,6 +1718,8 @@ struct object *array_new(size_t n, struct array *self, struct function *closure,
     object_payload_type_set_structured(new_array);
     
     ((struct array *)new_array)->count = ref(0);
+
+    GCPROTEND(self);
 
     return new_array;
 }
@@ -1812,11 +1840,13 @@ struct map *base_map(struct object *self, struct object *TYPE)
 
 struct object *cell_new(size_t n, struct cell *self, struct function *closure, struct object *val)
 {
-    GCPROTPUSH((struct object *)self);
+    GCPROTBEGIN(self);
+
+    GCPROT(self) = (struct object *)self;
 
     struct cell *new_cell = (struct cell *)send(self, s_init, ref(0), ref(sizeof(struct cell)));
 
-    self = (struct cell *)GCPROTPOP();
+    self = (struct cell *)GCPROT(self);
 
     inc_mem_counter(mem_cell, 0, sizeof(struct cell));
 
@@ -1824,6 +1854,8 @@ struct object *cell_new(size_t n, struct cell *self, struct function *closure, s
     new_cell->_hd[-1].map       = base_map((struct object *)self, CELL_TYPE);
     new_cell->_hd[-1].prototype = (struct object *)self;
     object_payload_type_set_structured((struct object *)new_cell);
+
+    GCPROTEND(self);
 
     return (struct object *)new_cell;
 }
@@ -2629,16 +2661,12 @@ struct object *object_allocate(
     // Align payload_size to sizeof(struct object *) bytes
     payload_size = ref((fx(payload_size) + sizeof(struct object *) - 1) & -sizeof(struct object *));
 
-    GCPROTPUSH(prelude_size);
-    GCPROTPUSH(payload_size);
+    // prelude_size and payload_size need not be protected because they are fixnums
 
     char *ptr = (char *)raw_calloc(
         1, 
         fx(prelude_size) + fx(payload_size) + sizeof(ssize_t)
     );
-
-    payload_size = GCPROTPOP();
-    prelude_size = GCPROTPOP();
 
     // Initialize all values to 0
     for (i = 0; i < (fx(prelude_size) + fx(payload_size) + (ssize_t)sizeof(ssize_t)); ++i)
@@ -2783,8 +2811,10 @@ struct object *object_init(
     struct object *payload_size
 )
 {
-    GCPROTPUSH(self);
-    GCPROTPUSH(values_size);
+    GCPROTBEGIN(self);
+    // values_size need not be protected because it is a fixnum
+
+    GCPROT(self) = self;
 
     struct object *po = send(
         self, 
@@ -2793,8 +2823,7 @@ struct object *object_init(
         payload_size
     );
 
-    values_size = GCPROTPOP();
-    self = GCPROTPOP();
+    self = GCPROT(self);
 
     po->_hd[-1].flags         = ref(0);
     po->_hd[-1].payload_size  = payload_size;
@@ -2802,6 +2831,8 @@ struct object *object_init(
 
     object_values_size_set(po, fx(values_size));
     object_values_count_set(po, 0);
+
+    GCPROTEND(self);
 
     return po;
 }
@@ -2814,8 +2845,7 @@ struct object *object_init_static(
     struct object *payload_size
 )
 {
-    GCPROTPUSH(values_size);
-    GCPROTPUSH(payload_size);
+    // values_size and payload_size need not be protected because they are fixnums
 
     struct object *po = object_allocate(
         2, 
@@ -2824,9 +2854,6 @@ struct object *object_init_static(
         ref(fx(values_size) * sizeof(struct object *) + sizeof(struct header)),
         payload_size
     );
-
-    payload_size = GCPROTPOP();
-    values_size = GCPROTPOP();
 
     po->_hd[-1].flags         = ref(0);
     po->_hd[-1].payload_size  = payload_size;
