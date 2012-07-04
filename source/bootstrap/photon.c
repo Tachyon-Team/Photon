@@ -148,7 +148,7 @@ unsigned long long mem_allocated = 0;      // in Bytes
 unsigned long long exec_mem_allocated = 0; // in Bytes
 
 #define MB (1024*1024)
-#define HEAP_SIZE (128 * MB)
+#define HEAP_SIZE (512 * MB)
 #define HEAP_FUDGE MB
 
 extern void newHeap()
