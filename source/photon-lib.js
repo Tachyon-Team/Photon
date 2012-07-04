@@ -592,14 +592,16 @@ function subr(code)
 {
     code = flatten(code);
     var codeBlock = _asm(code).codeBlock;
+    codeBlock.align(photon.send(photon.object, "__ref_size__"));
     codeBlock.assemble();
     //print(codeBlock.listingString());
+    codeBlock.gen32(_ref(0));
 
     code = clean(codeBlock.code);
     var length = code.length;
 
     var f = photon.send(photon["function"], "__new__", length, 0);
-    photon.send(f, "__intern__", code);
+    photon.send(f, "__intern__", code, []);
 
     return f;
 }
@@ -724,8 +726,15 @@ PhotonCompiler.context = {
     
     deferred_insert:function (a)
     {
+        if (this.deferred.length > 0)
+            a.genListing("DEFERRED CODE START:");
+
         for (var i=0; i<this.deferred.length; i++)
             a.codeBlock.extend(this.deferred[i]);
+
+        if (this.deferred.length > 0)
+            a.genListing("DEFERRED CODE END");
+
         this.deferred = [];
     },
 
@@ -1015,10 +1024,20 @@ PhotonCompiler.context = {
             return b.getPos() - a.getPos();
         });
 
+        var refs = [];
+
         // Add positions of refs as tagged integers
         ref_labels.forEach(function (l)
         {
             codeBlock.gen32(_ref(l.offset_type !== "negated" ? l.getPos() : -l.getPos()));
+
+            assert(l.__obj__  !== undefined, "Invalid label");
+            assert(l.getPos() !== 0,         "Label '" + l.id + "' was not used");
+            if (l.__obj__ !== null)
+            {
+                refs.push(l.getPos());
+                refs.push(l.__obj__);
+            }
         });
 
         // Add the number of refs as a tagged integer
@@ -1028,7 +1047,7 @@ PhotonCompiler.context = {
         var length = code.length;
 
         var f = photon.send(photon["function"], "__new__", length, cell_nb);
-        photon.send(f, "__intern__", code);
+        photon.send(f, "__intern__", code, refs);
 
         return f;
     },
@@ -1062,16 +1081,17 @@ PhotonCompiler.context = {
             cell_nb++;
         }
         
-        var label  = _label();
+        var label  = _label("FUNCTION");
+        label.__obj__ = f;
         ref_labels = [label];
             
         var c = this.new_function_object([
-            _op("mov", _$(addr_to_num(f.__addr_bytes__()), label), _EAX),
+            _op("mov", _$(_UNDEFINED, label), _EAX),
             _op("jmp", _EAX)
         ], ref_labels, cell_nb);
         photon.send(c, "__set__", "length", photon.send(f, "__get__", "length"));
 
-        return _op("mov", this.gen_mref(c), _EAX); 
+        return _op("mov", this.gen_mref(c, "CLOSURE"), _EAX); 
     },
 
     gen_prologue:function (local_n, arg_n)
@@ -1087,7 +1107,7 @@ PhotonCompiler.context = {
             push(_EBP).
             cmp(_$(arg_n), _mem(8, _ESP), 32).
             jge(FAST).
-            mov(this.gen_mref(photon.variadic_enter), _EAX).
+            mov(this.gen_mref(photon.variadic_enter, "VAR_ENTER_SUBR"), _EAX).
             push(_$(arg_n)).
             call(_EAX);
             a.codeBlock.extend(this.magic_cookie());
@@ -1134,7 +1154,7 @@ PhotonCompiler.context = {
             ret().
             label(SLOW).
             mov(_$(arg_n), _EDX).
-            mov(this.gen_mref(photon.variadic_exit), _ECX).
+            mov(this.gen_mref(photon.variadic_exit, "VAR_EXIT_SUBR"), _ECX).
             jmp(_ECX);
         }
         else
@@ -1186,7 +1206,7 @@ PhotonCompiler.context = {
             pop(_ECX).
             codeBlock.extend(this.gen_call(
                 nb, 
-                _op("mov", this.gen_mref(photon.handlers[name]), _EAX),
+                _op("mov", this.gen_mref(photon.handlers[name], name), _EAX),
                 [[], _op("mov", _ECX, _EAX)]));
             a.
             jmp(end);
@@ -1269,7 +1289,7 @@ PhotonCompiler.context = {
         {
             a2.codeBlock.extend(this.gen_call(
                 nb, 
-                _op("mov", this.gen_mref(handler), _EAX),
+                _op("mov", this.gen_mref(handler, "ARITH_CSTE_HANDLER"), _EAX),
                 [_op("mov", _$(_ref(cste)), _EAX), _op("mov", _ECX, _EAX)]));
         }
 
@@ -1312,7 +1332,7 @@ PhotonCompiler.context = {
 
         a2.codeBlock.extend(this.gen_call(
             nb, 
-            _op("mov", this.gen_mref(photon.handlers.add), _EAX),
+            _op("mov", this.gen_mref(photon.handlers.add, "ADD_HANDLER"), _EAX),
             [[], _op("mov", _ECX, _EAX)]));
 
         a2.
@@ -1413,7 +1433,7 @@ PhotonCompiler.context = {
             {
                 a2.codeBlock.extend(this.gen_call(
                     nb, 
-                    _op("mov", this.gen_mref(handler), _EAX),
+                    _op("mov", this.gen_mref(handler, "IF_BINOP_HANDLER"), _EAX),
                     [[], _op("mov", _ECX, _EAX)]));
             }
 
@@ -1674,16 +1694,16 @@ PhotonCompiler.context = {
         return this.gen_binop(f);
     },
 
-    gen_mref:function (m)
+    gen_mref:function (m, lst)
     {
-        var label = _label();
-        this.ref_ctxt().push(label);
-
         assert(m === null || ((typeof m) === "object" && m.__addr__ !== undefined), "Invalid reference");
 
+        var label = _label(lst);
+        this.ref_ctxt().push(label);
+
+        /*
         if (m === null)
             return _$(0, label);
-
         if (typeof m.__addr_bytes__ !== "function")
         {
             var bytes = mirror_addr_bytes.call(m);
@@ -1692,6 +1712,10 @@ PhotonCompiler.context = {
             var bytes = m.__addr_bytes__();
         }
         return _$(addr_to_num(bytes), label);
+        */
+
+        label.__obj__ = (m === null) ? undefined : m;
+        return _$(_UNDEFINED, label);
     },
 
     gen_arg:function (a)
@@ -1705,7 +1729,7 @@ PhotonCompiler.context = {
         {
             throw error("Invalid string value '" + s + "'", {compiler:this.compiler});
         }
-        return _op("mov", this.gen_mref(photon.send(photon.symbol, "__intern__", s)), _EAX);
+        return _op("mov", this.gen_mref(photon.send(photon.symbol, "__intern__", s), "SYMBOL"), _EAX);
     },
 
     gen_send:function (nb, rcv, msg, args, bind_helper)
@@ -1737,7 +1761,7 @@ PhotonCompiler.context = {
             _op("push", _$(0)), // NULL CLOSURE
             _op("push", _$(0)), // NULL RECEIVER
             _op("push", _$(4)),  // Arg number
-            _op("mov", this.gen_mref(bind_helper), _EAX),
+            _op("mov", this.gen_mref(bind_helper, "BIND"), _EAX),
             _op("call", _EAX),
             this.magic_cookie(),
             _op("add", _$(16), _ESP),
@@ -1760,7 +1784,7 @@ PhotonCompiler.context = {
                 return [a, _op("mov", _EAX, _mem(loc + (i + 3) * that.sizeof_ref, _EBP))]; 
             }),
             _op("mov", _$(args.length), _mem(loc, _EBP), 32),
-            _op("mov", this.gen_mref(photon.global), _mem(loc + this.sizeof_ref, _EBP), 32),
+            _op("mov", this.gen_mref(photon.global, "GLOBAL"), _mem(loc + this.sizeof_ref, _EBP), 32),
             fn, 
             _op("mov", _EAX, _mem(loc + 2 * this.sizeof_ref, _EBP)), 
             _op("call", _EAX), 
@@ -1976,5 +2000,22 @@ PhotonCompiler.context = {
     gen_set_closure:function (v)
     {
         return [v, _op("mov", _EAX, _mem(this.clos_stack_offset(), _EBP))];
+    },
+    gen_global:function (r)
+    {
+       var a = new (x86.Assembler)(x86.target.x86);
+       a.
+       push(_EBP).
+       mov(_ESP, _EBP);
+       
+       a.codeBlock.extend(r);
+       
+       a.
+       mov(_EBP, _ESP).
+       pop(_EBP).
+       ret();
+
+       this.deferred_insert(a);
+       return a.codeBlock.code;
     }
 };

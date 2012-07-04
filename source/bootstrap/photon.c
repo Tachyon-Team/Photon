@@ -148,7 +148,7 @@ unsigned long long mem_allocated = 0;      // in Bytes
 unsigned long long exec_mem_allocated = 0; // in Bytes
 
 #define MB (1024*1024)
-#define HEAP_SIZE (256 * MB)
+#define HEAP_SIZE (64 * MB)
 #define HEAP_FUDGE MB
 
 extern void newHeap()
@@ -624,6 +624,7 @@ void copy_object(struct object **obj)
 {
   struct object *o = (*obj)->_hd[-1].extension; // replace object by its extension
 
+  assert(!ref_is_fixnum(o->_hd[-1].values_size));
   ssize_t values_size = fx(o->_hd[-1].values_size);
   ssize_t object_prelude_size = values_size * sizeof(struct object *) + sizeof(struct header);
   ssize_t object_size = (object_prelude_size + fx(o->_hd[-1].payload_size) + sizeof(struct object *) - 1) & -sizeof(struct object *);
@@ -633,14 +634,7 @@ void copy_object(struct object **obj)
     fprintf(stderr, "(*obj)->_hd[-1].extension != *obj   %p  %p\n", o, *obj);
 #endif
 
-#if 0
-  if (object_size > object_prelude_size)
-    {
-      fprintf(stderr, "object_size > object_prelude_size\n");
-    }
-  else
-#endif
-    {
+   {
       struct object *copy;
 
       ssize_t payload_len = object_size - object_prelude_size;
@@ -720,27 +714,38 @@ void forward(const char *msg, struct object **obj)
   {
     if (ref_is_fixnum(o->_hd[-1].values_size)) // not forwarded yet
       {
+
+        struct object *e = o->_hd[-1].extension;
+        if (ref_is_fixnum(e->_hd[-1].values_size)) // extension not forwarded yet
+        {
 #ifdef DEBUG_GC_TRACES
 
-        fprintf(stderr, "%s %p: MEMORY ALLOCATED OBJECT #%d\n", msg, o, todo_ptr);
+            fprintf(stderr, "%s %p: MEMORY ALLOCATED OBJECT #%d\n", msg, o, todo_ptr);
 
 #endif
 
-        if (((char *)o >= heap_start && (char *)o <= heap_end) || // movable?
-            o->_hd[-1].extension != o) // must replace object by its extension?
-          {
+            if (((char *)o >= heap_start && (char *)o <= heap_end) || // movable?
+                o->_hd[-1].extension != o) // must replace object by its extension?
+              {
 
 #ifdef DEBUG_GC_TRACES
-            fprintf(stderr, "COPYING %p MEMORY ALLOCATED OBJECT %d\n", o, todo_ptr);
+                fprintf(stderr, "COPYING %p MEMORY ALLOCATED OBJECT %d\n", o, todo_ptr);
 #endif
-            copy_object(&o);
-          }
+                copy_object(&o);
+              }
 
-        (*obj)->_hd[-1].values_size = (struct object *)((ref_to_fixnum(o->_hd[-1].values_size)<<16)+(todo_ptr<<1)); // leave forwarding pointer
-        object_flag_set(o, GC_FORWARDED);
-        todo[todo_ptr++] = o;
+            (*obj)->_hd[-1].values_size = (struct object *)((ref_to_fixnum(o->_hd[-1].values_size)<<16)+(todo_ptr<<1)); // leave forwarding pointer
+            object_flag_set(o, GC_FORWARDED);
+            todo[todo_ptr++] = o;
 
-        *obj = o;
+            *obj = o;
+         } else
+         {
+#ifdef DEBUG_GC_TRACES
+            fprintf(stderr, "%s %p: FORWARDED MEMORY ALLOCATED OBJECT #%d\n", msg, o, ((int)(e->_hd[-1].values_size) & ~(-1<<16)) >> 1);
+#endif
+            *obj = todo[(((int)(e->_hd[-1].values_size) & ~(-1<<16)) >> 1)];
+         }
       }
     else
       {
@@ -1682,6 +1687,11 @@ struct object *array_get(size_t n, struct array *self, struct function *closure,
     return super_send(orig, s_get, name);
 }
 
+struct object *array_length(size_t n, struct array *self, struct function *closure)
+{
+    return ((struct array *)self->_hd[-1].extension)->count;
+}
+
 struct object *array_new(size_t n, struct array *self, struct function *closure, struct object *size)
 {
     assert(ref_is_fixnum(size));
@@ -2077,17 +2087,39 @@ struct object *function_get(
     }
 }
 
-struct object *function_intern(size_t n, struct function *self, struct function *closure, struct array *code)
+struct object *function_intern(size_t n, struct function *self, struct function *closure, struct array *code, struct array *refs)
 {
     ssize_t i;
-    ssize_t l = fx(send(code, s_get, s_length));
+    ssize_t l = fx(array_length(0, code, (struct function *)NIL));
 
     assert(fx(self->_hd[-1].payload_size) >= l);
 
     for(i = 0; i < l; ++i)
     {
-        self->code[i] = fx(send(code, s_get, ref(i))) & 255;
+        self->code[i] = fx(array_get(1, code, (struct function *)NIL, ref(i))) & 255;
     }
+
+    l = fx(array_length(0, refs, (struct function *)NIL));
+
+#if 0
+        fprintf(stderr, "function_intern refs %p length = %zd\n", refs, l);
+#endif
+
+    for (i = 0; i < l ; i += 2)
+    {
+        ssize_t offset   = fx(array_get(1, refs, (struct function *)NIL, ref(i)));     
+        struct object *p = array_get(1, refs, (struct function *)NIL, ref(i+1));
+
+#if 0
+        fprintf(stderr, "function_intern offset=%zd ref=%p\n", offset, p);
+#endif
+
+        *((struct object **)(self->code + offset)) = p; 
+    }
+
+#if 0
+        fprintf(stderr, "function_intern done\n");
+#endif
 
     return (struct object *)self;
 }
@@ -2118,6 +2150,13 @@ struct object *function_new(
     for (i = 1; i <= fx(cell_nb); ++i)
     {
         new_fct->_hd[-1].values[-i] = UNDEFINED;
+    }
+
+    if (fx(new_fct->_hd[-1].payload_size) > 0)
+    {
+        // Set the number of refs in the newly created function to 0
+        ssize_t ps = fx(new_fct->_hd[-1].payload_size);
+        *((struct object **)((char*)new_fct + ps - sizeof(struct object *))) = ref(0);
     }
 
     return new_fct;

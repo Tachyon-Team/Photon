@@ -11,6 +11,7 @@ PhotonCompiler.context.gen_send = function (nb, rcv, msg, args, bind_helper)
     var that = this;
 
     var MAP    = _label();
+    MAP.__obj__ = null;
     MAP.offset_type = "negated";
     this.ref_ctxt().push(MAP);
 

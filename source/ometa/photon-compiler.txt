@@ -997,16 +997,14 @@ ometa PhotonCompiler {
   restore :nb = ({self.context.stack_location_nb -= nb;}),
 
   global   (:ctxt -> {self.context.enter_global_scope(ctxt.scope); self.context.new_ref_ctxt();})  
-           trans:r                                            -> [_op("push", _EBP), _op("mov", _ESP, _EBP), 
-                                                                  r, 
-                                                                  _op("mov", _EBP, _ESP), _op("pop", _EBP), _op("ret")],
+           trans:r                                            -> self.context.gen_global(r),
   this                                                        -> self.context.gen_get_this(),
   break                                                       -> self.context.gen_break(),   
   continue                                                    -> self.context.gen_continue(),
   number   :n                                                 -> _op("mov", _$(_ref(n)), _EAX),  
   string   :s                                                 -> self.context.gen_symbol(s), 
   ref      :s (?(typeof s === "object" && 
-                 s.__addr__ !== undefined))                   -> _op("mov", self.context.gen_mref(s), _EAX),
+                 s.__addr__ !== undefined))                   -> _op("mov", self.context.gen_mref(s, "REF"), _EAX),
   get      (( #true      -> _$(_TRUE)
             | #false     -> _$(_FALSE)
             | #undefined -> _$(_UNDEFINED)

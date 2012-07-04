@@ -633,14 +633,33 @@ photon.map.pp      = function () { return "photon.map"; };
 photon.symbol.pp   = function () { return "photon.symbol"; };
 photon.fixnum.pp   = function () { return "photon.fixnum"; };
 
+photon.reveal = function (x)
+{
+    if ((typeof x === "object" || typeof x === "string" || typeof x === "function") &&
+        x.__obj__ !== undefined)
+    {
+        return x.__obj__;
+    } else if (x instanceof Array)
+    {
+        var a = [];
+        for (var i = 0; i < x.length; ++i)
+        {
+            a.push(photon.reveal(x[i]));
+        }
+        return a;
+    } else
+    {
+        return x;
+    }
+}
+
 photon.send   = function (obj, msg)
 {
     // Extracting mirror
-    if (obj.__obj__ !== undefined)
-        obj = obj.__obj__;
+    obj = photon.reveal(obj);
 
     // Written this way because C functions do not support the apply message
-    var r =  Function.prototype.apply.call(obj[msg], obj, arguments.slice(2));
+    var r =  Function.prototype.apply.call(obj[msg], obj, arguments.slice(2).map(photon.reveal));
 
     if (typeof r === "object" || typeof r === "string" || typeof r === "function")
     {

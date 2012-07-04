@@ -113,7 +113,7 @@ var _bind = photon.bind;
 photon.bind = _compile(readFile("_bind.js")).functions["bind"];
 photon.send(_bind, "__intern__", 
             clean(flatten([
-                _op("mov", _mref(photon.bind), _EAX),
+                0xb8, 0, 0, 0, 0, //_op("mov", _$(_UNDEFINED), _EAX),
                 _op("jmp", _EAX),
                 0x3,
                 0x0,
@@ -123,7 +123,7 @@ photon.send(_bind, "__intern__",
                 0x0,
                 0x0,
                 0x0
-           ])));
+           ])), [1, photon.bind]);
 
 log("Creating handlers");
 photon.handlers = _compile(readFile("handlers.js")).functions;
