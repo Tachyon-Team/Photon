@@ -3073,6 +3073,12 @@ struct object *symbol_intern(size_t n, struct object *self, struct function *clo
 
 struct object *symbol_new(size_t n, struct object *self, struct function *closure, struct object *data)
 {
+    GCPROTBEGIN(data);
+    GCPROTBEGIN(self);
+
+    GCPROT(self) = self;
+    GCPROT(data) = data;
+
     ssize_t i;
     struct object *size = ref_is_fixnum(data) ? data : send(data, s_get, s_length);
 
@@ -3084,23 +3090,39 @@ struct object *symbol_new(size_t n, struct object *self, struct function *closur
     );
     inc_mem_counter(mem_symbol, 0, fx(size) + 1);
     
+    GCPROTBEGIN(new_symbol);
+    GCPROT(new_symbol) = (struct object *)new_symbol;
+
     new_symbol->_hd[-1].map       = base_map(self, SYMBOL_TYPE);
+    self       = GCPROT(self);
+    new_symbol = (struct symbol *)GCPROT(new_symbol);
+
     new_symbol->_hd[-1].prototype = self;
     new_symbol->string[0]        = '\0';
     new_symbol->string[fx(size)] = '\0';
     object_payload_type_set_binary((struct object *)new_symbol);
 
+    data = GCPROT(data);
     if (!ref_is_fixnum(data))
     {
         for (i = 0; i < fx(size); ++i)
         {
             struct object *c = send(data, s_get, ref(i));
+            data       = GCPROT(data);
+            new_symbol = (struct symbol *)GCPROT(new_symbol);
             assert(ref_is_fixnum(c));
             new_symbol->string[i] = (char)fx(c);
         }
+
+        GCPROTEND(new_symbol);
+        GCPROTEND(self);
+        GCPROTEND(data);
         return send(symbol_table, s_intern, new_symbol);
     } else
     {
+        GCPROTEND(new_symbol);
+        GCPROTEND(self);
+        GCPROTEND(data);
         return (struct object *)new_symbol;
     }
 }
