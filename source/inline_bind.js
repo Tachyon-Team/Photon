@@ -156,7 +156,7 @@ function inline_bind(msg, n, rcv, closure)
     {
         l_rcv = l_rcv[@-5];
 
-        l_offset = dynamic_lookup(l_rcv[@-1], msg);
+        l_offset = dynamic_lookup(l_rcv[@-1], msg, l_rcv);
 
         if (l_offset !== undefined)
         {

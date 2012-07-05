@@ -26,7 +26,7 @@ function super_bind(msg, n, rcv, closure)
     {
         l_rcv = l_rcv[@-5];
 
-        l_offset = l_rcv[@-1].__lookup__(msg);
+        l_offset = l_rcv[@-1].__lookup__(msg, l_rcv);
 
         if (l_offset !== undefined)
         {

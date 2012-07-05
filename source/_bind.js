@@ -72,7 +72,7 @@ function bind(msg, n, rcv, closure)
     {
         l_rcv = l_rcv[@-5];
 
-        l_offset = dynamic_lookup(l_rcv[@-1], msg);
+        l_offset = dynamic_lookup(l_rcv[@-1], msg, l_rcv);
         //l_offset = static_lookup(l_rcv[@-1], msg);
 
         if (l_offset !== undefined)

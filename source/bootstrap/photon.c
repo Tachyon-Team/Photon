@@ -1406,7 +1406,7 @@ struct lookup _bind(struct object *rcv, struct object *msg)
     {
         _l.rcv    = root_fixnum->_hd[-1].extension; // TODO: why .extension ?
         assert(_l.rcv->_hd[-1].extension == _l.rcv);
-        _l.offset = send(root_fixnum->_hd[-1].map, s_lookup, msg);
+        _l.offset = send(root_fixnum->_hd[-1].map, s_lookup, msg, _l.rcv);
         return _l;
     }
 
@@ -1414,7 +1414,7 @@ struct lookup _bind(struct object *rcv, struct object *msg)
     {
         _l.rcv    = root_constant->_hd[-1].extension; // TODO: why .extension ?
         assert(_l.rcv->_hd[-1].extension == _l.rcv);
-        _l.offset = send(root_constant->_hd[-1].map, s_lookup, msg);
+        _l.offset = send(root_constant->_hd[-1].map, s_lookup, msg, _l.rcv);
         return _l;
     }
 
@@ -1439,7 +1439,7 @@ struct lookup _bind(struct object *rcv, struct object *msg)
         assert(_l.rcv->_hd[-1].extension == _l.rcv);
 
         map = _l.rcv->_hd[-1].map;
-        _l.offset = send(map, s_lookup, msg);
+        _l.offset = send(map, s_lookup, msg, _l.rcv);
 
         if (_l.offset != UNDEFINED) 
         {
@@ -1860,16 +1860,6 @@ struct object *array_set(
     struct array *orig = self;
     self = (struct array *)self->_hd[-1].extension;
 
-    GCPROTBEGIN(self);
-    GCPROTBEGIN(orig);
-    GCPROTBEGIN(name);
-    GCPROTBEGIN(value);
-
-    GCPROT(self)  = (struct object *)self;
-    GCPROT(orig)  = (struct object *)orig;
-    GCPROT(name)  = name;
-    GCPROT(value) = value;
-
     assert(self->_hd[-1].extension == (struct object *)self);
 
     if (ref_is_fixnum(name) && i >= 0)
@@ -1877,7 +1867,6 @@ struct object *array_set(
         if (i >= array_indexed_values_size(self))
         {
             self = array_extend(orig, max(i+1, 2*array_indexed_values_size(self)));
-            GCPROT(self) = (struct object *)self;
         }
 
         if (i >= fx(self->count))
@@ -1885,7 +1874,6 @@ struct object *array_set(
             self->count = ref(i + 1);
         }
        
-        value = GCPROT(value);
         self->indexed_values[i] = value;
     } else if (name == s_length && ref_is_fixnum(value))
     {
@@ -1896,7 +1884,6 @@ struct object *array_set(
         if (c >= array_indexed_values_size(self))
         {
             self = array_extend(orig, max(c, 2*array_indexed_values_size(self)));
-            GCPROT(self) = (struct object *)self;
         }
 
         if (c > fx(self->count))
@@ -1910,11 +1897,9 @@ struct object *array_set(
         self->count = ref(c);
     } else
     {
-        GCPROTEND(self);
         return super_send(orig, s_set, name, value);
     }
 
-    GCPROTEND(self);
     return value;
 }
 
