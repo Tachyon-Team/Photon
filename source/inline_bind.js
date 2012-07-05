@@ -16,9 +16,9 @@ macro ref_is_constant(r)
     return r === undefined || r === null || r === true || r === false;
 }
 
-macro dynamic_lookup(map, msg)
+macro dynamic_lookup(map, msg, rcv)
 {
-    return map.__lookup__(msg);
+    return map.__lookup__(msg, rcv);
 }
 
 macro header_size()

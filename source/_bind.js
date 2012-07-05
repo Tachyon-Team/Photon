@@ -16,19 +16,20 @@ macro ref_is_constant(r)
     return r === undefined || r === null || r === true || r === false;
 }
 
-macro static_lookup(map, msg)
+macro static_lookup(map, msg, rcv)
 {
     return @{["ccall",
                 ["ref",    photon.send(photon.map, "__get__", "__lookup__")],
                 ["number", 1],
                 ["get", "map"],
                 ["get", "null"],
-                ["get", "msg"]]}@;
+                ["get", "msg"],
+                ["get", "rcv"]]}@;
 }
 
-macro dynamic_lookup(map, msg)
+macro dynamic_lookup(map, msg, rcv)
 {
-    return map.__lookup__(msg);
+    return map.__lookup__(msg, rcv);
 }
 
 macro header_size()

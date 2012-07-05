@@ -736,6 +736,11 @@ photon.execute = function (f)
     return f.__obj__();
 };
 
+photon.get_header_size = function ()
+{
+    return photon.send(photon.object, "__header_size__") / photon.send(photon.object, "__ref_size__");
+};
+
 function eval(s)
 {
     var f = photon.compile(s);
