@@ -10,7 +10,7 @@
 #ifndef _PHOTON_H
 #define _PHOTON_H
 
-#define GC_UNUSED_SYMBOLS
+#define GC_UNUSED_SYMBOLS_not
 
 #define DEBUG_GC_TRACES_not
 
@@ -817,7 +817,7 @@ int forward_weak(const char *msg, struct object **obj)
       {
         // this code assumes that only symbol table arrays are weak
 
-#ifdef DEBUG_GC_TRACES
+#if defined(DEBUG_GC_TRACES) || 1
         fprintf(stderr, "%s %p: WEAK REF TO UNFORWARDED MEMORY ALLOCATED OBJECT %s\n", msg, o, (char *)o);
 #endif
 
@@ -965,6 +965,9 @@ void scan(struct object *o)
       // Nothing to do
       break;
     case STRUCTURED_PAYLOAD:
+
+#ifdef GC_UNUSED_SYMBOLS
+
       if (object_flag_get(o, GC_WEAK_REFS))
         {
           // this code assumes that only symbol table arrays are weak
@@ -984,6 +987,9 @@ void scan(struct object *o)
             }
         }
       else
+
+#endif
+
         {
           for (i=(fx(o->_hd[-1].payload_size)/sizeof(struct object *)) - 1; i >= 0; --i)
             {
