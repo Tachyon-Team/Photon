@@ -1565,9 +1565,8 @@ struct object *arguments_new(size_t n, struct array *self, struct function *clos
     assert(fx(size) >= 0);
 
     GCPROTBEGIN(self);
-    // size need not be protected because it is a fixnum
-
     GCPROT(self) = (struct object *)self;
+    // size need not be protected because it is a fixnum
 
     struct array *new_args = (struct array *)send(
         self, 
@@ -1577,12 +1576,17 @@ struct object *arguments_new(size_t n, struct array *self, struct function *clos
     );
 
     GCPROTBEGIN(new_args);
+    GCPROT(new_args) = (struct object *)new_args;
 
     self = (struct array *)GCPROT(self);
 
     inc_mem_counter(mem_arguments, 5, fx(size)*sizeof(struct object *) + sizeof(struct array));
 
-    new_args->_hd[-1].map       = base_map((struct object *)self, ARRAY_TYPE);
+    struct map *b = base_map((struct object *)self, ARRAY_TYPE);
+    new_args = (struct array *)GCPROT(new_args);
+    new_args->_hd[-1].map = b;
+
+    self = (struct array *)GCPROT(self);
     new_args->_hd[-1].prototype = (struct object *)self;
     object_payload_type_set_structured((struct object *)new_args);
     
@@ -1590,12 +1594,10 @@ struct object *arguments_new(size_t n, struct array *self, struct function *clos
 
     for (i = 0; i < fx(size); ++i)
     {
-      GCPROT(new_args) = (struct object *)new_args;
 
       struct object *result = send(root_cell, s_new, UNDEFINED);
 
       new_args = (struct array *)GCPROT(new_args);
-
       new_args->indexed_values[i] = result;
     }
 
@@ -1817,15 +1819,29 @@ struct object *array_push(size_t n, struct array *self, struct function *closure
 
 struct object *array_pop(size_t n, struct array *self, struct function *closure)
 {
+    GCPROTBEGIN(self);
+    GCPROT(self) = (struct object *)self;
+
     struct object *length = send(self, s_get, s_length);
 
     if (fx(length) > 0)
     {
+
+        self = (struct array *)GCPROT(self);
         struct object *value  = send(self, s_get, ref(fx(length) - 1));
+
+        GCPROTBEGIN(value);
+        GCPROT(value) = value;
+
+        self = (struct array *)GCPROT(self);
         send(self, s_set, s_length, ref(fx(length) - 1));
+
+        value = GCPROT(value);
+        GCPROTEND(self);
         return value;
     } else
     {
+        GCPROTEND(self);
         return UNDEFINED;
     }
 }
@@ -1844,6 +1860,16 @@ struct object *array_set(
     struct array *orig = self;
     self = (struct array *)self->_hd[-1].extension;
 
+    GCPROTBEGIN(self);
+    GCPROTBEGIN(orig);
+    GCPROTBEGIN(name);
+    GCPROTBEGIN(value);
+
+    GCPROT(self)  = (struct object *)self;
+    GCPROT(orig)  = (struct object *)orig;
+    GCPROT(name)  = name;
+    GCPROT(value) = value;
+
     assert(self->_hd[-1].extension == (struct object *)self);
 
     if (ref_is_fixnum(name) && i >= 0)
@@ -1851,13 +1877,15 @@ struct object *array_set(
         if (i >= array_indexed_values_size(self))
         {
             self = array_extend(orig, max(i+1, 2*array_indexed_values_size(self)));
+            GCPROT(self) = (struct object *)self;
         }
 
         if (i >= fx(self->count))
         {
             self->count = ref(i + 1);
         }
-        
+       
+        value = GCPROT(value);
         self->indexed_values[i] = value;
     } else if (name == s_length && ref_is_fixnum(value))
     {
@@ -1868,6 +1896,7 @@ struct object *array_set(
         if (c >= array_indexed_values_size(self))
         {
             self = array_extend(orig, max(c, 2*array_indexed_values_size(self)));
+            GCPROT(self) = (struct object *)self;
         }
 
         if (c > fx(self->count))
@@ -1881,19 +1910,26 @@ struct object *array_set(
         self->count = ref(c);
     } else
     {
+        GCPROTEND(self);
         return super_send(orig, s_set, name, value);
     }
 
+    GCPROTEND(self);
     return value;
 }
 
 struct map *base_map(struct object *self, struct object *TYPE)
 {
+    GCPROTBEGIN(self);
+    GCPROT(self) = self;
+
     struct map *new_map;
+
     if (!BOOTSTRAP)
     {
         if (self->_hd[-1].map->new_map != NIL)
         {
+            GCPROTEND(self);
             return (struct map *)self->_hd[-1].map->new_map;
         } else
         {
@@ -1905,17 +1941,32 @@ struct map *base_map(struct object *self, struct object *TYPE)
                 s_clone, 
                 self->_hd[-1].map->_hd[-1].payload_size
             );
+            GCPROTBEGIN(map_clone);
+            GCPROT(map_clone) = (struct object *)map_clone;
+
             new_map = (struct map *)send0(map_clone->_hd[-1].map, s_new);
+            GCPROTBEGIN(new_map);
+            GCPROT(new_map) = (struct object *)new_map;
+
+            map_clone = (struct map *)GCPROT(map_clone);
+            self = GCPROT(self);
+
             map_clone->new_map = (struct object *)new_map;
             self->_hd[-1].map = map_clone;
             new_map->cache   = send(root_array, s_new, ref(0));
+
+            map_clone = (struct map *)GCPROT(map_clone);
             map_clone->cache = send(root_array, s_new, ref(0));
+
+            GCPROTEND(self);
             return new_map;
         }
     } else 
     {
         new_map       = (struct map *)send0(self->_hd[-1].map, s_new);
         new_map->type  = TYPE;
+
+        GCPROTEND(self);
         return new_map;
     }
 }
