@@ -670,6 +670,39 @@ photon.send   = function (obj, msg)
     }
 }
 
+photon.static_call = function (fn)
+{
+    let (i)
+    {
+        if ($arguments_length === 0)
+        {
+            throw "Undefined function";
+        } else if ($arguments_length === 1)
+        {
+            $closure = fn;
+            this = @{["ref", photon.global]}@;
+            $arguments_length = 0;
+        } else
+        { 
+            $closure = fn;
+            this = $arguments[@1];
+
+            for (i=2; i < $arguments_length; ++i)
+            {
+                $arguments[@i-2] = $arguments[@i];
+            }
+
+            $arguments_length -= 2;
+        }
+
+        $closure;
+    }
+
+    @{["code", 
+        [_op("pop", _EBP),
+         _op("jmp", _EAX)]]}@;
+};
+
 photon.compile = function (s)
 {
     function failer (m, idx, f) 
