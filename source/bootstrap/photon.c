@@ -148,7 +148,7 @@ unsigned long long mem_allocated = 0;      // in Bytes
 unsigned long long exec_mem_allocated = 0; // in Bytes
 
 #define MB (1024*1024)
-#define HEAP_SIZE (64 * MB)
+#define HEAP_SIZE (256 * MB)
 #define HEAP_FUDGE MB
 
 extern void newHeap()
@@ -712,8 +712,10 @@ void forward(const char *msg, struct object **obj)
     }
   else
   {
+#if 0
     if (ref_is_fixnum(o->_hd[-1].values_size)) // not forwarded yet
       {
+#endif
 
         struct object *e = o->_hd[-1].extension;
         if (ref_is_fixnum(e->_hd[-1].values_size)) // extension not forwarded yet
@@ -725,20 +727,20 @@ void forward(const char *msg, struct object **obj)
 #endif
 
             if (((char *)o >= heap_start && (char *)o <= heap_end) || // movable?
-                o->_hd[-1].extension != o) // must replace object by its extension?
+                e != o) // must replace object by its extension?
               {
 
 #ifdef DEBUG_GC_TRACES
                 fprintf(stderr, "COPYING %p MEMORY ALLOCATED OBJECT %d\n", o, todo_ptr);
 #endif
-                copy_object(&o);
+                copy_object(&e);
               }
 
-            (*obj)->_hd[-1].values_size = (struct object *)((ref_to_fixnum(o->_hd[-1].values_size)<<16)+(todo_ptr<<1)); // leave forwarding pointer
-            object_flag_set(o, GC_FORWARDED);
-            todo[todo_ptr++] = o;
+            o->_hd[-1].extension->_hd[-1].values_size = (struct object *)((ref_to_fixnum(e->_hd[-1].values_size)<<16)+(todo_ptr<<1)); // leave forwarding pointer
+            object_flag_set(e, GC_FORWARDED);
+            todo[todo_ptr++] = e;
 
-            *obj = o;
+            *obj = e;
          } else
          {
 #ifdef DEBUG_GC_TRACES
@@ -747,6 +749,7 @@ void forward(const char *msg, struct object **obj)
             *obj = todo[(((int)(e->_hd[-1].values_size) & ~(-1<<16)) >> 1)];
          }
       }
+#if 0
     else
       {
 #ifdef DEBUG_GC_TRACES
@@ -755,6 +758,7 @@ void forward(const char *msg, struct object **obj)
         *obj = todo[(((int)(o->_hd[-1].values_size) & ~(-1<<16)) >> 1)];
       }
   }
+#endif
 }
 
 int forward_weak(const char *msg, struct object **obj)
@@ -793,7 +797,9 @@ int forward_weak(const char *msg, struct object **obj)
     }
   else
   {
-    if (ref_is_fixnum(o->_hd[-1].values_size)) // not forwarded yet
+    struct object *e = o->_hd[-1].extension;
+
+    if (ref_is_fixnum(e->_hd[-1].values_size)) // not forwarded yet
       {
         // this code assumes that only symbol table arrays are weak
 
@@ -808,9 +814,9 @@ int forward_weak(const char *msg, struct object **obj)
     else
       {
 #ifdef DEBUG_GC_TRACES
-        fprintf(stderr, "%s %p: FORWARDED MEMORY ALLOCATED OBJECT #%d\n", msg, o, ((int)(o->_hd[-1].values_size) & ~(-1<<16)) >> 1);
+        fprintf(stderr, "%s %p: FORWARDED MEMORY ALLOCATED OBJECT #%d\n", msg, o, ((int)(e->_hd[-1].values_size) & ~(-1<<16)) >> 1);
 #endif
-        *obj = todo[(((int)(o->_hd[-1].values_size) & ~(-1<<16)) >> 1)];
+        *obj = todo[(((int)(e->_hd[-1].values_size) & ~(-1<<16)) >> 1)];
       }
   }
 
@@ -1851,17 +1857,30 @@ struct map *base_map(struct object *self, struct object *TYPE)
 struct object *cell_new(size_t n, struct cell *self, struct function *closure, struct object *val)
 {
     GCPROTBEGIN(self);
+    GCPROTBEGIN(val);
 
     GCPROT(self) = (struct object *)self;
+    GCPROT(val) = val;
 
     struct cell *new_cell = (struct cell *)send(self, s_init, ref(0), ref(sizeof(struct cell)));
 
-    self = (struct cell *)GCPROT(self);
+    GCPROTBEGIN(new_cell);
+
+    GCPROT(new_cell) = (struct object *)new_cell;
 
     inc_mem_counter(mem_cell, 0, sizeof(struct cell));
 
+    val = GCPROT(val);
+
     new_cell->value = val;
-    new_cell->_hd[-1].map       = base_map((struct object *)self, CELL_TYPE);
+
+    self = (struct cell *)GCPROT(self);
+
+    new_cell->_hd[-1].map = base_map((struct object *)self, CELL_TYPE);
+
+    self = (struct cell *)GCPROT(self);
+    new_cell = (struct cell *)GCPROT(new_cell);
+
     new_cell->_hd[-1].prototype = (struct object *)self;
     object_payload_type_set_structured((struct object *)new_cell);
 
@@ -3093,8 +3112,11 @@ struct object *symbol_new(size_t n, struct object *self, struct function *closur
     GCPROTBEGIN(new_symbol);
     GCPROT(new_symbol) = (struct object *)new_symbol;
 
-    new_symbol->_hd[-1].map       = base_map(self, SYMBOL_TYPE);
-    self       = GCPROT(self);
+    self = GCPROT(self);
+
+    new_symbol->_hd[-1].map = base_map(self, SYMBOL_TYPE);
+
+    self = GCPROT(self);
     new_symbol = (struct symbol *)GCPROT(new_symbol);
 
     new_symbol->_hd[-1].prototype = self;
@@ -3114,14 +3136,10 @@ struct object *symbol_new(size_t n, struct object *self, struct function *closur
             new_symbol->string[i] = (char)fx(c);
         }
 
-        GCPROTEND(new_symbol);
-        GCPROTEND(self);
         GCPROTEND(data);
         return send(symbol_table, s_intern, new_symbol);
     } else
     {
-        GCPROTEND(new_symbol);
-        GCPROTEND(self);
         GCPROTEND(data);
         return (struct object *)new_symbol;
     }
