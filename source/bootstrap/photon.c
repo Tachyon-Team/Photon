@@ -589,7 +589,7 @@ inline ssize_t ref_is_object(struct object *obj)
 
 inline ssize_t ref_to_fixnum(struct object *obj)
 {
-    return ((ssize_t)obj - 1) / 2;
+    return (ssize_t)obj >> 1;
 }
 
 inline char byte(ssize_t i, struct object *obj)
@@ -711,6 +711,12 @@ void forward(const char *msg, struct object **obj)
     {
 #ifdef DEBUG_GC_TRACES
       fprintf(stderr, "%s %p: FIXNUM (%d)\n", msg, o, (int)ref_to_fixnum(o));
+#endif
+    }
+  else if ((int)o < 1024) // TODO: remove this check for strange address
+    {
+#ifdef DEBUG_GC_TRACES
+      fprintf(stderr, "%s %p: STRANGE ADDRESS!\n", msg, o);
 #endif
     }
   else
@@ -1121,6 +1127,33 @@ void forward_stack()
 #endif
 
           forward_return_address(&frame[1]);
+
+#ifdef DEBUG_GC_TRACES
+          fprintf(stderr, "  forwarding %d slots\n", (next_frame - frame) - 2);
+
+          {
+            int j;
+            for (j=0; j<(next_frame - frame) - 2; j++)
+              {
+                struct object *x = ((struct object **)&frame[2])[j];
+
+                if (x == UNDEFINED)
+                  fprintf(stderr, "  slot[%d] = %p: UNDEFINED\n", j, x);
+                else if (x == NIL)
+                  fprintf(stderr, "  slot[%d] = %p: NIL\n", j, x);
+                else if (x == TRUE)
+                  fprintf(stderr, "  slot[%d] = %p: TRUE\n", j, x);
+                else if (x == FALSE)
+                  fprintf(stderr, "  slot[%d] = %p: FALSE\n", j, x);
+                else if (ref_is_fixnum(x))
+                  fprintf(stderr, "  slot[%d] = %p: FIXNUM (%d)\n", j, x, (int)ref_to_fixnum(x));
+                else
+                  fprintf(stderr, "  slot[%d] = %p: ???\n", j, x);
+              }
+          }
+
+#endif
+
           forward_multiple("  frame slot[i]", (struct object **)&frame[2], (next_frame - frame) - 2);
         }
       else
