@@ -148,7 +148,7 @@ unsigned long long mem_allocated = 0;      // in Bytes
 unsigned long long exec_mem_allocated = 0; // in Bytes
 
 #define MB (1024*1024)
-#define HEAP_SIZE (256 * MB)
+#define HEAP_SIZE (64 * MB)
 #define HEAP_FUDGE MB
 
 extern void newHeap()
@@ -622,9 +622,12 @@ int without_payload = 0;
 
 void copy_object(struct object **obj)
 {
-  struct object *o = (*obj)->_hd[-1].extension; // replace object by its extension
+  struct object *o = *obj;
 
-  assert(!ref_is_fixnum(o->_hd[-1].values_size));
+  assert(o->_hd[-1].extension == o);
+
+  assert(ref_is_fixnum(o->_hd[-1].values_size)); // NOT forwarded yet!
+
   ssize_t values_size = fx(o->_hd[-1].values_size);
   ssize_t object_prelude_size = values_size * sizeof(struct object *) + sizeof(struct header);
   ssize_t object_size = (object_prelude_size + fx(o->_hd[-1].payload_size) + sizeof(struct object *) - 1) & -sizeof(struct object *);
@@ -718,6 +721,9 @@ void forward(const char *msg, struct object **obj)
 #endif
 
         struct object *e = o->_hd[-1].extension;
+
+        assert(e->_hd[-1].extension == e);
+
         if (ref_is_fixnum(e->_hd[-1].values_size)) // extension not forwarded yet
         {
 #ifdef DEBUG_GC_TRACES
@@ -736,7 +742,7 @@ void forward(const char *msg, struct object **obj)
                 copy_object(&e);
               }
 
-            o->_hd[-1].extension->_hd[-1].values_size = (struct object *)((ref_to_fixnum(e->_hd[-1].values_size)<<16)+(todo_ptr<<1)); // leave forwarding pointer
+            e->_hd[-1].extension->_hd[-1].values_size = (struct object *)((ref_to_fixnum(e->_hd[-1].values_size)<<16)+(todo_ptr<<1)); // leave forwarding pointer
             object_flag_set(e, GC_FORWARDED);
             todo[todo_ptr++] = e;
 
@@ -798,6 +804,8 @@ int forward_weak(const char *msg, struct object **obj)
   else
   {
     struct object *e = o->_hd[-1].extension;
+
+    assert(e->_hd[-1].extension == e);
 
     if (ref_is_fixnum(e->_hd[-1].values_size)) // not forwarded yet
       {
@@ -1243,10 +1251,14 @@ struct object *garbage_collect_live(struct object *live)
   for (todo_ptr = 0; todo_ptr < todo_scan; todo_ptr++)
     {
       struct object *obj = todo[todo_ptr];
-      struct object *values_size = obj->_hd[-1].values_size;
+      struct object *e = obj->_hd[-1].extension;
+
+      assert(e->_hd[-1].extension == e);
+
+      struct object *values_size = e->_hd[-1].values_size;
       if (!ref_is_fixnum(values_size))
         {
-          obj->_hd[-1].values_size = fixnum_to_ref(((int)values_size)>>16);
+          e->_hd[-1].values_size = fixnum_to_ref(((int)values_size)>>16);
         }
     }
 
@@ -1353,23 +1365,28 @@ struct lookup _bind(struct object *rcv, struct object *msg)
 
     if (ref_is_fixnum(rcv))
     {
-        _l.rcv    = root_fixnum->_hd[-1].extension;
+        _l.rcv    = root_fixnum->_hd[-1].extension; // TODO: why .extension ?
+        assert(_l.rcv->_hd[-1].extension == _l.rcv);
         _l.offset = send(root_fixnum->_hd[-1].map, s_lookup, msg);
         return _l;
     }
 
     if (ref_is_constant(rcv))
     {
-        _l.rcv    = root_constant->_hd[-1].extension;
+        _l.rcv    = root_constant->_hd[-1].extension; // TODO: why .extension ?
+        assert(_l.rcv->_hd[-1].extension == _l.rcv);
         _l.offset = send(root_constant->_hd[-1].map, s_lookup, msg);
         return _l;
     }
 
     rcv = rcv->_hd[-1].extension;
 
-    if (msg == s_lookup && ((struct map *)rcv == rcv->_hd[-1].extension->_hd[-1].map))
+    assert(rcv->_hd[-1].extension == rcv);
+
+    if (msg == s_lookup && ((struct map *)rcv == rcv->_hd[-1].extension->_hd[-1].map)) // TODO: why .extension ?
     {
-        _l.rcv    = root_map->_hd[-1].extension;
+        _l.rcv    = root_map->_hd[-1].extension; // TODO: why .extension ?
+        assert(_l.rcv->_hd[-1].extension == _l.rcv);
         _l.offset = map_lookup(1, (struct map *)root_map, (struct function *)NIL, s_lookup);
         return _l;
     }
@@ -1378,7 +1395,9 @@ struct lookup _bind(struct object *rcv, struct object *msg)
     _l.offset  = UNDEFINED;
 
     while (_l.rcv != NIL) {
-        _l.rcv = _l.rcv->_hd[-1].extension;
+        _l.rcv = _l.rcv->_hd[-1].extension; // TODO: why .extension ?
+
+        assert(_l.rcv->_hd[-1].extension == _l.rcv);
 
         map = _l.rcv->_hd[-1].map;
         _l.offset = send(map, s_lookup, msg);
@@ -1587,6 +1606,8 @@ struct object *array_clone_fast(size_t n, struct object *self, struct function *
     //assert(fx(self->_hd[-1].payload_size) == 0);
     self = self->_hd[-1].extension;
 
+    assert(self->_hd[-1].extension == self);
+
     struct object *clone = (struct object *)(heap_ptr - fx(self->_hd[-1].payload_size));
     ssize_t values_size = fx(self->_hd[-1].values_size);
     ssize_t object_prelude_size = values_size * sizeof(struct object *) + sizeof(struct header);
@@ -1633,6 +1654,8 @@ struct array *array_extend(struct array *orig, ssize_t size)
 
     struct object *self = orig->_hd[-1].extension;
 
+    assert(self->_hd[-1].extension == self);
+
     GCPROTBEGIN(orig);
     GCPROTBEGIN(self);
 
@@ -1674,6 +1697,8 @@ struct object *array_get(size_t n, struct array *self, struct function *closure,
 {
     struct array *orig = self;
     self = (struct array *)self->_hd[-1].extension;
+
+    assert(self->_hd[-1].extension == (struct object *)self);
 
     if (ref_is_fixnum(name) && fx(name) >= 0)
     {
@@ -1779,6 +1804,8 @@ struct object *array_set(
 
     struct array *orig = self;
     self = (struct array *)self->_hd[-1].extension;
+
+    assert(self->_hd[-1].extension == (struct object *)self);
 
     if (ref_is_fixnum(name) && i >= 0)
     {
@@ -2095,6 +2122,8 @@ struct object *function_get(
     struct function *orig = self;
     self = (struct function *)self->_hd[-1].extension;
 
+    assert(self->_hd[-1].extension == (struct object *)self);
+
     if (name == s_prototype && send(self->_hd[-1].map, s_lookup, s_prototype) == UNDEFINED)
     {
         // Lazy creation of the prototype object
@@ -2200,6 +2229,7 @@ struct object *function_serialize(size_t n, struct object *self, struct function
 {
     struct object *orig = self;
     self = self->_hd[-1].extension;
+    assert(self->_hd[-1].extension == self);
     ssize_t i = -(object_values_size(self) + sizeof(struct header) / sizeof(struct object *));
     ssize_t j = fx(self->_hd[-1].payload_size);
     struct object **s = (struct object **)self;
@@ -2601,6 +2631,7 @@ struct object *map_serialize(size_t n, struct object *self, struct function *clo
 {
     struct object *orig = self;
     self = self->_hd[-1].extension;
+    assert(self->_hd[-1].extension == self);
     struct map * self_map = (struct map *)self;
 
     ssize_t i = -(object_values_size(self) + sizeof(struct header) / sizeof(struct object *));
@@ -2743,7 +2774,13 @@ struct object *object_allocate(
 
 struct object *object_clone(size_t n, struct object *self, struct function *closure, struct object *payload_size)
 {
+    GCPROTBEGIN(self);
+
     self = self->_hd[-1].extension;
+
+    assert(self->_hd[-1].extension == self);
+
+    GCPROT(self) = self;
 
     ssize_t i;
     struct object* clone = object_init_static(
@@ -2753,6 +2790,9 @@ struct object *object_clone(size_t n, struct object *self, struct function *clos
         ref(object_values_size(self)),
         payload_size
     );
+
+    self = GCPROT(self);
+
     inc_mem_counter(mem_object, object_values_size(self), fx(payload_size));
 
     for (i=1; i <= object_values_size(self); ++i)
@@ -2764,6 +2804,8 @@ struct object *object_clone(size_t n, struct object *self, struct function *clos
     clone->_hd[-1].map       = self->_hd[-1].map;
     clone->_hd[-1].prototype = self->_hd[-1].prototype;
 
+    GCPROTEND(self);
+
     return clone;
 }
 
@@ -2771,6 +2813,8 @@ struct object *object_clone_fast(size_t n, struct object *self, struct function 
 {
     //assert(fx(self->_hd[-1].payload_size) == 0);
     self = self->_hd[-1].extension;
+
+    assert(self->_hd[-1].extension == self);
 
     struct object *clone = (struct object *)heap_ptr;
     clone->_hd[-1].values_size   = self->_hd[-1].values_size;
@@ -2808,6 +2852,8 @@ struct object *object_clone_fast(size_t n, struct object *self, struct function 
 struct object *object_delete(size_t n, struct object *self, struct function *closure, struct object *name)
 {
     self = self->_hd[-1].extension;
+
+    assert(self->_hd[-1].extension == self);
 
     struct map *new_map;
     struct object *offset = send(self->_hd[-1].map, BOOTSTRAP ? s_lookup : s_lookup_and_flush_all, name);
@@ -2982,6 +3028,8 @@ struct object *object_set(size_t n, struct object *self, struct function *closur
     struct object *offset;
     self = self->_hd[-1].extension;
 
+    assert(self->_hd[-1].extension == self);
+
     struct map *new_map;
 
     offset =  send(self->_hd[-1].map, BOOTSTRAP ? s_lookup : s_lookup_and_flush_value_cache, name);
@@ -3048,6 +3096,7 @@ void object_serialize_ref(struct object *obj, struct object *stack)
     } else
     {
         struct object *ext = obj->_hd[-1].extension;
+        assert(ext->_hd[-1].extension == ext);
         printf("    .long _L%zd\n", (size_t)(ext));
 
         if (!object_tagged(ext))
@@ -3061,6 +3110,7 @@ struct object *structured_serialize(size_t n, struct object *self, struct functi
 {
     struct object *orig = self;
     self = self->_hd[-1].extension;
+    assert(self->_hd[-1].extension == self);
     ssize_t i = -(object_values_size(self) + sizeof(struct header) / sizeof(struct object *));
     ssize_t j = fx(self->_hd[-1].payload_size) / sizeof(struct object *);
     struct object **s = (struct object **)self;
@@ -3155,6 +3205,7 @@ struct object *binary_serialize(size_t n, struct object *self, struct function *
 {
     struct object *orig = self;
     self = self->_hd[-1].extension;
+    assert(self->_hd[-1].extension == self);
     ssize_t i = -(object_values_size(self) + sizeof(struct header) / sizeof(struct object *));
 
     struct object **s = (struct object **)self;
@@ -3836,10 +3887,14 @@ void serialize()
                     //assert(1 == 0);
                 }
 
-                if(!ref_is_fixnum(obj->_hd[-1].values_size))
+                struct object *e = obj->_hd[-1].extension;
+
+                assert(e->_hd[-1].extension == e);
+
+                if(!ref_is_fixnum(e->_hd[-1].values_size))
                 {
                     fprintf(stderr, "NON-CLEANED FORWARDED OBJECT: %p\n", obj);
-                    obj->_hd[-1].values_size = fixnum_to_ref(((int)obj->_hd[-1].values_size)>>16);
+                    e->_hd[-1].values_size = fixnum_to_ref(((int)e->_hd[-1].values_size)>>16);
                 }
             }
 #endif
