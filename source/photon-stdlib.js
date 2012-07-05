@@ -670,7 +670,7 @@ photon.send   = function (obj, msg)
     }
 }
 
-function eval(s)
+photon.compile = function (s)
 {
     function failer (m, idx, f) 
     { 
@@ -694,9 +694,19 @@ function eval(s)
     var comp = PhotonCompiler.createInstance();
     var code = comp.match(ast, "trans", undefined, failer);
     print("// eval: Function construction");
-    var f = comp.context.new_function_object(code, comp.context.refs, 0);
+    return comp.context.new_function_object(code, comp.context.refs, 0);
+};
+
+photon.execute = function (f)
+{
     print("// eval: Executing generated code");
     return f.__obj__();
+};
+
+function eval(s)
+{
+    var f = photon.compile(s);
+    return photon.execute(f);
 }
 
 function eval_instr(s)
