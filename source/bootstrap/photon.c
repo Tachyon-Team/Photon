@@ -15,6 +15,8 @@
 
 #define DEBUG_GC_TRACES
 
+#define DEBUG_GC
+
 #define PROFILE_GC_TRACES
 
 #define HEAP_PTR_IN_REG_not
@@ -133,138 +135,6 @@ struct property;
 struct symbol;
 
 typedef struct object *(*method_t)(size_t n, struct object *receiver, struct object *closure, ...);
-
-//--------------------------------- Memory Allocation Primitives ---------------
-inline ssize_t ref_is_object(struct object *obj);
-
-
-char *static_heap_start = 0;
-char *static_heap_end   = 0;
-
-char *heap_start = 0;
-char *heap_mid   = 0;
-char *heap_end   = 0;
-char *heap_limit = 0;
-unsigned long long mem_allocated = 0;      // in Bytes
-unsigned long long exec_mem_allocated = 0; // in Bytes
-
-#define MB (1024*1024)
-#define HEAP_SIZE (80 * MB)
-#define HEAP_FUDGE MB
-
-extern void newHeap()
-{
-    //assert(heap_start == 0); // only allocate one heap
-
-    //heap_start = (char *)calloc(1, HEAP_SIZE);
-    heap_start = (char *)mmap(
-        0,
-        HEAP_SIZE,
-        PROT_READ | PROT_WRITE | PROT_EXEC,
-        MAP_PRIVATE | MAP_ANON,
-        -1,
-        0
-    );
-
-    assert(heap_start != MAP_FAILED);
-
-    heap_mid = heap_start + HEAP_SIZE/2;
-    heap_end = heap_start + HEAP_SIZE;
-    heap_limit = heap_mid + HEAP_FUDGE;
-    heap_ptr = heap_end;
-    //printf("// heap_start = %p, heap_limit = %p, heap_ptr = %p\n", heap_start, heap_limit, heap_ptr);
-}
-
-//size_t maxsize = 0;
-
-void garbage_collect();
-
-inline char *raw_calloc(size_t nb, size_t size)
-{
-    // Align size
-    size_t obj_size = (nb * size + (sizeof(ssize_t) - 1)) & (-(sizeof(ssize_t)));
-    char *new_ptr = (char *)0;
-    mem_allocated += obj_size;
-
-    //    if (obj_size > maxsize)
-    //      { maxsize = obj_size; fprintf(stderr, "maxsize=%d\n", (int)maxsize); }/////////////
-
-    if (obj_size > HEAP_FUDGE)
-    {
-        new_ptr = (char *)calloc(1, obj_size);
-        assert(new_ptr != 0);
-
-#if defined(DEBUG_GC_TRACES) || 1
-            fprintf(stderr, "*** calloc called from raw_calloc!\n");
-#endif
-
-        return new_ptr;
-    } else
-    {
-        heap_ptr -= obj_size;
-
-        if (heap_ptr < heap_limit)
-        {
-#if defined(DEBUG_GC_TRACES) || 1
-            fprintf(stderr, "*** garbage collecting from raw_calloc! obj_size=%d\n", (int)obj_size);
-#endif
-
-            garbage_collect();
-
-            heap_ptr -= obj_size;
-        }
-
-        assert(heap_ptr >= heap_limit && heap_ptr <= heap_start + HEAP_SIZE);
-    }
-
-    assert(heap_ptr >= heap_limit && heap_ptr <= heap_start + HEAP_SIZE);
-    return heap_ptr;
-}
-
-// Allocate executable memory
-inline char *ealloc(size_t size)
-{
-    exec_mem_allocated += size;
-    /*
-    char *p = (char *)mmap(
-        0,
-        size,
-        PROT_READ | PROT_WRITE | PROT_EXEC,
-        MAP_PRIVATE | MAP_ANON,
-        -1,
-        0
-    );
-
-    assert(p != MAP_FAILED);
-    */
-    return raw_calloc(1, size);
-
-}
-
-struct object *method_min = (struct object *)-1;
-struct object *method_max = (struct object *)0;
-
-struct object *register_function(struct object *f)
-{
-    if (f < method_min)
-    {
-        method_min = f;
-    } 
-
-    if (f > method_max)
-    {
-        method_max = f;
-    }
-
-    return f;
-}
-
-#define inc_mem_counter(COUNTER, props, payload)\
-(                                               \
-    COUNTER += props*sizeof(struct object *) +  \
-               sizeof(struct header)         +  \
-               payload                          \
-)                                                
 
 //--------------------------------- Inner Object Layouts -----------------------
 #define COUNT_BIT_NB 16
@@ -408,6 +278,8 @@ struct object *SYMBOL_TYPE   = (struct object *)0;
 struct object *temps[TEMPS_SIZE];
 
 ssize_t BOOTSTRAP = 0;
+
+
 
 //--------------------------------- Helper Functions ---------------------------
 inline ssize_t fx(struct object *obj);
@@ -598,6 +470,112 @@ inline char byte(ssize_t i, struct object *obj)
     return (char)(((size_t)obj >> i*8) & 0xff);
 }
 
+//--------------------------------- Memory Allocation Primitives ---------------
+inline ssize_t ref_is_object(struct object *obj);
+
+
+char *static_heap_start = 0;
+char *static_heap_end   = 0;
+
+char *heap_start = 0;
+char *heap_mid   = 0;
+char *heap_end   = 0;
+char *heap_limit = 0;
+unsigned long long mem_allocated = 0;      // in Bytes
+unsigned long long exec_mem_allocated = 0; // in Bytes
+
+#define MB (1024*1024)
+#define HEAP_SIZE (64 * MB)
+#define HEAP_FUDGE MB
+
+extern void newHeap()
+{
+    //assert(heap_start == 0); // only allocate one heap
+
+    //heap_start = (char *)calloc(1, HEAP_SIZE);
+    heap_start = (char *)mmap(
+        0,
+        HEAP_SIZE,
+        PROT_READ | PROT_WRITE | PROT_EXEC,
+        MAP_PRIVATE | MAP_ANON,
+        -1,
+        0
+    );
+
+    assert(heap_start != MAP_FAILED);
+
+    heap_mid = heap_start + HEAP_SIZE/2;
+    heap_end = heap_start + HEAP_SIZE;
+    heap_limit = heap_mid + HEAP_FUDGE;
+    heap_ptr = heap_end;
+    //printf("// heap_start = %p, heap_limit = %p, heap_ptr = %p\n", heap_start, heap_limit, heap_ptr);
+}
+
+//size_t maxsize = 0;
+
+void garbage_collect();
+struct object *garbage_collect_live(struct object *live);
+
+inline char *raw_calloc(size_t nb, size_t size)
+{
+    // Align size
+    size_t obj_size = (nb * size + (sizeof(ssize_t) - 1)) & (-(sizeof(ssize_t)));
+    char *new_ptr = (char *)0;
+    mem_allocated += obj_size;
+
+    //    if (obj_size > maxsize)
+    //      { maxsize = obj_size; fprintf(stderr, "maxsize=%d\n", (int)maxsize); }/////////////
+
+    if (obj_size > HEAP_FUDGE)
+    {
+        new_ptr = (char *)calloc(1, obj_size);
+        assert(new_ptr != 0);
+
+#if defined(DEBUG_GC_TRACES) || 1
+            fprintf(stderr, "*** calloc called from raw_calloc!\n");
+#endif
+
+        return new_ptr;
+    } else
+    {
+        heap_ptr -= obj_size;
+        new_ptr = heap_ptr;
+
+        if (heap_ptr < heap_limit)
+        {
+#if defined(DEBUG_GC_TRACES) || 1
+            fprintf(stderr, "*** garbage collecting from raw_calloc! obj_size=%d\n", (int)obj_size);
+#endif
+
+            // Dummy object initialization
+            struct object *dummy        = (struct object *)(heap_ptr + sizeof(struct header));
+            struct object *payload_size = fixnum_to_ref(obj_size - sizeof(struct header));
+
+            dummy->_hd[-1].values_size  = fixnum_to_ref(0);
+            dummy->_hd[-1].extension    = dummy;
+            dummy->_hd[-1].flags        = fixnum_to_ref(BINARY_PAYLOAD);
+            dummy->_hd[-1].payload_size = payload_size;
+            dummy->_hd[-1].prototype    = UNDEFINED;
+            dummy->_hd[-1].map          = (struct map *)UNDEFINED;
+
+            new_ptr = (char*)garbage_collect_live(dummy) - sizeof(struct header);
+        }
+
+        assert(heap_ptr >= heap_limit && heap_ptr <= heap_start + HEAP_SIZE);
+    }
+
+    assert(heap_ptr >= heap_limit && heap_ptr <= heap_start + HEAP_SIZE);
+    return new_ptr;
+}
+
+#define inc_mem_counter(COUNTER, props, payload)\
+(                                               \
+    COUNTER += props*sizeof(struct object *) +  \
+               sizeof(struct header)         +  \
+               payload                          \
+)                                                
+
+
 //-------------------------------- Memory management ---------------------------
 
 struct object *todo[1000000];
@@ -719,6 +697,7 @@ void forward(const char *msg, struct object **obj)
 #ifdef DEBUG_GC_TRACES
       fprintf(stderr, "%s %p: STRANGE ADDRESS!\n", msg, o);
 #endif
+      assert(1 == 0);
     }
   else
   {
@@ -1151,9 +1130,9 @@ void forward_stack()
 
           {
             int j;
-            for (j=0; j<(next_frame - frame) - 2; j++)
+            for (j=0; j<(next_frame - frame) - 3; j++)
               {
-                struct object *x = ((struct object **)&frame[2])[j];
+                struct object *x = ((struct object **)&frame[3])[j];
 
                 if (x == UNDEFINED)
                   fprintf(stderr, "  slot[%d] = %p: UNDEFINED\n", j, x);
@@ -1172,7 +1151,7 @@ void forward_stack()
 
 #endif
 
-          forward_multiple("  frame slot[i]", (struct object **)&frame[2], (next_frame - frame) - 2);
+          forward_multiple("  frame slot[i]", (struct object **)&frame[3], (next_frame - frame) - 3);
         }
       else
         {
@@ -1333,8 +1312,9 @@ struct object *garbage_collect_live(struct object *live)
   total_gc_time += photonCurrentTimeMillis() - time_start;
 #endif
 
-  //GC_RUNNING = 1;
-  //serialize();
+#if defined(DEBUG_GC)
+    heap_ptr = heap_limit + sizeof(struct object *);
+#endif
 
   return live;
 }
@@ -3437,7 +3417,9 @@ void symtab_intern_symbol(struct object *self, struct map *empty_map, struct obj
 
 struct object *symtab_intern_string(struct object *self, char *string)
 {
+
   struct object *symbols = send(self, s_get, s_symbols);
+
   ssize_t length = fx(send(symbols, s_get, s_length));
   ssize_t probe = hash_string(string) % (length-2) + 2;
   struct object *sym;
@@ -3568,9 +3550,9 @@ void bootstrap()
 
     _log("Initializing Root Map\n");
     s_lookup      = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(11));
-    bt_map_set(2, (struct map *)root_map, NULL_CLOSURE, s_lookup, register_function((struct object *)map_lookup));
+    bt_map_set(2, (struct map *)root_map, NULL_CLOSURE, s_lookup, (struct object *)map_lookup);
     s_set         = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(8));
-    bt_map_set(2, (struct map *)root_map, NULL_CLOSURE, s_set, register_function((struct object *)map_set));
+    bt_map_set(2, (struct map *)root_map, NULL_CLOSURE, s_set, (struct object *)map_set);
 
     _log("Create implementation symbols\n");
     s_add         = object_init_static(2, NIL, NULL_CLOSURE, ref(0), ref(8));
@@ -3610,11 +3592,11 @@ void bootstrap()
     strcpy((char*)s_symbols,   "__symbols__");
 
     _log("Add primitive methods on Root Map\n");
-    send(root_map, s_set, s_clone,    register_function((struct object *)map_clone));
-    send(root_map, s_set, s_create,   register_function((struct object *)map_create));
-    send(root_map, s_set, s_delete,   register_function((struct object *)map_delete));
-    send(root_map, s_set, s_new,      register_function((struct object *)map_new));
-    send(root_map, s_set, s_remove,   register_function((struct object *)map_remove));
+    send(root_map, s_set, s_clone,    (struct object *)map_clone);
+    send(root_map, s_set, s_create,   (struct object *)map_create);
+    send(root_map, s_set, s_delete,   (struct object *)map_delete);
+    send(root_map, s_set, s_new,      (struct object *)map_new);
+    send(root_map, s_set, s_remove,   (struct object *)map_remove);
 
     _log("Create Root Object\n");
     root_object = object_init_static(2, NIL, NULL_CLOSURE, ref(30), ref(0)); 
@@ -3698,25 +3680,25 @@ void bootstrap()
 
 
     _log("Add primitive methods on Root Object\n");
-    object_set(2, root_object, NULL_CLOSURE, s_set, register_function((struct object *)object_set));
+    object_set(2, root_object, NULL_CLOSURE, s_set, (struct object *)object_set);
 
     _log("Add remaining methods\n");
-    send(root_object, s_set, s_allocate, register_function((struct object *)object_allocate));
-    send(root_object, s_set, s_clone,    register_function((struct object *)object_clone));
-    send(root_object, s_set, s_init,     register_function((struct object *)object_init));
-    send(root_object, s_set, s_delete,   register_function((struct object *)object_delete));
-    send(root_object, s_set, s_get,      register_function((struct object *)object_get));
-    send(root_object, s_set, s_new,      register_function((struct object *)object_new));
+    send(root_object, s_set, s_allocate, (struct object *)object_allocate);
+    send(root_object, s_set, s_clone,    (struct object *)object_clone);
+    send(root_object, s_set, s_init,     (struct object *)object_init);
+    send(root_object, s_set, s_delete,   (struct object *)object_delete);
+    send(root_object, s_set, s_get,      (struct object *)object_get);
+    send(root_object, s_set, s_new,      (struct object *)object_new);
 
     _log("Create Root Array Object\n");
     root_array = send0(root_object, s_new);
 
     _log("Add primitive methods on Root Array\n");
-    send(root_array,  s_set, s_delete,   register_function((struct object *)array_delete));
-    send(root_array,  s_set, s_get,      register_function((struct object *)array_get));
-    send(root_array,  s_set, s_new,      register_function((struct object *)array_new));
-    send(root_array,  s_set, s_set,      register_function((struct object *)array_set));
-    send(root_array,  s_set, s_push,     register_function((struct object *)array_push));
+    send(root_array,  s_set, s_delete,   (struct object *)array_delete);
+    send(root_array,  s_set, s_get,      (struct object *)array_get);
+    send(root_array,  s_set, s_new,      (struct object *)array_new);
+    send(root_array,  s_set, s_set,      (struct object *)array_set);
+    send(root_array,  s_set, s_push,     (struct object *)array_push);
 
     _log("Create Root Symbol\n");
     symbol_table = send0(root_object, s_new);
@@ -3755,9 +3737,9 @@ void bootstrap()
     symtab_intern_symbol(symbol_table, empty_map, root_symbol, s_symbols);
 
     _log("Add primitive methods on Root Symbol\n");
-    send(symbol_table, s_set, s_intern, register_function((struct object *)symbol_table_intern));
-    send(root_symbol,  s_set, s_new,    register_function((struct object *)symbol_new));
-    send(root_symbol,  s_set, s_intern, register_function((struct object *)symbol_intern));
+    send(symbol_table, s_set, s_intern, (struct object *)symbol_table_intern);
+    send(root_symbol,  s_set, s_new,    (struct object *)symbol_new);
+    send(root_symbol,  s_set, s_intern, (struct object *)symbol_intern);
 
     struct object *name;
 
@@ -3765,15 +3747,15 @@ void bootstrap()
     root_function = send0(root_object, s_new);
 
     _log("Add primitive methods on Root Function object\n");
-    send(root_function, s_set, s_allocate,  register_function((struct object *)function_allocate));
-    send(root_function, s_set, s_clone,     register_function((struct object *)function_clone));
-    send(root_function, s_set, s_intern,    register_function((struct object *)function_intern));
-    send(root_function, s_set, s_new,       register_function((struct object *)function_new));
-    send(root_function, s_set, s_get,       register_function((struct object *)function_get));
+    send(root_function, s_set, s_allocate,  (struct object *)function_allocate);
+    send(root_function, s_set, s_clone,     (struct object *)function_clone);
+    send(root_function, s_set, s_intern,    (struct object *)function_intern);
+    send(root_function, s_set, s_new,       (struct object *)function_new);
+    send(root_function, s_set, s_get,       (struct object *)function_get);
 
     _log("Create CWrapper object\n");
     root_cwrapper = send(root_function, s_new, ref(7), ref(0));
-    send(root_cwrapper, s_set, s_new, register_function((struct object *)cwrapper_new));
+    send(root_cwrapper, s_set, s_new, (struct object *)cwrapper_new);
     struct object *s_extern = send(root_symbol, s_intern, "__extern__");
     name = send(root_symbol, s_intern, "cwrapper_new");
     send(root_cwrapper, s_set, s_extern, name); 

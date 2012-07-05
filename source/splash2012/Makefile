@@ -208,6 +208,8 @@ MICRO_BENCHMARKS = micro-benchmarks/*.js
 microb: bin/photon
 	for i in $(MICRO_BENCHMARKS); do echo "----------------"$$i"-------------------"; echo "photon:"; bin/photon $$i; echo "v8:"; d8 $$i; done
 
+fast: ../bootstrap/photon.c
+	$(CREATE_EXEC) obj/main.s -o bin/photon
 
 COMP_TIME_FILE = benchmarks/controlflow-recursive.js benchmarks/access-nsieve.js
 comp-time: comp_time.js bin/photon bin/photon-noic 
