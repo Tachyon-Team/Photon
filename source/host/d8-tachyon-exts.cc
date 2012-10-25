@@ -980,6 +980,40 @@ v8::Handle<v8::Value> v8Proxy_update(const v8::Arguments& args)
     return v8::Undefined();
 }
 
+v8::Handle<v8::Value> timedRun(const v8::Arguments& args)
+{
+    v8::HandleScope handle_scope;
+    v8::String::Utf8Value file(args[0]);
+    if (*file == NULL) {
+      return ThrowException(v8::String::New("Error loading file"));
+    }
+    v8::Handle<v8::String> source = v8::Shell::ReadFile(*file);
+    if (source.IsEmpty()) {
+      return ThrowException(v8::String::New("Error loading file"));
+    }
+
+    v8::Context::Scope context_scope(v8::Shell::evaluation_context());
+    v8::Handle<v8::Object> global = v8::Shell::evaluation_context()->Global();
+    v8::Handle<v8::Value> fun = global->Get(v8::String::New("compile"));
+
+    if (!fun->Equals(v8::Undefined()))
+    {
+      static const int kArgc = 1;
+      v8::Handle<v8::Value> argv[kArgc] = { source };
+      source = v8::Handle<v8::String>::Cast(v8::Handle<v8::Function>::Cast(fun)->Call(global, kArgc, argv));
+    }
+
+    double startTimeSecs = currentTimeSecs();
+
+    if (!v8::Shell::ExecuteString(source, v8::String::New(*file), false, false)) {
+      return ThrowException(v8::String::New("Error executing file"));
+    }
+
+    double endTimeSecs = currentTimeSecs();
+
+    return handle_scope.Close(v8::Number::New((endTimeSecs - startTimeSecs) * 1000));
+}
+
 /*---------------------------------------------------------------------------*/
 
 void init_d8_extensions(v8::Handle<v8::ObjectTemplate> global_template)
@@ -1076,6 +1110,10 @@ void init_d8_extensions(v8::Handle<v8::ObjectTemplate> global_template)
         v8::FunctionTemplate::New(pauseV8Profile)
     );
 
+    global_template->Set(
+        v8::String::New("run"),
+        v8::FunctionTemplate::New(timedRun)
+    );
 
     
     v8::Local<v8::ObjectTemplate> photon = v8::ObjectTemplate::New();

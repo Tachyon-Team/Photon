@@ -1,0 +1,14 @@
+diff --git a/src/d8.h b/src/d8.h
+index a62a81f..6ff8fdd 100644
+--- a/src/d8.h
++++ b/src/d8.h
+@@ -369,6 +369,9 @@ class Shell : public i::AllStatic {
+   static const char* kPrompt;
+   static ShellOptions options;
+ 
++  static Handle<Context> utility_context()    { return utility_context_; }
++  static Handle<Context> evaluation_context() { return evaluation_context_; }
++
+  private:
+   static Persistent<Context> evaluation_context_;
+ #ifndef V8_SHARED
